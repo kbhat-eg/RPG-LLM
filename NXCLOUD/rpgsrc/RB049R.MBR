@@ -1,0 +1,321 @@
+     h option(*nodebugio) datedit(*dmy)
+     h decedit('0.')
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : RB009R
+      * Beskrivelse . . : Leser linjer fra BOVF til kommaseparert til
+      *                   (Business)
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * ----- ------ ---- -------------------------------------------------
+      *       091120 sst  Uni Micro
+7.00  *K00  2021_04_23  sst  NX8593   Justert tildeling av momskode fra RB00
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     fbobfut    ip   e           k disk
+     fsohel1    if   e           k disk    rename(sohepfr:sohel1r)
+     frb10l1    if   e           k disk    rename(rb10pfr:rb10l1r)
+     frb00l1    if   e           k disk    rename(rb00pfr:rb00l1r)
+      *
+      *
+     frv02pf    o    e           k disk
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_firm                944    946  0
+      *
+     d valdat          s                   like(bffdat)
+     d nval08          s              8  0
+     d nval04          s              4  0
+     d nfor08          s              8  0
+     d nfor04          s              4  0
+     d nbil08          s              8  0
+     d nbil04          s              4  0
+     d tell            s              1  0
+     d xxbilk          s              5  0
+     d xxmvad          s              3
+     d xxmvac          s              3
+     d f1momd          s                   like(bfdmom)
+     d f1momc          s                   like(bfcmom)
+     d f1avde          s                   like(bfcavd)
+     d zfbeld          s             12  4
+     d zfbelc          s             12  4
+     d zfbelp          s             12  4
+     d w_binr          s                   like(sobinr)
+     d w_firm          s                   like(sofirm)
+     d w_aarr          s                   like(soaarr)
+     d w_type          s             10
+     d w_peri          s              2
+     d w_forf          s              6  0
+     d w_ffd           s              6  0
+     d w_ffc           s              6  0
+     d w_bdat          s              6  0
+     d w_fdat          s              6  0
+     d w_bdax          s              6
+     d w_fdax          s              6
+      *
+      * Variabler for nøkler
+      *
+     d rb10l1_gkod     s                   like(raakod)
+     d rb00l1_gkod     s                   like(r00kod)
+      *
+      * Datastruktur for valuteringsdato
+     d                 ds
+     d d_fdati                 1     10
+     d  d_fa                   1      4
+     d  d_f1                   5      5
+     d  d_fn                   6      7
+     d  d_f2                   8      8
+     d  d_fd                   9     10
+     d*
+      * Nøkkel dato
+     d                 ds
+     d d_dati                  1     10
+     d  d_aa                   1      4
+     d  d_a1                   5      5
+     d  d_mn                   6      7
+     d  d_a2                   8      8
+     d  d_dd                   9     10
+      *
+      *
+      * Datastruktur for forfallsdato
+     d                 ds
+     d f_fdati                 1     10
+     d  f_fa                   1      4
+     d  f_f1                   5      5
+     d  f_fn                   6      7
+     d  f_f2                   8      8
+     d  f_fd                   9     10
+     d*
+      *
+      * Datastruktur for bilagsdato
+     d                 ds
+     d b_fdati                 1     10
+     d  b_fa                   1      4
+     d  b_f1                   5      5
+     d  b_fn                   6      7
+     d  b_f2                   8      8
+     d  b_fd                   9     10
+     d*
+      *
+      * Key for oppslag på faktura-hode-register
+     c     sohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_binr
+      *
+      * Key for posisjonering på bilagskoder
+      *
+     c     rb10l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rb10l1_gkod
+      *
+     c     rb00l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_type
+     c                   kfld                    rb00l1_gkod
+      *
+      *
+      *
+     c                   if        l_firm <> bffirm
+     c                   goto      slutt
+     c                   endif
+      *
+     c                   eval      rvdata = *blank
+      *
+      ***********************************************************
+     c
+     c* Blanker felt
+     c                   eval      d_dati  = *blanks
+      *
+      * Bilagsdato
+     c     *dmy          move      bfbdat        w_bdat
+     c     *dmy          move      bffdat        w_fdat
+     c                   move      w_bdat        w_bdax
+     c                   move      w_fdat        w_fdax
+     c                   movel     bfperi        w_peri
+      *
+      * Beløp skal legges ut med 4 desimaler
+     c                   z-add     bfbelp        zfbelp
+      * Legger ut detaljer fra bovf
+      * Nullstiller
+7.00 c                   eval      f1momd = bfdmom
+7.00 c                   eval      f1momc = bfcmom
+      *
+     c                   exsr      control_init
+      *
+      * Sjekker om bilagstype skal konverteres
+     c                   eval      xxbilk = bfbilk
+     c                   eval      rb10l1_gkod = bfbilk
+     c     rb10l1_key    chain     rb10l1
+     c                   if        %found
+     c                   eval      xxbilk = rankod
+     c                   endif
+      *
+      * Sjekker om momskode  skal konverteres  debet
+     c                   eval      xxmvad = f1momd
+     c                   eval      w_type      = 'MVAKODE'
+7.00 c                   eval      rb00l1_gkod = *blank
+7.00 c                   move      f1momd        rb00l1_gkod
+     c     rb00l1_key    chain     rb00l1
+     c                   if        %found
+7.00 c                   move      r00nko        xxmvad
+     c                   endif
+      *
+      * Sjekker om momskode  skal konverteres  kredit
+     c                   eval      xxmvac = f1momc
+7.00 c                   move      f1momc        rb00l1_gkod
+     c     rb00l1_key    chain     rb00l1
+     c                   if        %found
+7.00 c                   move      r00nko        xxmvac
+     c                   endif
+      *
+      *
+     c                   if        bfdkto <> *zeros and
+     c                             bfdkto >=  1000
+     c**                           bfdkto <=  9999
+     c                   eval      f1momd = bfdmom
+     c                   eval      f1momc = '0'
+     c                   eval      zfbeld = zfbelp
+     c                   eval      zfbelc = *zero
+     c                   endif
+      *
+     c                   if        bfckto <> *zeros and
+     c                             bfckto >=  1000
+     c**                           bfckto <=  9999
+     c                   eval      f1momc = bfcmom
+     c                   eval      f1momd = '0'
+     c                   eval      zfbelc = zfbelp * -1
+     c                   eval      zfbeld = *zero
+     c                   endif
+      *
+     c*
+     c**********
+     c                   if        bfdkto <> *zero
+      * Start
+      * Recordart
+     c                   eval      rvdata = '60'             + ',' +
+      * Bilagsnr.
+     c                                     %char(bfbiln)     + ',' +
+      * Bil.dato
+     c                                     w_bdax            + ',' +
+      * Deb.konto
+     c                                     %char(bfdkto)     + ',' +
+      * Avdeling
+     c                                     %char(bfdavd)     + ',' +
+      * Prosjekt
+     c                                     %trim(bfproj)     + ',' +
+      * Deb.mva kode
+     c                                     %trim(xxmvad)     + ',' +
+      * Bil.tekst
+     c                                     %trim(bftext)     + ',' +
+      * Beløp på linje
+     c                                     %char(zfbeld)     + ',' +
+      * Operatør
+     c                                     'Uni'             + ',' +
+      * Dim.5
+     c                                     '0'               + ',' +
+      * Dim.6
+     c                                     '0'               + ',' +
+      * Dim.7
+     c                                     '0'               + ',' +
+      * Dim.8
+     c                                     '0'               + ',' +
+      * Periode
+     c                                     w_peri            + ',' +
+      * Fakturanr (Bilagsnummer)
+     c                                     %char(Bfbiln)     + ',' +
+      * Forfallsdato
+     c                                     w_fdax            + ',' +
+      * Valutakode
+     c                                     %trim(bfvalk)     + ',' +
+      * Valutabeløp
+     c                                     '0'               + ',' +
+      * Funksjon/Ansvar (dim3)
+     c                                     '0'               + ',' +
+      * Område          (dim4)
+     c                                     '0'               + ','
+      *
+     c                   write     rv02pfr
+      * ENd Debet Post
+     c                   endif
+      * ___________________________________________________________________
+     c                   if        bfckto <> *zero
+      * Start    Kredit postering
+     c                   eval      rvdata = *blank
+      * Recordart
+     c                   eval      rvdata = '60'             + ',' +
+      * Bilagsnr.
+     c                                     %char(bfbiln)     + ',' +
+      * Bil.dato
+     c                                     w_bdax            + ',' +
+      * Deb.konto
+     c                                     %char(bfckto)     + ',' +
+      * Avdeling
+     c                                     %char(bfcavd)     + ',' +
+      * Prosjekt
+     c                                     %trim(bfproj)     + ',' +
+      * Deb.mva kode
+     c                                     %trim(xxmvac)     + ',' +
+      * Bil.tekst
+     c                                     %trim(bftext)     + ',' +
+      * Beløp på linje
+     c                                     %char(zfbelc)     + ',' +
+      * Operatør
+     c                                     'Uni'             + ',' +
+      * Dim.5
+     c                                     '0'               + ',' +
+      * Dim.6
+     c                                     '0'               + ',' +
+      * Dim.7
+     c                                     '0'              + ',' +
+      * Dim.8
+     c                                     '0'              + ',' +
+      * Periode
+     c                                     w_peri           + ',' +
+      * Fakturanr (Bilagsnummer)
+     c                                     %char(bfbiln)    + ',' +
+      * Forfallsdato
+     c                                     w_fdax           + ',' +
+      * Valutakode
+     c                                     %trim(bfvalk)    + ',' +
+      * Valutabeløp
+     c                                     '0'              + ',' +
+      * Funksjon/Ansvar (dim3)
+     c                                     '0'              + ',' +
+      * Område          (dim4)
+     c                                     '0'              + ','
+     c                   write     rv02pfr
+      * ENd Debet Post
+     c                   endif
+      * ____________________________________________________
+      *
+      *
+     c     slutt         tag
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     control_init  begsr
+      *
+     c*                  eval      w_firm = bffirm
+     c*                  eval      w_binr = bfbiln
+     c*                  move      d_aa          w2aarr
+      * Finner siste faktura-hode for faktura
+      *
+     c*    sohel1_key    setll     sohel1
+     c*    sohel1_key    reade     sohel1                                 90
+     c*                  if        *in90 = *on
+     c*                  goto      avslutt
+     c*                  endif
+      *
+     c*                  dow       *in90 = *off
+     c*    sohel1_key    reade     sohel1                                 90
+     c*                  enddo
+      *
+     c*    avslutt       tag
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

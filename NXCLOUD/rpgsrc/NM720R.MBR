@@ -1,0 +1,1494 @@
+     H decedit('0.') datedit(*dmy-) option(*nodebugio)
+     h DftActgrp(*No) Actgrp(*NEW)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : NM720R
+      * Beskrivelse . . : Eksport av vareinfo til Blueridge datahub (BRITST)
+      *                   Eksport av leverandørinfo til Blueridge datahub (BRSOST)
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       061221 bsa  Nytt program
+8.01  *       171221 bsa  Justert til å skrive til DB2
+8.02  *       211221 bsa  Skal ikke ha med PK1 lager
+8.03  *       130122 bsa  Feil håndtering av member
+8.04  * K000  010222 bsa  Legger ut valutakode og landkode
+8.05  * K000  010222 bsa  Lokal leverandør på lager, skal overstyre
+8.05  * K000              evnt hovedleverandør fra vare.
+8.06  * K000  020222 bsa  Utvidet "items" med flere felter
+8.07  * K000  030222 bsa  Feil håndtering av omregning
+8.08  * K000  070222 bsa  Feil håndtering av leverandør/prisgiver.
+8.09  * K000  080222 bsa  Ikke alle prisgivere har reskontronummer. Endrer logikk.
+8.10  * K000  100222 bsa  Slettermerke sendes hvis utgårdato er forbi, og ingen
+8.10  * K000              ordre eller bestillinger finnes.
+8.11  * K000  110222 bsa  Utvider med leverandørens varenummer
+8.12  * K000  110222 bsa  Slettemerke sendes også hvis varen er satt fra
+8.12  * K000              L - S på lager.
+8.13  * K000  150222 bsa  Avrunding av felter
+8.14  * K000  160222 bsa  Endring av logikk rundt det å finne leverandør.
+8.15  * K000  230222 bsa  Fortsetter med logikken, da det er endel "hull" i
+8.15  * K000              grunndata rundt leverandører.
+8.16  * K000  230222 bsa  Feil felt er overført som minimumslager.
+8.17  * K000  240222 bsa  Henter innkjøpspris på varen, ikke gjennom-
+8.17  * K000              snittlig kostpris.
+8.18  * K000  240222 bsa  Hvis NOBB nr og varenr er det samme, legges 0
+8.18  * K000              i NOBB nr.
+8.19  * K000  240222 bsa  Må hente vekt og volum fra NOBB, da grunndata
+8.19  * K000              i eget vareregister er unøyaktig.
+8.20  * K000  240222 bsa  Setter utgårdato til den seneste datoen.
+8.21  * K000  280222 bsa  Legger ut flere felter fpå leverandøren.
+8.22  * K000  181022 bsa  Innfører ny tabell for overstyring av leverandør
+8.22  * K000              via RDS lager.
+8.23  * K000  201222 bsa  Problemer med å sette tilbake verdier for leverandør
+8.24  * K000  070324 bof  Utvidet prisgruppe til 2 posisjoner
+      *
+      *
+9.xx  * 9.xx  101221 bsa  Div test
+9.01  * 9.xx  270522 bsa  Div ifbm manipulering av kjøreperioder. Kan
+9.01  * 9.xx              være nødvendig hvis stopp i normale rutiner.
+9.02  * 9.xx  211222 bsa  Div ifbm manipulering av debug.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvarlr    if   e           k disk    rename(vvarpfr:vvarlrr)
+     fvlaglr    if   e           k disk    rename(vlagpfr:vlaglrr)
+     fra10l1    if   e           k disk    rename(ra10pfr:ra10l1r)
+8.06 fjvarl1    if   e           k disk    rename(jvarpfr:jvarl1r)
+     fjlevl1    if   e           k disk    rename(jlevpfr:jlevl1r)
+8.05 fjlevl3    if   e           k disk    rename(jlevpfr:jlevl3r)
+8.14 fjvkhl1    if   e           k disk    rename(jvkhpfr:jvkhl1r)
+8.04 frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+     fvogrl1    if   e           k disk    rename(vogrpfr:vogrl1r)
+     fvhgrl1    if   e           k disk    rename(vhgrpfr:vhgrl1r)
+     fvugrl1    if   e           k disk    rename(vugrpfr:vugrl1r)
+     fvvenl1    if   e           k disk    rename(vvenpfr:vvenl1r)
+     fvvenlr    if   e           k disk    rename(vvenpfr:vvenlrr)
+     f                                     prefix(vx:2)
+8.01 fbritir    uf a e           k disk    rename(britst:britirr)
+     fbrsoir    uf a e           k disk    rename(brsost:brsoirr)
+     fafpspf    if   e           k disk    rename(afpspfr:afpspfr)
+8.12 fvhispf    if   e           k disk    rename(vhispfr:vhispfr)
+8.19 fjvpkl2    if   e           k disk    rename(jvpkpfr:jvpkl2r)
+8.21 fra09l1    if   e           k disk    rename(ra09pfr:ra09l1r)
+8.21 fra08l1    if   e           k disk    rename(ra08pfr:ra08l1r)
+8.22 fvla2i1    if   e           k disk    rename(vla2st:vla2i1r)
+      *
+      * Interne tabeller
+      *
+     d t_lage          s              2  0 dim(99)
+     d t_ltxt          s             35    dim(99)
+8.24 d t_prgr          s              2    dim(99)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_figr                934    939
+     d l_filg                937    939
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av variabler i nøkler
+      *
+     d vvarlr_vare     s                   like(vvvare)
+     d vlaglr_vare     s                   like(vlvare)
+     d vlaglr_lage     s                   like(vllage)
+     d ra10l1_jkod     s                   like(rajkod)
+     d jlevl1_ldor     s                   like(jlldor)
+8.05 d jlevl3_enum     s                   like(jlenum)
+8.04 d rlevl1_levr     s                   like(rllevr)
+8.06 d jvarl1_vare     s                   like(jvvare)
+     d vogrl1_oogr     s                   like(vgoogr)
+     d vhgrl1_hogr     s                   like(vghogr)
+     d vhgrl1_hhgr     s                   like(vghhgr)
+     d vugrl1_uogr     s                   like(vguogr)
+     d vugrl1_uhgr     s                   like(vguhgr)
+     d vugrl1_uugr     s                   like(vguugr)
+     d vvenl1_vare     s                   like(vevare)
+     d vvenl1_enhe     s                   like(veenhe)
+     d brsoir_smem     s                   like(brsmem)
+     d brsoir_sldo     s                   like(brsldo)
+     d brsoir_slag     s                   like(brslag)
+8.01 d britir_imem     s                   like(brimem)
+8.01 d britir_ivar     s                   like(brivar)
+8.01 d britir_ilag     s                   like(brilag)
+     d vvenlr_vare     s                   like(vevare)
+     d vvenlr_enhe     s                   like(veenhe)
+8.14 d jvkhl1_kvnr     s                   like(jvkvnr)
+8.19 d jvpkl2_vare     s                   like(jwvare)
+8.19 d jvpkl2_ldor     s                   like(jwldor)
+8.19 d jvpkl2_enhe     s                   like(jwenhe)
+8.19 d jvpkl2_pakn     s                   like(jwpakn)
+8.21 d ra09l1_ikod     s                   like(raikod)
+8.21 d ra08l1_hkod     s                   like(rahkod)
+8.22 d vla2i1_2var     s                   like(vl2var)
+8.22 d vla2i1_2lag     s                   like(vl2lag)
+      *
+      * Definering av datastrukturer
+      *
+     d                 ds
+     d d_timstp                      27
+     d  d_dato                       10    overlay(d_timstp:1)
+     d  d_time                       15    overlay(d_timstp:12)
+      *
+     d                 ds
+     d d_timstp1                     27
+     d  d_dato1                      10    overlay(d_timstp1:1)
+     d  d_time1                      15    overlay(d_timstp1:12)
+      *
+      * Definering av parametere
+      *
+     d p_memb          s             10
+      *
+      * Definering av variable
+      *
+     d w_kode          s              1
+     d w_fell          s              6
+     d w_type          s              2
+     d w_fast          s             10
+     d w_numm          s              8  0
+     d w_size          s              8  0
+     d w_slin          s              8  0
+     d w_ilin          s              8  0
+     d w_mal           s            200
+     d w_path          s            200
+     d w_ogrp          s              2
+     d w_ogrptxt       s             35
+     d w_hgrp          s              4
+     d w_hgrptxt       s             35
+     d w_ugrp          s              7
+     d w_ugrptxt       s             35
+     d w_ldor          s              6  0
+8.06 d w_hldo          s              6  0
+     d w_ltxt          s             30
+8.06 d w_hltx          s             30
+8.01 d w_lagid         s              5
+     d w_lgtx          s             30
+     d w_item          s             15
+     d w_itemname      s            100
+     d w_akti          s              1
+     d w_stat          s              1
+8.01 d w_ltid          s              3  0
+8.01 d w_mbes          s             11  3
+     d w_modn          s              8  0
+     d w_enhs          s              3
+8.24 d w_prgr          s              2
+     d w_avde          s              4  0
+     d w_lety          s              1  0
+     d w_sapr          s              9  2
+     d w_kopr          s              9  2
+     d w_cost          s              9  2
+8.17 d*w_tipr          s              9  2
+8.17 d w_inpr          s              9  2
+     d w_bupr          s              9  2
+     d w_vekt          s              9  3
+     d w_volu          s              9  5
+     d w_firm          s                   like(vvfirm)
+     d w_inlr          s              1
+     d w_created       s             27
+     d w_ingested      s             27
+     d w_memb          s             10
+     d w_omrl          s                   like(veomre)
+     d w_omrs          s                   like(veomre)
+     d w_senh          s                   like(veenhe)
+     d w_event         s             15
+8.04 d w_land          s              2
+8.04 d w_valu          s              3
+8.06 d w_maks          s             11  3
+8.06 d w_minl          s             11  3
+8.06 d w_utda          s               d   datfmt(*iso)
+8.06 d w_nobb          s                   like(vvnobb)
+8.06 d w_enob          s                   like(jvnobb)
+8.11 d w_lvar          s                   like(vvlvar)
+8.12 d w_scan          s             20
+8.14 d w_valg          s              1  0
+8.14 d w_jdor          s              6  0
+8.21 d w_saks          s             50
+8.21 d w_adr1          s             50
+8.21 d w_adr2          s             50
+8.21 d w_sted          s             50
+8.21 d w_dist          s             50
+8.21 d w_ponr          s              4  0
+8.21 d w_tlfm          s             15
+8.21 d w_faks          s             15
+8.21 d w_emal          s             75
+      *
+8.05 d s_ldor          s              6  0
+8.05 d s_levr          s              6  0
+8.05 d s_ltxt          s             30
+      *
+     d x               s              2  0
+      *
+8.23 d b_vla2          s              1    inz(*off)
+      *
+     d IFS_path        s            256a   Varying
+     d IFS_Output      s            256a   Varying
+     d IFS_Output1     s            256a   Varying
+      *
+      * Felter som legges ut i json rapporten
+      *
+     d*w_tmstp         s               z
+     d w_tmstp         s             20
+     d w_tmptime       s               t
+     d w_date          s               d   datfmt(*iso)
+     d w_date_1        s               d   datfmt(*iso)
+8.12 d w_date_2        s               d   datfmt(*iso)
+8.12 d w_date_vhis     s               d   datfmt(*iso)
+     d w_time          s               t
+     d w_timestp       s               z
+     d w_timestp1      s               z
+      *
+     c/Exec SQL
+8.12 C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR
+8.12 C+  , commit=*none
+     c/End-Exec
+      *
+      *-----------------------------------------------------------------*
+      * Hovedprogram:                                                   *
+      *   Skriver vare/lager info til DB2  file. Primært varetype L/S   *
+      *                                                                 *
+      *                                                                 *
+      *-----------------------------------------------------------------*
+      *
+      * Henter inn løpenummer teller
+      *
+8.01 c                   if        p_memb = *blanks
+     c                   eval      w_kode = '0'
+     c                   eval      w_fell = 'NXTKLI'
+     c                   eval      w_type = *blank
+     c                   eval      w_fast = *blank
+     c                   eval      w_numm = *zero
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_numm
+      *
+     c                   eval      w_memb = 'AA' + %char(w_numm)
+     c                   eval      brsoir_smem = w_memb
+8.01 c                   eval      britir_imem = w_memb
+8.03 c                   eval      p_memb = w_memb
+      *
+8.01 c                   else
+8.01 c                   eval      brsoir_smem = p_memb
+8.01 c                   eval      britir_imem = p_memb
+8.01 c                   endif
+      *
+      * Nullstiller teller for antall varer funnet
+      *
+     c                   eval      w_size = 0
+     c                   eval      w_ilin = 0
+     c                   eval      w_slin = 0
+      *
+      * Ta vare på alle lagernummer og tekster, så slipper vi så mange oppslag
+      *
+     c                   eval      x = 0
+     c                   eval      ra10l1_jkod = 0
+     c     ra10l1_key    setll     ra10l1
+     c     ra10l1_key2   reade     ra10l1
+     c                   dow       not  %eof(ra10l1)
+     c                   eval      x = x + 1
+     c                   eval      t_lage(x) = rajkod
+     c                   eval      t_ltxt(x) = rajtxt
+      *
+      * Hent prisgruppe
+      *
+     c                   eval      w_prgr = *blanks
+     c                   call      'VL712R   '
+     c                   parm                    w_firm
+     c                   parm                    rajkod
+     c                   parm                    w_avde
+     c                   parm                    w_prgr
+     c                   eval      t_prgr(x) = w_prgr
+      *
+     c     ra10l1_key2   reade     ra10l1
+     c                   enddo
+      *
+      * Så begynner vi lese alle varer, NB Forutsetter at varen er L/S på vare
+      *
+     c                   eval      vvarlr_vare = *blanks
+     c     vvarlr_key    setll     vvarlr
+     c     vvarlr_key2   reade     vvarlr
+     c                   dow       not %eof
+9.01  * For test
+9.01 c                   if        vvvare = '51613554'
+9.01 c                   goto      sjekk
+9.01 c                   endif
+9.01 c     sjekk         tag
+      *
+      * Kun varetype S/L
+      *
+     c                   if        vvvtyp = 'S' or
+     c                             vvvtyp = 'L'
+      *
+8.01 c*                  time                    w_timestp1
+8.01 c*                  eval      d_timstp1 = %char(w_timestp1)
+8.01 c*                  eval      w_ingested = d_dato1 + 'T' +
+8.01 c*                            d_time1 + 'Z'
+     c                   eval      w_size = w_size + 1
+8.01 c*                  eval      w_event = %char(d_time1)
+      *
+9.xx c**                 if        w_size = 10
+9.xx c**                 goto      test_slutt
+9.xx c**                 endif
+      *
+      * Hent inn info som er felles for varen
+      *
+     c                   exsr      grp_info
+      *
+      * Da henter vi info fra lager
+      *
+     c                   eval      vlaglr_vare = vvvare
+     c                   eval      vlaglr_lage = 0
+     c     vlaglr_key    setll     vlaglr
+     c     vlaglr_key2   reade     vlaglr
+     c                   dow       not %eof
+      *
+8.02 c                   if        vllage <> 99
+9.xx c**                 if        vllage = 22                                  22=Klepp
+      *
+      * Kun varetype S/L
+      *
+     c                   if        vlvtyp = 'S' or
+     c                             vlvtyp = 'L'
+      *
+      * Hvis beholdning er 0, og varen er utgått mer enn 1 dag før dd,
+      * sendes den ikke.
+      *
+8.10  * !!! FINN UTGÅRDATO
+8.10  * Utgårdato på lager - Høyeste prioritet
+8.10 c                   eval      w_utda = *loval
+8.10 c                   if        vludat <> *loval
+8.10 c                   eval      w_utda = vludat
+8.10 c                   endif
+8.10  * NOBB utgårdato på vare
+8.20 c                   if        w_utda = *loval and
+8.20 c                             vvnuda <> *loval or
+8.20 c                             w_utda <> *loval and
+8.20 c                             w_utda < vvnuda
+8.10 c                   eval      w_utda = vvnuda
+8.10 c                   endif
+8.10  * Utgårdato på vare
+8.20 c                   if        w_utda = *loval and
+8.20 c                             vvudat <> *loval or
+8.20 c                             w_utda <> *loval and
+8.20 c                             w_utda < vvudat
+8.10 c                   eval      w_utda = vvudat
+8.10 c                   endif
+8.10  *
+8.10  * Hvis utgårdato er satt, og den er "eldre" enn 1 dag, ble den sendt
+8.10  * med statuskode "D" i går, og burde vært slettet i Blueridge.
+8.10  * Skal da ikke sendes flere ganger.
+8.10  *
+8.10 c                   if        vlbehl <= 0 and
+8.10 c                             vloord <= 0 and
+8.10 c                             vlbbes <= 0 and
+8.10 c                             w_utda <> *loval and
+8.10 c                             w_utda < w_date_1
+     c                   goto      ny_les
+     c                   endif
+      *
+8.01 c                   eval      w_lagid = *blanks
+     c                   eval      w_lgtx = *blanks
+     c                   eval      w_item = *blanks
+     c                   eval      w_itemname = *blanks
+     c                   eval      w_akti = *blanks
+     c                   eval      w_stat = *blanks
+8.01 c                   eval      w_ltid = 0
+8.01 c                   eval      w_mbes = 0
+     c                   eval      w_prgr = *blanks
+     c                   eval      w_avde = 0
+8.06 c                   eval      w_maks = 0
+8.06 c                   eval      w_minl = 0
+      *
+      * Finn info om lager. Oppslag i intern tabell er mye raskere
+      *
+     c                   eval      x=1
+     c     vllage        lookup    t_lage(x)                              90
+     c                   if        *in90 = *on
+8.01 c                   eval      w_lagid = l_filg + %char(t_lage(x))
+     c                   eval      w_lgtx = %trim(t_ltxt(x))
+     c                   eval      w_prgr = %trim(t_prgr(x))
+     c                   endif
+      *
+      * Komplettere info som skal ut til json
+      *
+     c                   eval      w_item = vvvare
+     c                   eval      w_itemname = %trim(vvtek1) + ' ' +
+     c                             %trim(vvtek2)
+     c                   eval      w_stat = vlvtyp
+8.01 c                   eval      w_ltid = vlltid
+8.01 c                   eval      w_mbes = vlbmin
+8.06 c                   eval      w_maks = vlmaks
+8.16 c**                 eval      w_minl = vlminl
+8.16 c                   eval      w_minl = vlmini
+      *
+     c                   eval      w_akti = 'A'
+     c                   if        vlvtyp = 'S'
+     c                   eval      w_akti = 'N'
+     c                   endif
+      *
+8.22 c**                 if        vvnuda <> *loval and
+8.22 c**                           vvnuda < w_date
+8.22 c                   if        w_utda <> *loval
+     c                   eval      w_akti = 'I'
+     c                   endif
+      *
+8.10 c                   if        w_utda <> *loval and                         Utgårdato satt
+8.10 c                             w_utda < w_date  and                         Utgårdato overskrede
+8.10 c                             vlbehl = 0       and                         Beholdning
+8.10 c                             vloord = 0       and                         I ordre
+8.10 c                             vlbbes = 0                                   I bestilling
+8.10 c                   eval      w_akti = 'D'
+8.10 c                   endif
+8.12  *
+8.12  * Er varen akkurat satt som S på dette lageret ?
+8.12  *
+8.12 c                   if        vlvtyp = 'S'
+8.12 c                   eval      w_scan = 'Vtyp endret L--> S'
+8.12 c/exec sql
+8.12 c+ select vhdato
+8.12 c+ into   :w_date_vhis
+8.12 c+ from   vhispf
+8.12 c+ where  vhfirm = :w_firm and
+8.12 c+        vhvare = :w_item and
+8.12 c+        vhlage = :vllage and
+8.12 c+        vhrefr = :w_scan
+8.12 c+ order by vhdato desc
+8.12 c+ fetch first 1 rows only
+8.12 c/end-exec
+8.12 c                   if        sqlcod < 0 or sqlcod = 100
+8.12 c                   eval      w_date_vhis = *loval
+8.12 c                   endif
+8.12  * Sjekk mot dd - 4
+8.12 c                   if        w_date_vhis > w_date_2
+8.12 c                   eval      w_akti = 'D'
+8.12 c                   endif
+8.12  *
+8.12 c                   endif
+      *
+      * Hent info om pris/enhet/vekt
+      *
+     c                   exsr      var_info
+      *
+      * Legg ut info
+      *
+8.01 c                   exsr      wrt_item
+      *
+     c     ny_les        tag
+      *
+     c                   endif
+      *
+9.xx c**                 endif
+8.02 c                   endif
+      *
+     c     vlaglr_key2   reade     vlaglr
+     c                   enddo
+      *
+     c                   endif
+      *
+     c     vvarlr_key2   reade     vvarlr
+     c                   enddo
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+      * Kaller VP700R med w_inlr=*off, så den lukker programmet.
+      *
+     c                   eval      w_lety = 0
+     c                   eval      w_inlr = *off
+      *
+8.17 c**                 call      'VP700R'
+8.17 c**                 parm                    w_firm
+8.17 c**                 parm                    vvvare
+8.17 c**                 parm                    w_prgr
+8.17 c**                 parm                    w_senh
+8.17 c**                 parm                    w_lety
+8.17 c**                 parm                    w_date
+8.17 c**                 parm                    w_time
+8.17 c**                 parm                    w_inlr
+8.17 c**                 parm                    w_sapr
+8.17 c**                 parm                    w_bupr
+8.17 c**                 parm                    w_tipr
+8.17 c**                 parm                    w_kopr
+      *
+      * Kaller VG791R med w_inlr=*off, så den lukker programmet.
+      *
+8.17 c**                 call      'VG791R'
+8.17 c**                 parm                    vvvare
+8.17 c**                 parm                    vllage
+8.17 c**                 parm                    w_date
+8.17 c**                 parm                    w_cost
+8.17 c**                 parm                    w_inlr
+      *
+8.17 c                   call      'VP704R'
+8.17 c                   parm                    w_firm
+8.17 c                   parm                    vvvare
+8.17 c                   parm                    w_prgr
+8.17 c                   parm                    w_senh
+8.17 c                   parm                    w_lety
+8.17 c                   parm                    w_date
+8.17 c                   parm                    w_ldor
+8.17 c                   parm                    vllage
+8.17 c                   parm                    w_inlr
+8.17 c                   parm                    w_sapr
+8.17 c                   parm                    w_bupr
+8.17 c                   parm                    w_kopr
+8.17 c                   parm                    w_inpr
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.06  * Finn informasjon om varegruppering, leverandør og vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     grp_info      begsr
+      *
+     c                   eval      w_ogrp = *blanks
+     c                   eval      w_ogrptxt = *blanks
+     c                   eval      w_hgrp = *blanks
+     c                   eval      w_hgrptxt = *blanks
+     c                   eval      w_ugrp = *blanks
+     c                   eval      w_ugrptxt = *blanks
+     c                   eval      w_modn = 0
+      *
+8.14 c                   eval      w_jdor = 0
+     c                   eval      w_ldor = 0
+8.06 c                   eval      w_hldo = 0
+8.05 c                   eval      s_levr = 0
+8.05 c                   eval      s_ldor = 0
+     c                   eval      w_ltxt = *blanks
+8.06 c                   eval      w_hltx = *blanks
+8.05 c                   eval      s_ltxt = *blanks
+8.14 c                   eval      w_land = *blanks
+8.14 c                   eval      w_valu = *blanks
+      *
+     c                   eval      w_enhs = *blanks
+8.06 c                   eval      w_utda = *loval
+8.06 c                   eval      w_nobb = 0
+8.06 c                   eval      w_enob = 0
+8.11 c                   eval      w_lvar = *blanks
+      *
+      * Hent info fra overgruppe
+      *
+     c                   eval      vogrl1_oogr = vvogrp
+     c     vogrl1_key    chain     vogrl1
+     c                   if        %found
+     c                   if        vvogrp < 10
+     c                   eval      w_ogrp = '0' + %char(vvogrp)
+     c                   else
+     c                   eval      w_ogrp = %char(vvogrp)
+     c                   endif
+     c                   eval      w_ogrptxt = vgotxt
+     c                   endif
+      *
+      * Hent info fra hovedgruppe
+      *
+     c                   eval      vhgrl1_hogr = vvogrp
+     c                   eval      vhgrl1_hhgr = vvhgrp
+     c     vhgrl1_key    chain     vhgrl1
+     c                   if        %found
+     c                   if        vvhgrp < 10
+     c                   eval      w_hgrp = w_ogrp + '0'+ %char(vvhgrp)
+     c                   else
+     c                   eval      w_hgrp = w_ogrp + %char(vvhgrp)
+     c                   endif
+     c                   eval      w_hgrptxt = vghtxt
+     c                   endif
+      *
+      * Hent info fra undegruppe
+      *
+     c                   eval      vugrl1_uogr = vvogrp
+     c                   eval      vugrl1_uhgr = vvhgrp
+     c                   eval      vugrl1_uugr = vvugrp
+     c     vugrl1_key    chain     vugrl1
+     c                   if        %found
+     c                   if        vvugrp > 99
+     c                   eval      w_ugrp = w_hgrp + %char(vvugrp)
+     c                   elseif    vvugrp > 9
+     c                   eval      w_ugrp = w_hgrp + '0' + %char(vvugrp)
+     c                   else
+     c                   eval      w_ugrp = w_hgrp + '00' + %char(vvugrp)
+     c                   endif
+     c                   eval      w_ugrptxt = vgutxt
+     c                   endif
+      *
+      * Hent info fra leverandør
+      *
+8.14 c                   exsr      hent_levr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hent info om pris/enhet/vekt
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     var_info      begsr
+      *
+     c                   eval      w_kopr = 0
+     c                   eval      w_sapr = 0
+8.17 c**                 eval      w_tipr = 0
+8.17 c                   eval      w_inpr = 0
+     c                   eval      w_bupr = 0
+     c                   eval      w_vekt = 0
+     c                   eval      w_volu = 0
+     c                   eval      w_cost = 0
+     c                   eval      w_senh = *blanks
+      *
+      * Hent gjeldende gjennomsnittlig kostpris og beregn eksisterende lagerverdi
+      *
+8.17 c**                 eval      w_inlr = *on
+8.17 c**                 call      'VG791R'
+8.17 c**                 parm                    vvvare
+8.17 c**                 parm                    vllage
+8.17 c**                 parm                    w_date
+8.17 c**                 parm                    w_cost
+8.17 c**                 parm                    w_inlr
+      *
+      * Finner omregningsfaktor mellom lagerenhet og salgsenhet 1
+      * Pris regnes om etter forholdet mellom disse, hvis forskjell på enheter
+      *
+     c                   eval      vvenlr_vare = vvvare
+     c                   eval      vvenlr_enhe = *blanks
+     c     vvenlr_key    setll     vvenlr
+     c     vvenlr_key2   reade     vvenlr
+     c                   dow       not %eof
+     c                   if        vxsaen = 1
+     c                   eval      w_omrs = vxomre
+     c                   eval      w_senh = vxenhe
+     c                   endif
+     c                   if        vvenhl = vxenhe
+     c                   eval      w_omrl = vxomre
+     c                   endif
+     c     vvenlr_key2   reade     vvenlr
+     c                   enddo
+      *
+     c                   if        w_omrs = 0
+     c                   eval      w_omrs = 1
+     c                   endif
+      *
+     c                   if        w_omrl = 0
+     c                   eval      w_omrl = 1
+     c                   endif
+      *
+8.05  * Sjekk om leverandøren er overstyrt på lagernivå
+8.05 c                   if        s_levr <> 0 and
+8.05 c                             vlbldo <> 0 and
+8.05 c                             s_levr <> vlbldo
+8.14 c                   eval      w_ldor = vlbldo
+8.14 c                   exsr      hent_rlev
+8.05 c                   endif
+8.22  *
+8.22  * For ikke ødelegge øvrig logikk, legges sjekk mot RDS
+8.22  * leverandør her.
+8.22  *
+8.22 c                   eval      vla2i1_2var = vvvare
+8.22 c                   eval      vla2i1_2lag = vllage
+8.22 c     vla2i1_key    chain     vla2i1
+8.22 c                   if        %found and
+8.22 c                             vl2gin = 1
+8.22 c                   eval      rlevl1_levr = vl2rle
+8.22 c     rlevl1_key    chain     rlevl1
+8.22 c                   if        %found
+8.22 c                   eval      w_ldor = vl2rle
+8.22 c                   exsr      hent_rlev
+8.22 c                   endif
+8.22 c                   endif
+      *
+      * Hent inn priser og verdier for salgsenhet 1
+      * Kaller VP700R med w_inlr=*off, så den ikke lukker programmet før vi avslutter.
+8.17  * Erstatter både VG791 og VP700 med VP704, da de ikke trenger gj.kostpris, men
+8.17  * skal hente salgspris og innkjøpspris.
+      *
+     c                   if        w_senh <> *blanks
+      *
+     c                   eval      w_lety = 0
+     c                   eval      w_inlr = *on
+      *
+8.17 c**                 call      'VP700R'
+8.17 c**                 parm                    w_firm
+8.17 c**                 parm                    vvvare
+8.17 c**                 parm                    w_prgr
+8.17 c**                 parm                    w_senh
+8.17 c**                 parm                    w_lety
+8.17 c**                 parm                    w_date
+8.17 c**                 parm                    w_time
+8.17 c**                 parm                    w_inlr
+8.17 c**                 parm                    w_sapr
+8.17 c**                 parm                    w_bupr
+8.17 c**                 parm                    w_tipr
+8.17 c**                 parm                    w_kopr
+      *
+8.17 c                   call      'VP704R'
+8.17 c                   parm                    w_firm
+8.17 c                   parm                    vvvare
+8.17 c                   parm                    w_prgr
+8.17 c                   parm                    w_senh
+8.17 c                   parm                    w_lety
+8.17 c                   parm                    w_date
+8.17 c                   parm                    w_ldor
+8.17 c                   parm                    vllage
+8.17 c                   parm                    w_inlr
+8.17 c                   parm                    w_sapr
+8.17 c                   parm                    w_bupr
+8.17 c                   parm                    w_kopr
+8.17 c                   parm                    w_inpr
+      *
+8.17 c                   eval      w_cost = w_inpr
+     c**                 if        w_cost = 0
+     c**                 eval      w_cost = w_kopr
+     c**                 endif
+      *
+     c                   endif
+8.19  *
+8.19  * Må hente vekt og volum fra NOBB
+8.19  *
+8.19  * Først med leverandør
+8.19  *
+8.19 c                   eval      jvpkl2_vare = vvvare
+8.19 c                   eval      jvpkl2_ldor = w_jdor
+8.19 c                   eval      jvpkl2_enhe = vvenhl
+8.19 c                   eval      jvpkl2_pakn = *blanks
+8.19 c     jvpkl2_key    setll     jvpkl2
+8.19 c     jvpkl2_key2   reade     jvpkl2
+8.19 c                   dow       not %eof
+8.19  * Volum
+8.19 c                   if        jwvolu <> 0 and
+8.19 c                             w_volu = 0
+8.19 c                   eval      w_volu = jwvolu
+8.19 c                   endif
+8.19  * Vekt (er i gram - konverteres til kg)
+8.19 c                   if        jwvekt <> 0 and
+8.19 c                             w_vekt = 0
+8.19 c                   eval      w_vekt = jwvekt / 1000
+8.19 c                   endif
+8.19  *
+8.19 c     jvpkl2_key2   reade     jvpkl2
+8.19 c                   enddo
+8.19  *
+8.19  * Så uten leverandør, hvis ikke funnet
+8.19  *
+8.19 c                   if        w_vekt = 0 or
+8.19 c                             w_volu = 0
+8.19  *
+8.19 c                   eval      jvpkl2_vare = vvvare
+8.19 c                   eval      jvpkl2_ldor = 0
+8.19 c                   eval      jvpkl2_enhe = *blanks
+8.19 c                   eval      jvpkl2_pakn = *blanks
+8.19 c     jvpkl2_key    setll     jvpkl2
+8.19 c     jvpkl2_key3   reade     jvpkl2
+8.19 c                   dow       not %eof
+8.19  *
+8.19 c                   if        jwenhe = vvenhl
+8.19  * Volum
+8.19 c                   if        jwvolu <> 0 and
+8.19 c                             w_volu = 0
+8.19 c                   eval      w_volu = jwvolu
+8.19 c                   endif
+8.19  * Vekt (er i gram - konverteres til kg)
+8.19 c                   if        jwvekt <> 0 and
+8.19 c                             w_vekt = 0
+8.19 c                   eval      w_vekt = jwvekt / 1000
+8.19 c                   endif
+8.19  *
+8.19 c                   endif
+8.19  *
+8.19 c     jvpkl2_key3   reade     jvpkl2
+8.19 c                   enddo
+      *
+8.19 c                   endif
+      *
+      * Hent informasjon på lagerenhet
+      *
+8.19  * Så uten leverandør, hvis ikke funnet
+8.19  *
+8.19 c                   if        w_vekt = 0 or
+8.19 c                             w_volu = 0
+      *
+     c                   eval      vvenl1_vare = vvvare
+     c                   eval      vvenl1_enhe = vvenhl
+     c     vvenl1_key    chain     vvenl1
+     c                   if        %found
+8.19 c                   if        w_volu = 0
+     c                   eval      w_volu = vevolu
+8.19 c                   endif
+8.19 c                   if        w_vekt = 0
+     c                   eval      w_vekt = vevekt
+8.19 c                   endif
+     c                   endif
+8.19  *
+8.19 c                   endif
+      *
+      * Hvis forskjell på salgsenhet og lagerenhet, regn om veid kostpris
+8.19  * Trenger ikke regne om da kostprisen komemr i samme enhet som salgsenhet
+      *
+     c                   if        w_senh <> vvenhl
+8.07 c**                 eval      w_cost = w_cost * w_omrl / w_omrs
+8.19 c**                 eval      w_cost = w_cost * w_omrs / w_omrl
+     c                   endif
+      *
+      * Så legger vi ut info om leverandøren, som brukes i neste program (NM721R)
+8.01  * Siden vi nå legger ut all info i DB2, kalles ikke NM721R
+      *
+     c                   if        w_ldor <> 0
+      *
+     c                   eval      brsoir_sldo = w_ldor
+     c                   eval      brsoir_slag = vllage
+     c     brsoir_key    chain     brsoir
+     c                   if        not %found
+     c                   clear                   brsoirr
+     c                   eval      brsmem = brsoir_smem
+     c                   eval      brsldo = brsoir_sldo
+     c                   eval      brslag = brsoir_slag
+8.01 c                   eval      brslid = %trim(w_lagid)
+8.01 c                   eval      brsltx = %trim(w_lgtx)
+8.01 c                   eval      brsldt = %trim(w_ltxt)
+8.04 c                   eval      brslan = %trim(w_land)
+8.04 c                   eval      brsval = %trim(w_valu)
+      *
+8.21 c                   eval      brsdis = w_dist
+8.21 c                   eval      brssak = w_saks
+8.21 c                   eval      brsad1 = w_adr1
+8.21 c                   eval      brsad2 = w_adr2
+8.21 c                   eval      brsstd = w_sted
+8.21 c                   eval      brspnr = w_ponr
+8.21 c                   eval      brsmob = w_tlfm
+8.21 c                   eval      brsfax = w_faks
+8.21 c                   eval      brsema = w_emal
+      *
+8.01 c                   eval      w_slin = w_slin + 1
+8.01 c                   eval      brslin = w_slin
+      *
+     c                   time                    brsoda
+     c                   time                    brsoti
+     c                   eval      brsous = l_user
+     c                   write     brsoirr
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Fyll innholdet i DB2 fila
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+8.01 c     wrt_item      begsr
+8.22  *
+8.22  * For ikke ødelegge øvrig logikk, legges siste sjekk mot RDS
+8.22  * leverandør her.
+8.22  *
+8.23 c                   eval      b_vla2 = *off
+8.22 c                   eval      vla2i1_2var = w_item
+8.22 c                   eval      vla2i1_2lag = vllage
+8.22 c     vla2i1_key    chain     vla2i1
+8.22 c                   if        %found and
+8.22 c                             vl2gin = 1
+8.22 c                   eval      rlevl1_levr = vl2rle
+8.22 c     rlevl1_key    chain     rlevl1
+8.22 c                   if        %found
+8.23 c                   eval      b_vla2 = *on
+8.22 c                   eval      w_ldor = vl2rle
+8.22 c                   eval      w_ltxt = rlnavn
+8.22 c                   endif
+8.22 c                   endif
+8.01  *
+8.01  * Så legger vi ut info
+8.01  *
+8.01 c                   eval      britir_ivar = w_item
+8.01 c                   eval      britir_ilag = vllage
+8.01 c     britir_key    chain     britir
+8.01 c                   if        not %found
+8.01 c                   clear                   britirr
+8.01 c                   eval      brimem = britir_imem
+8.01 c                   eval      brivar = britir_ivar
+8.01 c                   eval      brilag = britir_ilag
+8.01  *
+8.01 c                   eval      w_ilin = w_ilin + 1
+8.01 c                   eval      brilin = w_ilin
+8.01  *
+8.01 c                   eval      briltx = %trim(w_lgtx)
+8.01 c                   eval      brilid = %trim(w_lagid)
+8.01 c                   eval      brivtx = %trim(w_itemname)
+8.01 c                   eval      briakt = %trim(w_akti)
+8.01 c                   eval      brildo = w_ldor
+8.01 c                   eval      brildt = %trim(w_ltxt)
+8.01 c                   eval      briogp = w_ogrp
+8.01 c                   eval      briogt = %trim(w_ogrptxt)
+8.01 c                   eval      brihgp = w_hgrp
+8.01 c                   eval      brihgt = %trim(w_hgrptxt)
+8.01 c                   eval      briugp = w_ugrp
+8.01 c                   eval      briugt = %trim(w_ugrptxt)
+8.01 c                   eval      brimod = w_modn
+8.06 c                   eval      brihld = w_hldo
+8.06 c                   eval      brihlt = %trim(w_hltx)
+8.18 c                   if        w_nobb <> %int(%trim(w_item))
+8.06 c                   eval      brinob = w_nobb
+8.18 c                   else
+8.18 c                   eval      brinob = 0
+8.18 c                   endif
+8.06 c                   if        w_enob <> 0
+8.06 c                   eval      brierv = %char(w_enob)
+8.06 c                   else
+8.06 c                   eval      brierv = *blanks
+8.06 c                   endif
+8.11 c                   eval      brilva = w_lvar
+8.06 c                   eval      brimax = w_maks
+8.06 c                   eval      brimin = w_minl
+8.06 c                   eval      briuda = w_utda
+8.01  *
+8.01 c                   eval      brikpr = w_cost
+8.01 c                   eval      brispr = w_sapr
+8.13 c                   eval(h)   brivek = w_vekt
+8.13 c                   eval(h)   brivol = w_volu
+8.01 c                   eval      briled = w_ltid
+8.01 c                   eval      brimbe = w_mbes
+8.01 c                   eval      bridel = *blanks
+8.01 c                   eval      brisen = w_senh
+8.01 c                   eval      brislg = w_stat
+8.01  *
+8.01 c                   time                    brioda
+8.01 c                   time                    brioti
+8.01 c                   eval      brious = l_user
+8.01 c                   write     britirr
+8.01 c                   endif
+8.05  *
+8.05  * Sett verdier tilbake
+8.05  *
+8.05 c                   if        s_levr <> 0 and
+8.05 c                             vlbldo <> 0 and
+8.05 c                             s_levr <> vlbldo
+8.05 c                   eval      w_ldor = s_ldor
+8.05 c                   eval      w_ltxt = s_ltxt
+8.05 c                   endif
+8.23  * Kan også være overstyrt via VLA2ST
+8.23 c                   if        b_vla2 = *on and
+8.23 c                             s_ldor <> w_ldor
+8.23 c                   eval      w_ldor = s_ldor
+8.23 c                   eval      w_ltxt = s_ltxt
+8.23 c                   endif
+      *
+     c                   endsr
+      *
+8.14  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.14  * Henter leverandørinformasjon
+8.14  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.14  *
+8.14 c     hent_levr     begsr
+8.14  *
+8.14  * 1. Hvis VVNLEV er 0, bruk VVLDOR. Vi forusetter at dette ikke gjelder
+8.14  *    logistikkvarer.
+8.14  * 2. Hvis logistikkvare, i JVKHPF, hent JVKLDO og slå opp i JLEVPF. Hvis
+8.14  *    reskontronummer er 0, eller ikke treff i RLEV, bruk VVLDOR.
+8.14  * 3. Hent vareeier fra JVARPF, hent reskontronummer fra JLEVPF. Hvis
+8.14  *    reskontronummer er 0 eller ikke treff i RLEV, bruk VVLDOR.
+8.14  * Ref dialog med Jørn
+8.14  *
+8.14 c                   eval      w_valg = 0
+8.14  * Alt 1
+8.14 c                   if        vvnlev =  0 and
+8.14 c                             vvldor <> 0
+8.14 c                   eval      w_valg = 1
+8.14 c                   endif
+8.14  * Alt 2
+8.15 c                   if        w_valg = 0
+8.14 c                   eval      jvkhl1_kvnr = vvvare
+8.14 c     jvkhl1_key    chain     jvkhl1
+8.14 c                   if        %found
+8.14 c                   eval      w_valg = 2
+8.14 c                   endif
+8.15 c                   endif
+8.14  * Alt 3
+8.15 c                   if        w_valg = 0
+8.14 c                   if        vvnlev <> 0
+8.15 c                   eval      jlevl1_ldor = vvnlev
+8.15 c     jlevl1_key    chain     jlevl1
+8.15 c                   if        %found and
+8.15 c                             jlenum <> 0
+8.14 c                   eval      w_valg = 3
+8.14 c                   else
+8.15 c                   eval      w_valg = 1
+8.15 c                   endif
+8.14 c                   endif
+8.15 c                   endif
+8.14  *
+8.14 c                   if        w_valg = 1
+8.14 c                   eval      w_ldor = vvldor
+8.14 c                   exsr      hent_rlev
+8.14 c                   eval      s_ldor = vvldor
+8.14 c                   eval      s_levr = vvldor
+8.14 c                   eval      s_ltxt = rlnavn
+8.14 c                   elseif    w_valg = 2
+8.14 c                   eval      w_jdor = jvkldo
+8.14 c                   exsr      hent_jlev
+8.14 c                   elseif    w_valg = 3
+8.14 c                   eval      w_jdor = vvnlev
+8.14 c                   exsr      hent_jlev
+8.14 c                   else
+8.14 c                   endif
+8.14  *
+     c                   eval      w_enhs = vvenhs
+     c                   eval      w_modn = vvnmod
+8.06 c                   eval      w_nobb = vvnobb
+8.11 c                   eval      w_lvar = vvlvar
+      *
+8.06  * Hent inn info fra VA
+      *
+8.06 c                   eval      jvarl1_vare = vvvare
+8.06 c     jvarl1_key    chain     jvarl1
+8.06 c                   if        %found
+8.06 c                   eval      w_enob = jvenob
+8.06 c                   endif
+8.14  *
+8.14 c                   endsr
+8.14  *
+8.14  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.14  * Henter leverandørinformasjon
+8.14  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.14  *
+8.14 c     hent_rlev     begsr
+8.14  *
+8.21 c                   eval      w_dist = *blanks
+8.21 c                   eval      w_saks = *blanks
+8.21 c                   eval      w_adr1 = *blanks
+8.21 c                   eval      w_adr2 = *blanks
+8.21 c                   eval      w_sted = *blanks
+8.21 c                   eval      w_ponr = 0
+8.21 c                   eval      w_tlfm = *blanks
+8.21 c                   eval      w_faks = *blanks
+8.21 c                   eval      w_emal = *blanks
+8.14  *
+8.14  * Slå opp mot leveradør for å hente inn land/valutakode
+8.14  *
+8.14 c                   eval      rlevl1_levr = w_ldor
+8.14 c     rlevl1_key    chain     rlevl1
+8.14 c                   if        %found
+8.14  *
+8.14 c                   eval      w_hldo = vvldor
+8.14 c                   eval      w_ltxt = rlnavn
+8.14 c                   eval      w_hltx = rlnavn
+8.14 c                   eval      w_ltxt = rlnavn
+8.14  *
+8.21 c                   eval      w_adr1 = rlgate
+8.21 c                   eval      w_adr2 = rladr2
+8.21 c                   eval      w_sted = rlsted
+8.21 c                   eval      w_ponr = rlponr
+8.21 c                   eval      w_tlfm = rlmobn
+8.21 c                   if        w_tlfm = *blanks
+8.21 c                   eval      w_tlfm = rltlfn
+8.21 c                   endif
+8.21 c                   eval      w_faks = rltlfx
+8.21 c                   eval      w_emal = rlemal
+8.21  * Finn selgertekst
+8.21 c                   eval      w_saks = *blanks
+8.21 c                   eval      ra09l1_ikod = rlsaks
+8.21 c     ra09l1_key    chain     ra09l1
+8.21 c                   if        %found
+8.21 c                   eval      w_saks = %trim(raitxt)
+8.21 c                   endif
+8.21  * Finn distrikt
+8.21 c                   eval      w_dist = *blanks
+8.21 c                   eval      ra08l1_hkod = rldist
+8.21 c     ra08l1_key    chain     ra08l1
+8.21 c                   if        %found
+8.21 c                   eval      w_dist = %trim(rahtxt)
+8.21 c                   endif
+8.14  *
+8.14 c                   if        %trim(rlvalk) <> *blanks
+8.14 c                   eval      w_valu = %trim(rlvalk)
+8.14 c                   else
+8.14 c                   eval      w_valu = 'NOK'
+8.14 c                   endif
+8.14 c                   if        %trim(rlland) <> *blanks
+8.14 c                   eval      w_land = %trim(rlland)
+8.14 c                   else
+8.14 c                   eval      w_land = 'NO'
+8.14 c                   endif
+8.14  *
+8.14 c                   endif
+8.14  *
+8.14 c                   endsr
+8.14  *
+8.14  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.14  * Henter leverandørinformasjon via JLEVPF - NOBB vareeier
+8.14  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.14  *
+8.14 c     hent_jlev     begsr
+8.14  *
+8.21 c                   eval      w_dist = *blanks
+8.21 c                   eval      w_saks = *blanks
+8.21 c                   eval      w_adr1 = *blanks
+8.21 c                   eval      w_adr2 = *blanks
+8.21 c                   eval      w_sted = *blanks
+8.21 c                   eval      w_ponr = 0
+8.21 c                   eval      w_tlfm = *blanks
+8.21 c                   eval      w_faks = *blanks
+8.21 c                   eval      w_emal = *blanks
+8.14  *
+8.14 c                   eval      jlevl1_ldor = w_jdor
+8.14 c     jlevl1_key    chain     jlevl1
+8.14 c                   if        %found
+8.14 c                   eval      w_ldor = jlenum
+8.14 c                   eval      w_hldo = jlenum
+8.14 c                   eval      s_ldor = jlenum
+8.14 c                   eval      s_levr = jlenum
+8.14 c                   eval      w_ltxt = jlnavn
+8.14 c                   eval      w_hltx = jlnavn
+8.14 c                   eval      s_ltxt = jlnavn
+8.14  *
+8.21 c                   eval      w_saks = *blanks
+8.21 c                   eval      w_adr1 = jladr1
+8.21 c                   eval      w_adr2 = jladr2
+8.21 c                   eval      w_sted = jlsted
+8.21 c**                 eval      w_ponr = jlponr
+8.21 c                   eval      w_tlfm = jlmobn
+8.21 c                   if        w_tlfm = *blanks
+8.21 c                   eval      w_tlfm = jltlfn
+8.21 c                   endif
+8.21 c                   eval      w_faks = jlfaxn
+8.21 c                   eval      w_emal = jlmail
+8.14  *
+8.14 c                   eval      w_valu = jlvalu
+8.14 c                   if        %trim(w_valu) = *blanks
+8.14 c                   eval      w_valu = 'NOK'
+8.14 c                   else
+8.14 c                   eval      w_valu = jlvalu
+8.14 c                   endif
+8.14  *
+8.14 c                   if        %trim(jlland) <> *blanks
+8.14 c                   if        %trim(jlland) = 'Norge'
+8.14 c                   eval      w_land = 'NO'
+8.14 c                   elseif    %trim(jlland) = 'NORGE'
+8.14 c                   eval      w_land = 'NO'
+8.14 c                   elseif    %trim(jlland) = 'Sverige'
+8.14 c                   eval      w_land = 'SE'
+8.14 c                   elseif    %trim(jlland) = 'SVERIGE'
+8.14 c                   eval      w_land = 'SE'
+8.14 c                   elseif    %trim(jlland) = 'Danmark'
+8.14 c                   eval      w_land = 'DA'
+8.14 c                   elseif    %trim(jlland) = 'DANMARK'
+8.14 c                   eval      w_land = 'DA'
+8.14 c                   elseif    %trim(jlland) = 'Austria'
+8.14 c                   eval      w_land = 'AU'
+8.14 c                   elseif    %trim(jlland) = 'AUSTRIA'
+8.14 c                   eval      w_land = 'AU'
+8.14 c                   elseif    %trim(jlland) = 'England'
+8.14 c                   eval      w_land = 'GB'
+8.14 c                   elseif    %trim(jlland) = 'ENGLAND'
+8.14 c                   eval      w_land = 'GB'
+8.14 c                   elseif    %trim(jlland) = 'United Kingdom'
+8.14 c                   eval      w_land = 'GB'
+8.14 c                   elseif    %trim(jlland) = 'UNITED KINGDOM'
+8.14 c                   eval      w_land = 'GB'
+8.14 c                   elseif    %trim(jlland) = 'Estland'
+8.14 c                   eval      w_land = 'EE'
+8.14 c                   elseif    %trim(jlland) = 'ESTLAND'
+8.14 c                   eval      w_land = 'EE'
+8.14 c                   elseif    %trim(jlland) = 'Faeroe Islands'
+8.14 c                   eval      w_land = 'FO'
+8.14 c                   elseif    %trim(jlland) = 'FAEROE ISLANDS'
+8.14 c                   eval      w_land = 'FO'
+8.14 c                   elseif    %trim(jlland) = 'Finland'
+8.14 c                   eval      w_land = 'FI'
+8.14 c                   elseif    %trim(jlland) = 'FINLAND'
+8.14 c                   eval      w_land = 'FI'
+8.14 c                   elseif    %trim(jlland) = 'France'
+8.14 c                   eval      w_land = 'FR'
+8.14 c                   elseif    %trim(jlland) = 'FRANCE'
+8.14 c                   eval      w_land = 'FR'
+8.14 c                   elseif    %trim(jlland) = 'Germany'
+8.14 c                   eval      w_land = 'DE'
+8.14 c                   elseif    %trim(jlland) = 'GERMANY'
+8.14 c                   eval      w_land = 'DE'
+8.14 c                   elseif    %trim(jlland) = 'Latvia'
+8.14 c                   eval      w_land = 'LV'
+8.14 c                   elseif    %trim(jlland) = 'LATVIA'
+8.14 c                   eval      w_land = 'LV'
+8.14 c                   elseif    %trim(jlland) = 'Litauen'
+8.14 c                   eval      w_land = 'LT'
+8.14 c                   elseif    %trim(jlland) = 'LITAUEN'
+8.14 c                   eval      w_land = 'LT'
+8.14 c                   elseif    %trim(jlland) = 'Netherlands'
+8.14 c                   eval      w_land = 'NL'
+8.14 c                   elseif    %trim(jlland) = 'NETHERLANDS'
+8.14 c                   eval      w_land = 'NL'
+8.14 c                   elseif    %trim(jlland) = 'Poland'
+8.14 c                   eval      w_land = 'PL'
+8.14 c                   elseif    %trim(jlland) = 'POLAND'
+8.14 c                   eval      w_land = 'PL'
+8.14 c                   elseif    %trim(jlland) = 'Switzerland'
+8.14 c                   eval      w_land = 'CH'
+8.14 c                   elseif    %trim(jlland) = 'SWITZERLAND'
+8.14 c                   eval      w_land = 'CH'
+8.14 c                   endif
+8.14 c                   else
+8.14 c                   eval      w_land = 'NO'
+8.14 c                   endif
+8.14  *
+8.14  * Sjekk evnt overstyrte verdier fra NX reskontro
+8.14  *
+8.14 c                   if        jlenum <> 0
+8.14  *
+8.14 c                   eval      rlevl1_levr = jlenum
+8.14 c     rlevl1_key    chain     rlevl1
+8.14 c                   if        %found
+8.14  *
+8.21 c                   eval      w_ltxt = rlnavn
+8.21 c                   eval      w_hltx = rlnavn
+8.21 c                   eval      w_adr1 = rlgate
+8.21 c                   eval      w_adr2 = rladr2
+8.21 c                   eval      w_sted = rlsted
+8.21 c                   eval      w_ponr = rlponr
+8.21 c                   eval      w_tlfm = rlmobn
+8.21 c                   if        w_tlfm = *blanks
+8.21 c                   eval      w_tlfm = rltlfn
+8.21 c                   endif
+8.21 c                   eval      w_faks = rltlfx
+8.21 c                   eval      w_emal = rlemal
+8.21  * Finn selgertekst
+8.21 c                   eval      w_saks = *blanks
+8.21 c                   eval      ra09l1_ikod = rlsaks
+8.21 c     ra09l1_key    chain     ra09l1
+8.21 c                   if        %found
+8.21 c                   eval      w_saks = %trim(raitxt)
+8.21 c                   endif
+8.21  * Finn distrikt
+8.21 c                   eval      w_dist = *blanks
+8.21 c                   eval      ra08l1_hkod = rldist
+8.21 c     ra08l1_key    chain     ra08l1
+8.21 c                   if        %found
+8.21 c                   eval      w_dist = %trim(rahtxt)
+8.21 c                   endif
+8.21  *
+8.14 c                   if        %trim(rlvalk) <> *blanks
+8.14 c                   eval      w_valu = %trim(rlvalk)
+8.14 c                   endif
+8.14 c                   if        %trim(w_valu) = *blanks
+8.14 c                   eval      w_valu = 'NOK'
+8.14 c                   endif
+8.14 c                   if        %trim(rlland) <> *blanks
+8.14 c                   eval      w_land = %trim(rlland)
+8.14 c                   endif
+8.14 c                   if        %trim(w_land) = *blanks
+8.14 c                   eval      w_land = 'NO'
+8.14 c                   endif
+8.14 c                   endif
+8.14  *
+8.14 c                   endif                                                  jlenum
+8.14  *
+8.14 c                   endif                                                  %found jlevl1
+8.14  *
+8.14 c                   endsr
+8.14  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine  - Brukes ved mislykket web-service kall
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+     c**                 eval      p_link = 'Blueridge eksport feilet'
+     c**                 goto      avslutt
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Henter inn parameter
+      *
+     c     *entry        plist
+     c                   parm                    p_memb
+      *
+      * Key for oppslag på vare
+      *
+     c     vvarlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarlr_vare
+      *
+      * Key for oppslag på vare
+      *
+     c     vvarlr_key2   klist
+     c                   kfld                    w_firm
+      *
+      * Key for les på lagerregister
+      *
+     c     vlaglr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlaglr_vare
+     c                   kfld                    vlaglr_lage
+      *
+      * Key for les på lagerregister
+      *
+     c     vlaglr_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlaglr_vare
+      *
+      * Key for info fra lagerregister
+      *
+     c     ra10l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra10l1_jkod
+      *
+      * Key for info fra lagerregister
+      *
+     c     ra10l1_key2   klist
+     c                   kfld                    w_firm
+      *
+      * Key for info fra leverandørregister (prisgriver)
+      *
+     c     jlevl1_key    klist
+     c                   kfld                    jlevl1_ldor
+8.06  *
+8.06  * Key for info fra vareregister (VA)
+8.06  *
+8.06 c     jvarl1_key    klist
+8.06 c                   kfld                    jvarl1_vare
+      *
+      * Key for info fra overgruppe
+      *
+     c     vogrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vogrl1_oogr
+      *
+      * Key for info fra hovedgruppe
+      *
+     c     vhgrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vhgrl1_hogr
+     c                   kfld                    vhgrl1_hhgr
+      *
+      * Key for info fra undegruppe
+      *
+     c     vugrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vugrl1_uogr
+     c                   kfld                    vugrl1_uhgr
+     c                   kfld                    vugrl1_uugr
+      *
+      * Key for info fra enhet
+      *
+     c     vvenl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl1_vare
+     c                   kfld                    vvenl1_enhe
+      *
+      * Key for info fra enhet
+      *
+     c     vvenlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenlr_vare
+     c                   kfld                    vvenlr_enhe
+      *
+      * Key for info fra enhet
+      *
+     c     vvenlr_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenlr_vare
+      *
+      * Key for info fra blueridge export - sources
+      *
+     c     brsoir_key    klist
+     c                   kfld                    brsoir_smem
+     c                   kfld                    brsoir_sldo
+     c                   kfld                    brsoir_slag
+8.01  *
+8.01  * Key for info fra blueridge export - items
+8.01  *
+8.01 c     britir_key    klist
+8.01 c                   kfld                    britir_imem
+8.01 c                   kfld                    britir_ivar
+8.01 c                   kfld                    britir_ilag
+8.04  *
+8.04  * Key for info fra leverandør
+8.04  *
+8.04 c     rlevl1_key    klist
+8.04 c                   kfld                    w_firm
+8.04 c                   kfld                    rlevl1_levr
+8.05  *
+8.05  * Key for info fra leverandørregister (prisgriver)
+8.05  *
+8.05 c     jlevl3_key    klist
+8.05 c                   kfld                    jlevl3_enum
+8.14  *
+8.14  * Key for info fra logistikkvarenummer
+8.14  *
+8.14 c     jvkhl1_key    klist
+8.14 c                   kfld                    w_firm
+8.14 c                   kfld                    jvkhl1_kvnr
+8.19  *
+8.19  * Key for info fra pakningsregister (vekt og volum)
+8.19  *
+8.19 c     jvpkl2_key    klist
+8.19 c                   kfld                    jvpkl2_vare
+8.19 c                   kfld                    jvpkl2_ldor
+8.19 c                   kfld                    jvpkl2_enhe
+8.19 c                   kfld                    jvpkl2_pakn
+8.19  *
+8.19  * Key for info fra pakningsregister (vekt og volum)
+8.19  *
+8.19 c     jvpkl2_key2   klist
+8.19 c                   kfld                    jvpkl2_vare
+8.19 c                   kfld                    jvpkl2_ldor
+8.19 c                   kfld                    jvpkl2_enhe
+8.19  *
+8.19  * Key for info fra pakningsregister (vekt og volum)
+8.19  *
+8.19 c     jvpkl2_key3   klist
+8.19 c                   kfld                    jvpkl2_vare
+8.21  *
+8.21  * Key for info fra selger/saksbehandler
+8.21  *
+8.21 c     ra09l1_key    klist
+8.21 c                   kfld                    w_firm
+8.21 c                   kfld                    ra09l1_ikod
+8.21  *
+8.21  * Key for info fra distrikt
+8.21  *
+8.21 c     ra08l1_key    klist
+8.21 c                   kfld                    w_firm
+8.21 c                   kfld                    ra08l1_hkod
+8.22  *
+8.22  * Key for les på lagerregister - tilleggstabell
+8.22  *
+8.22 c     vla2i1_key    klist
+8.22 c                   kfld                    w_firm
+8.22 c                   kfld                    vla2i1_2var
+8.22 c                   kfld                    vla2i1_2lag
+      *
+8.03 c**                 eval      p_memb = *blanks
+     c                   eval      w_firm = l_firm
+      *
+     c                   time                    w_date_1
+     c                   subdur    1:*d          w_date_1
+9.01 c**                 subdur    2:*d          w_date_1
+     c                   time                    w_date
+     c                   time                    w_time
+     c                   time                    w_timestp
+8.11 c                   time                    w_date_2
+8.11 c                   subdur    2:*d          w_date_2
+9.01 c**                 subdur    3:*d          w_date_2
+      *
+     c                   eval      w_tmstp = %char(w_date)+'T'+
+     c                             %char(w_time)+'Z'
+      *
+     c                   eval      d_timstp = %char(w_timestp)
+     c                   eval      w_created = d_dato + 'T' +
+     c                             d_time + 'Z'
+      *
+     c                   endsr
+      *

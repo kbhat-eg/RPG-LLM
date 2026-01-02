@@ -1,0 +1,1455 @@
+     h decedit('0,') datedit(*dmy.) option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Program . . . . : FO949R
+      * Beskrivelse . . : Utskrift av Faktura på mail
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+3.10  * R3.10 230300 AMD  Lagt inn tilpasninger opp mot ny versjon av
+3.10  *                   ASPGPL med printerstyring / OCR. + lagt inn
+3.10  *                   utskrift av meldingslinje 3 fra rutineregister
+3.11  * R3.11 290800 AMD  Programmet er endret for å kunne dekke faktura
+3.11  *                   fra både ASOFAK og ASSHOP.  Dermed kuttes BO940R
+3.11  *                   ut, og alt dekkes opp av dette programmet.
+3.12  * R3.12 310800 AMD  Lagt inn mulighet for utprint av avdelingsnavn
+3.12  *                   i stedet for firmanavn dersom ønskelig
+3.13  * R3.13 110900 AMD  Dersom vare er hentet fra LVR settes det inn
+3.13  *                   2 desimaler som standard (finnes jo ikke i EVR)
+3.31  * R3.31 040101 AMD  Dato for mva er endret fra ordre- til fakturadato.
+3.32  * R3.32 270301 AMD  Lagt inn mulighet for å droppe firmaopplysninger
+      *                   fra fakturahode eller bankgiro.
+3.33  * R3.33 280301 AMD  Lagt inn mulighet for å styre om rabatter skal
+      *                   vises med prosent, eller som bare et nettobeløp.
+3.34  * R3.34 080601 AMD  Differensiert moms, 24 og 12 %
+3.35  * R3.35 011101 AMD  Flyttet innhenting av selger slik at den kan
+      *                   legges i ordrehode over varelinjer om ønskelig.
+3.36  * R3.36 170602 AMD  Lagt inn ny logikk for håndtering av printer-
+      *                   styringen via INFDS.  Variabler for linjetelling
+      *                   w_tell og w_test er fjernet
+5.04  * R5.04 161002 AMD  Kiddnummer hentes nå fra hist fakt reg.
+5.04  *                   Rutineregister styrer om kort eller lang kidd
+5.21  * R5.21 010903 AMD  Skriver tekstlinje 2, dersom utfyllt
+5.22  *                   + lagt inn skråstrek mellom telefon / telefax
+5.31  * R5.31 140205 GRO  Ikke skriv ut fakt. av typen eFaktura o.l.
+5.45  * R5.45 300605 AMD  Lagt inn dummy-parameter for å hindre
+5.45  *                   forurensning av parameter-lister
+5.99  * R5.99 310306 AMD  Egen versjon av fakturaprogrammet for sending
+5.99  *                   på mail.  Her kan det alltid tas utgangspunkt
+5.99  *                   i siste versjon av FO940 og kopiere denne til
+5.99  *                   FO949 og deretter legge på linjer merket 5.99
+6.10  * R6.10 070909 BSA  Utskriften endret pga utvidelse av referansefelter.
+6.nu  * R6.30 040614 bsa  Programmet gjennomgått mtp nummerutvidelser.
+6.30  * 6.30  220514 BKV  Utvidet parameterliste til FÅ707R
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     fvltyl1    if   e           k disk    rename(vltypfr:vltyl1r)
+     fvpkol1    if   e           k disk    rename(vpkopfr:vpkol1r)
+     fsohel1    if   e           k disk    rename(sohepfr:sohel1r)
+     fsodtl1    if   e           k disk    rename(sodtpfr:sodtl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+     faforl1    if   e           k disk    rename(aforpfr:aforl1r)
+5.31 ffnufl1    if   e           k disk    rename(fnufpfr:fnufl1r)
+5.31 ffmftl1    if   e           k disk    rename(fmftpfr:fmftl1r)
+3.36 ffo940p    o    e             printer infds(d_infds)
+      *
+      * Kroner i alfafelt
+      *
+     d akr             s              1    dim(9)
+      *
+      * Modulus 10 utregninger.
+      *
+     d a10             s              1    dim(24)
+     d m10             s              1  0 dim(24)
+     d u10             s              1  0 dim(12)
+      *
+      * Datastruktur parameter-inn
+      *
+     d                 ds
+6.nu d d_parm                        34
+     d  d_aarr                        4  0 overlay(d_parm)
+     d  d_otyp                        2    overlay(d_parm:5)
+6.nu d  d_ffnr                        8  0 overlay(d_parm:7)
+6.nu d  d_tfnr                        8  0 overlay(d_parm:15)
+6.nu d  d_prog                       10    overlay(d_parm:23)
+6.nu d  d_kopi                        1    overlay(d_parm:33)
+6.nu d  d_dumy                        1    overlay(d_parm:34)
+      *
+      * Datastruktur bankgiro fra
+      *
+     d                 ds
+     d d_ktoa                        11  0
+     d  d_kta1                        4  0 overlay(d_ktoa)
+     d  d_kta2                        2  0 overlay(d_ktoa:5)
+     d  d_kta3                        5  0 overlay(d_ktoa:7)
+      *
+      * Datastruktur bankgiro til
+      *
+     d                 ds
+     d d_ktob                        13
+     d  d_ktb1                        4    overlay(d_ktob)
+     d  d_blk1                        1    overlay(d_ktob:5)
+     d  d_ktb2                        2    overlay(d_ktob:6)
+     d  d_blk2                        1    overlay(d_ktob:8)
+     d  d_ktb3                        5    overlay(d_ktob:9)
+3.36  *
+3.36  * Informasjon fra printer-file
+3.36  *
+3.36 d d_infds         ds
+3.36 d  d_linnbr             367    368B 0
+3.36 d  d_pagnbr             369    372B 0
+      *
+      * Definering av local data area
+      *
+     d                uds
+     d d_hex1                760    779
+     d d_hex2                780    799
+     d d_ruti                800    809
+     d d_alin                856    858  0
+     d d_kidk                883    883  0
+     d d_ocrk                885    885  0
+     d d_firm                944    946  0
+      *
+      * Definering av parametere
+      *
+6.nu d p_parm          s             34
+      *
+      * Definering av variable i nøkler
+      *
+     d w_firm          s                   like(sofirm)
+     d sohel1_aarr     s                   like(soaarr)
+     d sohel1_binr     s                   like(sobinr)
+     d sohel1_numm     s                   like(sonumm)
+     d sohel1_suff     s                   like(sosuff)
+     d sodtl1_aarr     s                   like(sdaarr)
+     d sodtl1_binr     s                   like(sdbinr)
+     d sodtl1_numm     s                   like(sdnumm)
+     d sodtl1_suff     s                   like(sdsuff)
+     d sodtl1_ktxt     s                   like(sdktxt)
+     d sodtl1_line     s                   like(sdline)
+     d rkunl1_kund     s                   like(sokund)
+     d votyl1_otyp     s                   like(vaotyp)
+     d vltyl1_ltyp     s                   like(sdltyp)
+     d vpkol1_pkod     s                   like(vapkod)
+     d vvarl1_vare     s                   like(vvvare)
+5.31 d fnufl1_aarr     s                   like(fnuaar)
+5.31 d fnufl1_binr     s                   like(fnubin)
+5.31 d fmftl1_faty     s                   like(fmtfat)
+     d aforl1_ruti     s             10
+      *
+      * Definering av variable
+      *
+3.12 d w_prfi          s              1  0
+3.12 d w_ffir          s              3  0
+3.12 d w_avde          s              4  0
+3.12 d w_fnav          s             30
+3.12 d w_fad1          s             30
+3.12 d w_fad2          s             30
+3.12 d w_fste          s             30
+3.12 d w_fftx          s             30
+3.12 d w_tfax          s              8
+3.12 d w_ftlf          s             11
+3.12 d w_ffax          s             11
+6.30 d w_mail          s             50
+6.30 d w_weba          s             50
+     d w_csts          s              1
+     d w_ctx2          s             20
+     d w_krab          s              4  2
+     d w_mvaf          s             10  9
+3.34 d w_mv2f          s             10  9
+     d w_mvas          s              6  2
+3.34 d w_mv2s          s              6  2
+     d w_mvat          s              5  4
+3.34 d w_mv2t          s              5  4
+     d w_mvax          s             30
+     d w_qmva          s              1
+     d w_retk          s              1
+     d w_txt2          s             20
+     d w_itxt          s             20
+     d w_ffda          s               d   datfmt(*iso)
+     d w_binr          s                   like(sobinr)
+     d w_totb          s                   like(sorkop)
+     d w_kund          s                   like(faakun)
+5.31 d b_nopr          s              1    inz(*off)
+      *                                                                -----
+     d w1rab1          s                   like(sdsapr)
+     d w6mvab          s                   like(sorkop)
+     d w6mvag          s                   like(sorkop)
+3.34 d w6mv2g          s                   like(sorkop)
+     d w6rkof          s                   like(sorkof)
+3.34 d w6rkoh          s                   like(sorkoh)
+     d w6rkop          s                   like(sorkop)
+     d w6rk1f          s                   like(sork1f)
+3.34 d w6rk1h          s                   like(sork1h)
+     d w6rk1p          s                   like(sork1p)
+     d w6rk2f          s                   like(sork2f)
+3.34 d w6rk2h          s                   like(sork2h)
+     d w6rk2p          s                   like(sork2p)
+     d w6salf          s                   like(sosalf)
+3.34 d w6salh          s                   like(sosalh)
+     d w6salp          s                   like(sosalp)
+     d dsctxt          s             20
+     d fa10            s              1  0
+     d fcycle          s              1  0
+     d kidd10          s             24
+     d ksif10          s              1  0
+     d modr10          s              1  0
+     d mods10          s              3  0
+     d n               s              2  0
+     d xx              s              2  0
+     d yy              s              2  0
+3.34 d w_mvag          s                   like(sosalp)
+3.34 d w_tmva          s                   like(sosalp)
+     d wlbelw          s                   like(sdsalg)
+     d wwwsid          s                   like(sowsid)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Definering av formater
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Benyttede formater
+      * - - - - - - - - - -
+      *
+      * A1HDR  - Heading A1 på rapport
+      * A2HDR  - Heading A2 på rapport
+      * A3HDR  - Heading A3 på rapport, Ordrehode Deres ref + rekv.
+      * A4HDR  - Heading A4 på rapport, Ordrehode over varelinje
+      * D1DET  - Detail  D1 på rapport, Varelinje
+      * D2DET  - Detail  D2 på rapport, Tekstlinje
+      * E1DET  - Detail  E1 på rapport, Tekstlinje
+      * O1DET  - Detail  O1 på rapport, Overføring til/fra neste side
+      * R1TOT  - Total   R1 på rapport, ordrerabatt
+      * T1TOT  - Total   T1 på rapport
+      * P1GIR  - Bankgiro hode (felles)
+      * P3GIR  - Bankgiro beløpslinje dersom ikke OCR
+      * P4GIR  - Bankgiro beløpslinje dersom OCR for IPDS-skriver
+      * P5GIR  - Bankgiro beløpslinje dersom OCR for AXis-boks
+      *
+      *
+      * Forklaring på variabler
+      * - - - - - - - - - - - -
+      *
+      * D1ANT0 - Antall med 0 desimaler
+      * D1ANT1 - Antall med 1 desimaler
+      * D1ANT2 - Antall med 2 desimaler
+      * D1ANT3 - Antall med 3 desimaler
+      * D1BPRI - Brutto pris
+      * D1NBEL - Netto  beløp
+      * D1RABP - Rabatt i prosent (Sum prosent 1 og 2)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Styre-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Initierings-rutine
+      *
+     c     fcycle        caseq     *zero         xstrsr
+     c                   endcs
+      *
+      * Behandle ordrehode
+      *
+     c     htag01        tag
+     c     *in61         cabeq     *on           xslutt                         End of file
+     c     sofirm        cabne     w_firm        xslutt                         Nytt firma
+     c     soaarr        cabne     d_aarr        xslutt                         Nytt år
+     c     sobinr        cabgt     d_tfnr        xslutt                         Tilnr. passert
+     c     sootyp        cabne     d_otyp        ntag03                         Uakt. ordretype
+5.31  *
+5.31  * Sjekk utg. fakt.logg - sjekk om faktura evt ikke skal printes
+5.31  *
+5.31 c                   exsr      sjk_uf_log
+5.31 c                   if        b_nopr = *on
+5.31 c                   read      sohel1                                 61
+5.31 c                   goto      htag01
+5.31 c                   endif
+5.31  *
+     c                   if        sobinr <> w_binr
+     c                   exsr      xhode1                                       Ordrehode 1
+     c                   else
+     c                   exsr      xhode2                                       Ordrehode 2 -->
+     c                   endif
+     c                   eval      w_binr = sobinr
+      *
+      * Behandle varelinje
+      *
+     c                   eval      sodtl1_binr = sobinr
+     c                   eval      sodtl1_numm = sonumm
+     c                   eval      sodtl1_suff = sosuff
+     c                   eval      sodtl1_ktxt = *zero
+     c                   eval      sodtl1_line = *zero
+      *
+     c     sodtl1_key    setll     sodtl1
+     c                   read      sodtl1                                 62
+      *
+     c     vtag01        tag
+     c     *in62         cabeq     *on           ntag02                         End of file
+     c     sdfirm        cabne     sofirm        ntag02                         Nytt firma
+     c     sdbinr        cabne     sobinr        ntag02                         Ny faktura
+     c     sdnumm        cabne     sonumm        ntag03                         Ny ordre
+     c     sdsuff        cabne     sosuff        ntag03                         Ny ordre
+      *
+     c                   exsr      xvare1
+     c                   read      sodtl1                                 62
+     c                   goto      vtag01
+      *
+      * Ny faktura
+      *
+     c     ntag02        tag
+     c                   eval      a1side = 1
+     c                   exsr      xorrab
+     c                   exsr      xtotal
+     c                   read      sohel1                                 61
+     c                   goto      htag01
+      *
+      * Ny ordre
+      *
+     c     ntag03        tag
+     c                   exsr      xorrab
+     c                   read      sohel1                                 61
+     c                   goto      htag01
+      *
+      * Ferdig
+      *
+     c     xslutt        tag
+     c                   eval      *inlr = *on
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * A1HDR Behandle heading A1 + A2
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xhode1        begsr
+      *
+      * Null-stilling av
+      * variabler
+      *
+     c                   eval      o1trsp = 0
+     c                   eval      w6salp = 0
+3.34 c                   eval      w6salh = 0
+     c                   eval      w6salf = 0
+     c                   eval      w6rk1p = 0
+3.34 c                   eval      w6rk1h = 0
+     c                   eval      w6rk1f = 0
+     c                   eval      w6rk2p = 0
+3.34 c                   eval      w6rk2h = 0
+     c                   eval      w6rk2f = 0
+     c                   eval      w6rkop = 0
+3.34 c                   eval      w6rkoh = 0
+     c                   eval      w6rkof = 0
+     c                   eval      w6mvag = 0
+3.34 c                   eval      w6mv2g = 0
+3.34 c                   eval      t2tmva = 0                                   Mva sats
+      *
+     c                   exsr      xhodef
+      *
+      * Snu fakturadato
+      *
+     c                   if        sofkda <> *loval
+     c     *dmy          move      sofkda        a1fkda
+     c                   endif
+      *
+      * Snu forfallsdato
+      *
+     c                   if        soffda <> *loval
+     c     *dmy          move      soffda        a1ffda
+     c                   endif
+      *
+      * Legg inn ordrenummer
+      *
+     c                   move      sonumm        a1numm
+     c                   movel     '/'           a1suff
+     c                   move      sosuff        a1suff
+      *
+      * Hente inn kunderegister
+      *
+     c                   eval      rkunl1_kund = sokund
+     c     rkunl1_key    chain     rkunl1r                            64
+     c                   eval      a1kund = sokund
+     c                   eval      a1navn = rknavn
+     c                   eval      a1gate = rkgate
+     c                   eval      a1adr2 = rkadr2
+     c                   eval      a1sted = rksted
+      *
+      * Sjekke tilbuds-kunden
+      *
+     c                   if        sokund = w_kund
+     c                   eval      sokund = solkun
+     c                   eval      a1navn = sonavn
+     c                   eval      a1gate = soadr1
+     c                   eval      a1adr2 = soadr2
+     c                   eval      a1sted = sosted
+     c                   eval      solkun = *zero
+     c                   eval      sonavn = *blank
+     c                   eval      soadr1 = *blank
+     c                   eval      soadr2 = *blank
+     c                   eval      sosted = *blank
+     c                   endif
+      *
+      * Finner hvilken mva-sats
+      * som skal benyttes
+      *
+     c                   call      'FÅ705R'
+     c                   parm                    w_firm
+3.31 c                   parm                    sofkda
+     c                   parm                    w_mvas
+     c                   parm                    w_mvat
+     c                   parm                    w_mvaf
+3.34  *
+3.34  * Finner hvilken mva-sats
+3.34  * som skal benyttes (for halv sats)
+3.34  *
+3.34 c                   call      'FÅ706R'
+3.34 c                   parm                    w_firm
+3.34 c                   parm                    sofkda
+3.34 c                   parm                    w_mv2s
+3.34 c                   parm                    w_mv2t
+3.34 c                   parm                    w_mv2f
+      *
+      * Hente inn betalings-
+      * betingelser
+      *
+     c                   call      'FÅ703R'
+     c                   parm                    w_firm
+     c                   parm                    sobetb
+     c                   parm                    sofkda
+     c                   parm                    w_csts
+     c                   parm                    w_ffda
+     c                   parm                    a1ctxt
+     c                   parm                    w_ctx2
+      *
+      * Er det registrert
+      * leveringsadresse?
+      *
+     c                   eval      *in31 = *off
+     c                   if        sonavn <> *blank                                      .....
+     c                   eval      *in31 = *on                                               .
+     c                   eval      a2navn = sonavn                                           .
+     c                   eval      a2adr1 = soadr1                                           .
+     c                   eval      a2adr2 = soadr2                                           .
+     c                   eval      a2sted = sosted                                           .
+     c                   endif                                                           .....
+      *
+      * Er det registrert
+      * leveringsdato?
+      *
+     c                   eval      *in32 = *off
+     c                   if        soldat <> *loval
+     c                   eval      *in32 = *on
+     c                   endif
+      *
+      * Er det registrert
+      * leveringsmåte?
+      *
+     c                   eval      *in34 = *off
+     c                   if        solmtx <> *blank
+     c                   eval      *in34 = *on
+     c                   eval      a1lmtx = solmtx
+     c                   endif
+      *
+      * Flytte øvrige felter
+      *
+     c                   eval      a1binr = sobinr
+      ***                eval      a1selg = soselg
+      *                  eval      a1betb = sobetb
+3.12  *
+3.12  *  Hent inn firma/avd. opplysninger dersom
+3.12  *  kode for det er satt i rutineregister
+3.12  *
+3.12 c                   if        afprfi = 1 or
+3.12 c                             afprfi = 2
+3.12 c                   eval      w_prfi = afprfi
+3.12 c                   eval      w_ffir = w_firm
+3.12 c                   eval      w_avde = soavde
+3.12  *
+3.12 c                   call      'FÅ707R'
+3.12 c                   parm                    w_prfi
+3.12 c                   parm                    w_ffir
+3.12 c                   parm                    w_avde
+3.12 c                   parm                    w_fnav
+3.12 c                   parm                    w_fad1
+3.12 c                   parm                    w_fad2
+3.12 c                   parm                    w_fste
+3.12 c                   parm                    w_fftx
+3.12 c                   parm                    w_tfax
+3.12 c                   parm                    w_ftlf
+3.12 c                   parm                    w_ffax
+6.30 c                   parm                    w_mail
+6.30 c                   parm                    w_weba
+3.12  *
+3.12 c                   eval      a1fnav = w_fnav
+3.12 c                   eval      a1fad1 = w_fad1
+3.12 c                   eval      a1fad2 = w_fad2
+3.12 c                   eval      a1fste = w_fste
+3.12 c                   eval      a1fftx = w_fftx
+3.12 c                   eval      a1tfax = w_tfax
+3.12 c                   eval      a1ftlf = w_ftlf
+3.12 c                   eval      a1ffax = w_ffax
+3.32 c                   eval      a2fnav = w_fnav
+3.32 c                   eval      a2fad1 = w_fad1
+3.32 c                   eval      a2fad2 = w_fad2
+3.32 c                   eval      a2fste = w_fste
+3.12 c                   endif
+3.32  *
+3.32  * Skal firmanavn droppes på faktura/bankgiro ?
+3.32  *
+3.32 c                   if        faaprt = 1
+3.32 c                   eval      a1fnav = *blank
+3.32 c                   eval      a1fad1 = *blank
+3.32 c                   eval      a1fad2 = *blank
+3.32 c                   eval      a1fste = *blank
+3.32 c                   eval      a1fftx = *blank
+3.32 c                   eval      a1tfax = *blank
+3.32 c                   eval      a1ftlf = *blank
+3.32 c                   eval      a1ffax = *blank
+3.32 c                   endif
+3.32 c                   if        faaprt = 2
+3.32 c                   eval      a2fnav = *blank
+3.32 c                   eval      a2fad1 = *blank
+3.32 c                   eval      a2fad2 = *blank
+3.32 c                   eval      a2fste = *blank
+3.32 c                   eval      p2fbgi = *blank
+3.32 c                   eval      p1fbgi = *zero
+3.32 c                   endif
+5.22  *
+5.22  * Legger inn '/' mellom
+5.22  * telefon og telefax
+5.22  *
+5.22 c                   eval      a1skra =  ' '
+5.22 c                   if        a1ftlf <> *blank and
+5.22 c                             a1ffax <> *blank
+5.22 c                   eval      a1skra =  '/'
+5.22 c                   endif
+      *
+      * Skrive heading
+      *
+3.36 c                   write(e)  a1hdr
+3.36 c                   write(e)  a2hdr
+      *
+      * Skriv heading 1
+      * over varelinjer
+      *
+     c                   eval      *in40 = *off
+     c                   if        *in33 = *on
+     c                   eval      *in40 = *on
+     c                   endif
+     c                   if        *in35 = *on
+     c                   eval      *in40 = *on
+     c                   endif
+     c                   if        *in40 = *on
+3.36 c                   write(e)  a3hdr
+     c                   endif
+      *
+      * Skriv heading 2
+      * over varelinjer
+      *
+3.36 c                   write(e)  a4hdr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Flere ordre pr.faktura
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xhode2        begsr
+      *
+     c                   exsr      xhodef
+      *
+      * Legge inn ordrenr
+      * og suffix
+      *
+     c                   move      sonumm        a1numm
+     c                   movel     '/'           a1suff
+     c                   move      sosuff        a1suff
+      *
+      * Skriv heading 1
+      * over varelinjer
+      *
+     c                   eval      *in40 = *off
+     c                   if        *in33 = *on
+     c                   eval      *in40 = *on
+     c                   endif
+     c                   if        *in35 = *on
+     c                   eval      *in40 = *on
+     c                   endif
+     c                   if        *in40 = *on
+3.36 c                   write(e)  a3hdr
+     c                   endif
+      *
+      * Er det overflow ?
+      *
+3.36 c                   if        %error = '1'
+3.36 c                   exsr      xovrfl
+3.36 c                   endif
+      *
+      * Skriv heading 2
+      * over varelinjer
+      *
+3.36 c                   write(e)  a4hdr
+      *
+      * Er det overflow ?
+      *
+3.36 c                   if        %error = '1'
+3.36 c                   exsr      xovrfl
+3.36 c                   endif
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Felles rutine for XHODE1 og XHODE2
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xhodef        begsr
+3.11  *
+3.11  * Sjekk om dette er faktura
+3.11  * fra butikk-systemet
+3.11  *
+3.11 c                   if        soshop = 1
+3.11 c                   eval      *in51  = *on
+3.11 c                   eval      a1wsid = sowsid
+3.11 c     *hms          move      sotime        a1time
+3.11 c                   endif
+      *
+      * Summere salg og
+      * rabatter
+      *
+     c                   eval      a1vref = *blank
+     c                   eval      a1dref = *blank
+     c                   eval      a1rekv = *blank
+      *
+     c                   eval      w6salp = w6salp + sosalp
+3.34 c                   eval      w6salh = w6salh + sosalh
+     c                   eval      w6salf = w6salf + sosalf
+     c                   eval      w6rk1p = w6rk1p + sork1p
+3.34 c                   eval      w6rk1h = w6rk1h + sork1h
+     c                   eval      w6rk1f = w6rk1f + sork1f
+     c                   eval      w6rk2p = w6rk2p + sork2p
+3.34 c                   eval      w6rk2h = w6rk2h + sork2h
+     c                   eval      w6rk2f = w6rk2f + sork2f
+     c                   eval      w6rkop = w6rkop + sorkop
+3.34 c                   eval      w6rkoh = w6rkoh + sorkoh
+     c                   eval      w6rkof = w6rkof + sorkof
+      *
+      * Snu ordredato
+      *
+     c                   if        sobdat <> *loval
+     c     *dmy          move      sobdat        a1bdat
+     c                   endif
+      *
+      * Er det registrert
+      * kundens referanse?
+      *
+     c                   eval      *in33 = *off
+     c                   if        sodref <> *blank
+     c                   eval      *in33 = *on
+     c                   eval      a1dref = sodref
+     c                   endif
+      *
+      * Er det registrert
+      * rekvisisjon?
+      *
+     c                   eval      *in35 = *off
+     c                   if        sorekv <> *blank
+     c                   eval      *in35 = *on
+     c                   eval      a1rekv = sorekv
+     c                   endif
+      *
+      * Er det registrert
+      * vår referanse?
+      *
+     c                   eval      *in38 = *off
+     c                   if        sovref <> *blank
+     c                   eval      *in38 = *on
+     c                   eval      a1vref = sovref
+     c                   endif
+3.35  *
+3.35  * Hent tekst for selger
+3.35  *
+3.35 c                   call      'RS709R'
+3.35 c                   parm                    w_retk
+3.35 c                   parm                    soselg
+3.35 c                   parm                    w_itxt
+3.35 c                   eval      a1selg = soselg
+3.35 c                   eval      a1stxt = w_itxt
+3.33  *
+3.33  * Skal faktura skrives uten rabatter,
+3.33  * kun med nettobeløp ?
+3.33  *
+3.33 c                   eval      *in39  = *off
+3.33 c                   if        soneto = 1
+3.33 c                   eval      *in39  = *on
+3.33 c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * D1DET Behandle detail D1
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xvare1        begsr
+      *
+      * Nullstilling av variabler
+      *
+     c                   eval      d1vare = *blank
+     c                   eval      d1tek1 = *blank
+     c                   eval      d1tek2 = *blank
+     c                   eval      d1enh1 = *blank
+     c                   eval      d1tine = *blank
+     c                   eval      d1info = *blank
+     c                   eval      d1ant0 = *zero
+     c                   eval      d1ant1 = *zero
+     c                   eval      d1ant2 = *zero
+     c                   eval      d1ant3 = *zero
+     c                   eval      *in44 = *off
+     c                   eval      *in46 = *off
+      *
+      * Sjekker om tekstlinjer
+      * fra F11
+      *
+     c     sdktxt        cabeq     1             tag02a
+     c     sdktxt        cabeq     5             tag02a
+      *
+      * Hent linje-type
+      *
+     c                   eval      vltyl1_ltyp = sdltyp
+     c     vltyl1_key    chain     vltyl1r                            68
+      *
+      * Sjekker om linjen ikke skrives på ordretypen
+      *
+     c     sdotyp        cabeq     valo01        vslutt
+      *
+     c     sdotyp        cabeq     valo02        vslutt
+      *
+     c     sdotyp        cabeq     valo03        vslutt
+      *
+     c     sdotyp        cabeq     valo04        vslutt
+      *
+      * Tekstlinjer på
+      * varelinjenivå ? (F2)
+      *
+     c     valktx        cabeq     1             tag02a
+      *
+      * Oppslag mot vareregister
+      *
+     c                   eval      vvarl1_vare = sdvare
+     c     vvarl1_key    chain     vvarl1r                            69
+      *
+      * Sjekk om tilbud/netto-pris
+      *
+     c                   if        sdrab1 = *zero
+     c                   eval      *in46 = *on
+     c                   eval      d1tine = *blank
+     c                   eval      vpkol1_pkod = sdkpri
+     c     vpkol1_key    chain     vpkol1r                            69
+     c                   if        *in69 = *off
+     c                   eval      d1tine = vaptxt
+     c                   endif
+     c                   endif
+      *
+      * Sjekk om beløp ikke skal
+      * inngå i ordrerabattgrl.
+      *
+     c                   if        sdkord = 1
+     c                   eval      d1info = '*'
+     c                   endif
+      *
+      * Sjekk om avgiftsfri
+      *
+     c                   if        sdkmva = 1
+     c                   eval      d1info = 'F'
+     c                   endif
+3.34  *
+3.34  * Sjekk om det er halv moms
+3.34  *
+3.34 c                   if        sdkmva = 2
+3.34 c                   eval      d1info = 'H'
+3.34 c                   endif
+3.13  *
+3.13  * Dersom vare er hentet fra LVR,
+3.13  * sett inn  2 desimaler som std.
+3.13  *
+3.13 c                   if        sdlvre = 1
+3.13 c                   eval      vvdesi = 2
+3.13 c                   endif
+      *
+      * Test på antall desimaler
+      *
+     c                   eval      *in40 = vvdesi = 0
+     c                   eval      *in41 = vvdesi = 1
+     c                   eval      *in42 = vvdesi = 2
+     c                   eval      *in43 = vvdesi = 3
+     c                   if        *in40 = *on
+     c                   eval      d1ant0 = sdanta
+     c                   endif
+     c                   if        *in41 = *on
+     c                   eval      d1ant1 = sdanta
+     c                   endif
+     c                   if        *in42 = *on
+     c                   eval      d1ant2 = sdanta
+     c                   endif
+     c                   if        *in43 = *on
+     c                   eval      d1ant3 = sdanta
+     c                   endif
+      *
+      * Varelinje
+      *
+     c                   eval      d1vare = sdvare
+     c                   eval      d1enh1 = sdenh1
+     c                   movel     sdtek1        d1tek1
+     c                   move      '     '       d1tek1
+      *
+      * Brutto pris
+      *
+     c                   eval      d1bpri = sdsapr
+      *
+      * Beregne snittrabatt
+      *
+     c                   eval      w1rab1 = 100 - sdrab1
+     c                   eval      w1rab1 = w1rab1 * sdrab2
+     c                   eval      w1rab1 = w1rab1 / 100
+     c                   eval      w1rab1 = w1rab1 + sdrab1
+     c                   eval      d1rabp = w1rab1
+3.33  *
+3.33  * Skal rabatter vises som nettobeløp
+3.33  * uten prosentsatser ?
+3.33  *
+3.33 c                   if        *in39  = *on
+3.33 c                   eval      d1bpri = d1bpri -
+3.33 c                                     (d1bpri * d1rabp / 100)
+3.33 c                   endif
+      *
+      * Netto beløp
+      *
+     c                   eval      d1nbel = sdsalg
+     c                   eval      d1nbel = d1nbel - sdrkr1
+     c                   eval      d1nbel = d1nbel - sdrkr2
+      *
+      * Akkumuler til overføringssum
+      *
+     c                   eval      o1trsp = o1trsp + d1nbel
+      *
+      * Skriv varelinjer/
+      * tekstlinjer
+      *
+     c     tag02a        tag
+      *
+      * Skriv tekstlinjer
+      * fra F11
+      *
+     c                   if        sdtek1 = *blank
+     c                   if        sdktxt = 1
+     c                             or sdktxt = 5
+     c                   goto      tag03a
+     c                   endif
+     c                   endif
+      *
+     c                   if        sdktxt = 1
+     c                             or sdktxt = 5
+     c                   movel     sdtek1        d1tek1
+     c                   movel     sdtek2        d1tek2
+     c                   eval      *in44 = *on
+3.36 c                   write(e)  d2det
+     c                   goto      tag03a
+     c                   endif
+      *
+      * Skriv varelinjer
+      * ordinær/tekst
+      *
+     c                   if        valktx <> 1
+3.36 c                   write(e)  d1det
+     c                   else
+     c                   movel     sdtek1        d1tek1
+     c                   movel     sdtek2        d1tek2
+     c                   eval      *in44 = *on
+3.36 c                   write(e)  d2det
+     c                   endif
+5.21  *
+5.21  * Er det overflow ?
+5.21  *
+5.21 c                   if        %error = '1'
+5.21 c                   exsr      xovrfl
+5.21 c                   endif
+5.21  *
+5.21  * Skrive tekst 2,
+5.21  * dersom den er oppgitt
+5.21  *
+5.21 c                   if        valktx <> 1
+5.21 c                   if        sdtek2 <> *blank
+5.21 c                   eval      d1tek2 = sdtek2
+5.21 c                   write(e)  d1det2
+5.21 c                   endif
+5.21 c                   endif
+      *
+     c     tag03a        tag
+      *
+      * Er det overflow ?
+      *
+3.36 c                   if        %error = '1'
+3.36 c                   exsr      xovrfl
+3.36 c                   endif
+      *
+     c     vslutt        endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for ordre-rabatt
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xorrab        begsr
+      *
+     c                   if        sorabp <> *zero
+     c                   eval      r1rabp = sorabp
+     c                   eval      r1rabg = sorbgp + sorbgf
+3.34 c                   eval      r1rabg = r1rabg + sorbgh
+     c                   eval      r1rabb = sorkop + sorkof
+3.34 c                   eval      r1rabb = r1rabb + sorkoh
+     c                   eval      r1rabb = r1rabb * -1
+3.36 c                   write(e)  r1tot
+     c                   endif
+3.36  *
+3.36  * Er det overflow ?
+3.36  *
+3.36 c                   if        %error = '1'
+3.36 c                   exsr      xovrfl
+3.36 c                   endif
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * T1TOT Behandle total T1
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Null-stille variabler
+      *
+     c     xtotal        begsr
+     c                   eval      t1mvas = 0                                   Mva sats
+3.34 c                   eval      t2mvas = 0                                   Mva sats
+3.34 c                   eval      w_tmva = 0                                   Mva sats
+3.34 c                   eval      *in49 = *off                                 Mva sats
+      *
+      * Grunnlag mva.
+      *
+3.34 c                   eval      w_mvag = w6salp - w6rk1p                     Mva. grunnl.
+3.34 c                   eval      w_mvag = w_mvag - w6rk2p
+3.34 c                   eval      w_mvag = w_mvag - w6rkop
+3.34  *
+3.34  * Grunnlag mva. 1/2 sats
+3.34  *
+3.34 c                   eval      t2mvag = w6salh - w6rk1h                     Mva. grunnl.
+3.34 c                   eval      t2mvag = t2mvag - w6rk2h
+3.34 c                   eval      t2mvag = t2mvag - w6rkoh
+      *
+      * Netto beløp
+      *
+     c                   eval      t1tnet = w6salp + w6salf                     Nto. beløp
+3.34 c                   eval      t1tnet = t1tnet + w6salh                     Nto. beløp
+     c                   eval      t1tnet = t1tnet - w6rk1p
+3.34 c                   eval      t1tnet = t1tnet - w6rk1h
+     c                   eval      t1tnet = t1tnet - w6rk1f
+     c                   eval      t1tnet = t1tnet - w6rk2p
+3.34 c                   eval      t1tnet = t1tnet - w6rk2h
+     c                   eval      t1tnet = t1tnet - w6rk2f
+     c                   eval      t1tnet = t1tnet - w6rkop
+3.34 c                   eval      t1tnet = t1tnet - w6rkoh
+     c                   eval      t1tnet = t1tnet - w6rkof
+      *
+      * Skal mva. beregnes ?
+      *
+     c                   if        w6salp <> 0
+3.34 c                   eval(h)   w_totb = w_mvag * w_mvat                     Mva. beløp
+3.34 c                   eval      w_tmva = w_totb - w_mvag
+3.34 c                   eval      t2mvas = w_mvas
+     c                   else
+3.34 c                   eval      w_mvag = 0
+     c                   endif
+3.34  *
+3.34  * Finnes det halv moms ?
+3.34  *
+3.34 c                   if        t2mvag <> 0
+3.34 c                   eval(h)   w_totb = t2mvag * w_mv2t                     Mva. beløp
+3.34 c                   eval      t2tmva = w_totb - t2mvag
+3.34 c                   eval      t1mvas = w_mvas
+3.34 c                   eval      t2mvas = w_mv2s
+3.34 c                   endif
+3.34  *
+3.34  * Skal begge satser skrives ?
+3.34  *
+3.34 c                   if        w_mvag <> 0
+3.34 c                   if        t2mvag <> 0
+3.34 c                   eval      *in49  = *on
+3.34 c                   endif
+3.34 c                   endif
+3.34  *
+3.34  * Styre skriving avhengig av om
+3.34  * det er representert en eller
+3.34  * to moms-satser.
+3.34  *
+3.34 c                   eval      t1mvag = w_mvag
+3.34 c                   eval      t1tmva = w_tmva
+3.34 c                   if        w_mvag = 0
+3.34 c                   if        t2mvag <> 0
+3.34 c                   eval      t1mvag = t2mvag
+3.34 c                   eval      t1tmva = t2tmva
+3.34 c                   eval      t2mvag = 0
+3.34 c                   eval      t2tmva = 0
+3.34 c                   endif
+3.34 c                   endif
+      *
+      * Legg ut eksakt fakturabeløp
+      *
+     c                   eval      t1totb = sofsum
+      *
+      * Finne ut om det er
+      * plass til å skrive
+      * avslutning uten å
+      * skifte til ny side
+      * først.
+      *
+      * Skrive ny heading ?
+      *
+3.36 c                   if        (d_linnbr + 2) > 41
+3.36 c                   write(e)  a1hdr
+3.36 c                   write(e)  a2hdr
+     c                   endif
+      *
+5.04  * Klargjøring av kidd-nummer
+5.04  *
+5.04 c                   if        d_kidk <> 0
+5.04 c                   eval      t1hkid = 'KID-nummer'
+5.04 c                   endif
+5.04  *
+5.04 c                   if        d_kidk = 1
+5.04 c                   movel     sokidd        p1kkid
+5.04 c                   movel     sokidd        t1kkid
+5.04 c                   endif
+5.04  *
+5.04 c                   if        d_kidk = 2
+5.04 c                   movel     sokidr        p1kkid
+5.04 c                   movel     sokidr        t1kkid
+5.04 c                   endif
+      *
+      * Skrive totalsum
+      *
+     c                   movel     t1totb        p1kron
+     c                   move      t1totb        p1Ører
+3.36 c                   write(e)  t1tot
+      *
+      * Beregne modulus 10
+      * på beløpsfeltet
+      *
+     c                   move      *blank        kidd10
+     c                   move      t1totb        kidd10
+     c                   exsr      mod10
+     c                   move      ksif10        p1bsif
+      *
+      * Fjerne foranstilte nuller
+      * i et alfanummerisk felt
+      *
+     c                   movea     p1kron        akr
+     c                   eval      n = 1
+     c                   dow       akr(n) = '0'
+     c                   eval      akr(n) = ' '
+     c                   eval      n = n + 1
+     c     n             cabgt     9             xsorti
+     c                   enddo
+     c     xsorti        tag
+     c                   movea     akr(1)        p1kron
+      *
+      * Skrive bankgiro kun dersom:
+      *  - Totalbeløp på faktura er større enn 0
+      *  - Betalingsmåte fra kunderegister   = 1
+      *  - Kode påhengt bankgiro rutinereg   = 2
+      *
+     c                   if        t1totb > 0
+     c                             and rkbetm = 1
+     c                             and afbgir = 2
+      *
+      * Skrive bankgiro felles informasjon
+      *
+3.36 c                   write(e)  p1gir
+      *
+      * Skrive bankgiro H-linje dersom ikke OCR
+      *
+     c                   if        d_ocrk = 0
+3.36 c                   write(e)  p3gir
+     c                   endif
+      *
+      * Skrive bankgiro H-linje dersom OCR og 4224
+      *
+     c                   if        d_ocrk = 1
+3.36 c                   write(e)  p4gir
+     c                   endif
+      *
+      * Skrive bankgiro H-linje dersom OCR og Axix-boks
+      *
+     c                   if        d_ocrk = 2
+3.10 c                   eval      p1hex1 = d_hex1
+3.10 c                   eval      p1hex2 = d_hex2
+3.36 c                   write(e)  p5gir
+     c                   endif
+      *
+      * Skrive bankgiro H-linje dersom 5224 skriver
+      *
+     c                   if        d_ocrk = 3
+3.36 c                   write(e)  p6gir
+     c                   endif
+      *
+      * Skrive bankgiro H-linje dersom OCR og Nett-print
+      *
+     c                   if        d_ocrk = 4
+     c                   eval      p1hex1 = d_hex1
+     c                   eval      p1hex2 = d_hex2
+3.36 c                   write(e)  p7gir
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for overflow
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xovrfl        begsr
+      *
+     c                   eval      a1side = a1side + 1
+     c                   eval      *in45 = *on
+3.36 c                   write(e)  o1det
+3.36 c                   write(e)  a1hdr
+3.36 c                   write(e)  a2hdr
+     c                   eval      *in45 = *off
+3.36 c                   write(e)  o1det
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * MDMEMBER *** Kopiert inn fra MODUS10 copy-member. ***
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Husk!! inn før /COPY av MODUS10 i ditt program følgende
+      * statmemnt:
+      *                    MOVE *BLANK    KIDD10 24
+      *                    MOVE 'felt'    KIDD10
+      *  'felt' må byttes ut med det felt som det i hvert tilfelle
+      *         skal beregnes MODULUS 10 av.
+      *
+      *     Kall av subrutine MOD10 for modulus-10 utregning.
+      *
+      *                    EXSR MOD10
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Husk!! Felt KSIF10, KIDD10 inneholder h.h.v. sjekksiffer/
+      *        utregningssiffer (beløp-kundeident.felt e.l.).
+      *        Dersom det i programmet er flere modulus 10 sjekker
+      *        må disse feltene bevares i egne opprettede felt, fordi
+      *        de vil endres ved hver modulus 10 sjekk da de brukes
+      *        omigjen.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     mod10         begsr
+      *
+      * MDMEMBER *** Kopiert inn fra MODUS10 copy-member. ***
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *        Start subrutinen for modulus-10 utregning.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     C                   Z-ADD     1             XX                2 0                         R2.04
+     C                   Z-ADD     2             YY                2 0                         R2.04
+     C                   Z-ADD     2             FA10              1 0
+     C                   Z-ADD     0             MODS10            3 0
+     C                   Z-ADD     0             MODR10            1 0
+     C                   Z-ADD     0             KSIF10            1 0
+      *
+      * På grunn av forskjeller mellom S/36 og AS400
+      * må MOVEA gå via et alfa-array før det legges
+      * over i et nummerisk array.
+      *
+     C                   MOVEA     KIDD10        A10                            Tollegg
+     C                   MOVE      A10           M10                            Endring
+      *
+     C     UTR10         TAG
+      *
+     C     XX            IFGT      12                                                          R2.04
+     C                   Z-ADD     1             XX                                            R2.04
+     C                   Z-ADD     1             YY                                            R2.04
+     C                   GOTO      ADD10
+     C                   ELSE
+     C     M10(YY)       MULT      FA10          U10(XX)                                       R2.04
+     C     M10(YY)       IFGT      4                                                           R2.04
+     C                   ADD       1             MODS10
+     C                   END
+     C                   ADD       1             XX                                            R2.04
+     C                   ADD       2             YY                                            R2.04
+     C                   GOTO      UTR10
+     C                   END
+      *
+     C     ADD10         TAG
+      *
+     C     XX            IFGT      12                                                          R2.04
+     C                   GOTO      SIF10
+     C                   END
+     C                   ADD       U10(XX)       MODS10                                        R2.04
+     C                   ADD       M10(YY)       MODS10                                        R2.04
+     C                   ADD       1             XX                                            R2.04
+     C                   ADD       2             YY                                            R2.04
+      *
+     C                   GOTO      ADD10
+      *
+     C     SIF10         TAG
+     C                   MOVE      MODS10        MODR10
+     C     10            SUB       MODR10        KSIF10
+      *
+     c                   endsr
+5.31  *
+5.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.31  * Subrutine for kontroll av utgående fakturalogg / fakturatype
+5.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.31  *
+5.31 c     sjk_uf_log    begsr
+5.31  *
+5.31 c                   eval      b_nopr = *off
+5.31  *
+5.31 c                   eval      fnufl1_aarr = soaarr
+5.31 c                   eval      fnufl1_binr = sobinr
+5.31 c     fnufl1_key    chain     fnufl1
+5.31 c                   if        not %found
+5.31 c                   leavesr
+5.31 c                   endif
+5.31  *
+5.31 c                   eval      fmftl1_faty = fnufat
+5.31 c     fmftl1_key    chain     fmftl1
+5.31 c                   if        not %found
+5.31 c                   leavesr
+5.31 c                   endif
+5.31  *
+5.31  * Sjekk indikatorer :Undertrykk utskrift=Ja(1) og Test=Nei(0)
+5.31  *
+5.31 c                   if        fmtuts = 1
+5.31 c                   if        fmttes = 0
+5.31 c                   eval      b_nopr = *on
+5.31 c                   endif
+5.31 c                   endif
+5.31  *
+5.31 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppstart
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xstrsr        begsr
+      *
+     c                   eval      a1side = 1
+     c                   eval      fcycle = 1
+      *
+      * Legger inn firma i nøkkel
+      *
+     c                   eval      w_firm = d_firm
+      *
+      * Legger inn år i nøkkel
+      *
+     c                   eval      sohel1_aarr = d_aarr
+     c                   eval      sodtl1_aarr = d_aarr
+      *
+      * Klargjøre resterende
+      * nøkkelbegrep
+      *
+     c                   eval      sohel1_binr = d_ffnr
+     c                   eval      sohel1_numm = *zero
+     c                   eval      sohel1_suff = *zero
+     c                   eval      sodtl1_ktxt = *zero
+     c                   eval      sodtl1_line = *zero
+      *
+     c     sohel1_key    setll     sohel1
+     c                   read      sohel1                                 61
+     c                   eval      sodtl1_ktxt = *zero
+     c                   eval      sodtl1_line = *zero
+      *
+      * Klargjøring dersom firma -
+      * opplysninger skal printes ut
+      *
+     c                   if        afprfi = 1                                            .....
+     c     afirl1_key    chain     afirl1r                            66                     .
+      *
+      * Bankgironummer må
+      * redigeres inn i et
+      * alfafelt p.g.a. OCR
+      *
+     c                   move      aafbgi        d_ktoa                                      .
+     c                   move      d_kta1        d_ktb1                                      .
+     c                   move      d_kta2        d_ktb2                                      .
+     c                   move      d_kta3        d_ktb3                                      .
+     c                   move      d_ktob        p2fbgi                                      .
+     c                   move      aafbgi        p1fbgi                                      .
+     c                   endif                                                           .....
+      *
+      * Hente Kunde-tilbuds-nummer
+      *
+     c     fstsl1_key    chain     fstsl1r                            69
+      *
+     c                   if        *in69 = *off
+     c                   eval      w_kund = faakun
+     c                   endif
+      *
+      * Slår opp ordretype
+      *
+     c                   eval      votyl1_otyp = d_otyp
+     c     votyl1_key    chain     votyl1r                            67
+      *
+      * Er ordretype negativ ?
+      *
+     c                   if        vaokre = '-'
+     c                   eval      *in36 = *on
+     c                   endif
+      *
+      * Sjekke om dette er en
+      * faktura-kopi
+      *
+     c                   if        d_kopi = 'K'
+     c                   eval      *in50 = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *
+      *
+      *  Nullstilling av felter som ikke kan redefineres
+      *
+     c                   eval      w_retk = *blank
+     c                   eval      dsctxt = *blank
+     c                   eval      w_txt2 = *blank
+     c                   eval      w_krab = *zero
+      *
+     c                   eval      w_qmva = *blank
+     c                   eval      w_mvax = *blank
+     c                   eval      w_mvas = *zero
+     c                   eval      w_mvat = *zero
+     c                   eval      w_mvaf = *zero
+3.34 c                   eval      w_mv2s = *zero
+3.34 c                   eval      w_mv2t = *zero
+3.34 c                   eval      w_mv2f = *zero
+      *
+     c                   eval      aforl1_ruti = *blank
+     c                   eval      n = *zero
+      *
+      * Key for Heading-file
+      *
+     c     sohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    sohel1_aarr
+     c                   kfld                    sohel1_binr
+     c                   kfld                    sohel1_numm
+     c                   kfld                    sohel1_suff
+      *
+      * Key for Detalj-file
+      *
+     c     sodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    sodtl1_aarr
+     c                   kfld                    sodtl1_binr
+     c                   kfld                    sodtl1_numm
+     c                   kfld                    sodtl1_suff
+     c                   kfld                    sodtl1_ktxt
+     c                   kfld                    sodtl1_line
+      *
+      * Key for kunderegister
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for firmaregister
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for ordretyper
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      * Key for linjetyper
+      *
+     c     vltyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltyl1_ltyp
+      *
+      * Key for statusregister
+      *
+     c     fstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for formular-register
+      *
+     c     aforl1_key    klist
+     c                   kfld                    aforl1_ruti
+      *
+      * Key for vare-register
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for priskode-register
+      *
+     c     vpkol1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vpkol1_pkod
+5.31  *
+5.31  * Key for oppslag av fakturalogg
+5.31  *
+5.31 c     fnufl1_key    klist
+5.31 c                   kfld                    w_firm
+5.31 c                   kfld                    fnufl1_aarr
+5.31 c                   kfld                    fnufl1_binr
+5.31  *
+5.31  * Key for les av fakturatype
+5.31  *
+5.31 c     fmftl1_key    klist
+5.31 c                   kfld                    w_firm
+5.31 c                   kfld                    fmftl1_faty
+      *
+      * Hente inn rutinenavn
+      * og meldingstekst
+      *
+     c                   eval      aforl1_ruti = d_ruti
+      *
+     c     aforl1_key    chain     aforl1r                            69
+     c                   if        *in69 = *off
+     c                   eval      a1txt1 = aftxt1
+     c                   eval      t1mld1 = afmld1
+3.34 c                   movel     afmld3        t1mld3
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Tar inn parameter fra forrige program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c     *entry        plist
+     c                   parm                    p_parm
+      *
+     c                   eval      d_aarr = *zero
+     c                   eval      d_otyp = *blank
+     c                   eval      d_ffnr = *zero
+     c                   eval      d_tfnr = *zero
+     c                   eval      d_kopi = *blank
+     c                   eval      d_parm = p_parm
+      *
+      *
+     c                   endsr
+      *

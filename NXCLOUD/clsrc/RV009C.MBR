@@ -1,0 +1,104 @@
+             PGM
+
+             DCL        VAR(&FILN)  TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FILS)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MAPX) TYPE(*CHAR) LEN(30)
+             DCL        VAR(&CLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&IFSV) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILT) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILG) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&BIBL) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&BAN1) TYPE(*CHAR) LEN(5) +
+                          VALUE('/asp/')
+             DCL        VAR(&BAN2) TYPE(*CHAR) LEN(7) +
+                          VALUE('/visma/')
+             DCL        VAR(&BAN3) TYPE(*CHAR) LEN(10) +
+                          VALUE('/qsys.lib/')
+             DCL        VAR(&BAN4) TYPE(*CHAR) LEN(31) +
+                          VALUE('.lib/vismafak.file/vismafak.mbr')
+
+             DCL        VAR(&CO402_KEY) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&CO402_V1)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&CO402_V2)  TYPE(*CHAR) LEN(2048)
+             dcl        var(&fix)       type(*char) len(3)
+             dcl        var(&fir)       type(*dec)  len(3 0) value(0)
+             dcl        var(&lag)       type(*dec)  len(3 0) value(0)
+             dcl        var(&filx)      type(*char) len(30)
+             dcl        var(&i)         type(*dec)  len(3 0)
+
+/* Henter filgruppe og firmanummer:                                  */
+
+             RTVDTAARA  DTAARA(*LDA (931 3)) RTNVAR(&FILG)
+             RTVDTAARA  DTAARA(*LDA (934 6)) RTNVAR(&BIBL)
+
+/* Lager til-katalogen på IFS hvis den ikke finnes                   */
+
+             CHGVAR     VAR(&MAPX)     VALUE(&BAN1 *CAT &FILG +
+                                             *CAT &BAN2)
+             CRTDIR     DIR(&MAPX)
+             MONMSG     MSGID(CPF0000)
+
+/* Tømmer transaksjonsfil før danning av transaksjoner               */
+
+             CLRPFM     FILE(RV01PF)
+             CLRPFM     FILE(FOVIPF)
+             CLRPFM     FILE(FOVUPF)
+
+
+             CPYF       FROMFILE(FOVFPF) TOFILE(FOVIPF) +
+                          MBROPT(*REPLACE)
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+
+
+
+/* Kaller program for danning av transaksjoner                       */
+             CALL       PGM(RV009R)
+             CALL       PGM(RV008R)
+
+
+/* Test om overføringsregister finnes - bygg evt.                    */
+
+             CHKOBJ     OBJ(*LIBL/VISMAFAK) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+             CRTPF      FILE(VISMAFAK) RCDLEN(800) +
+                          TEXT('Posteringer til Visma')           +
+                          MAXMBRS(*NOMAX)
+             ENDDO
+
+/* Kopier data til overføringsfil                                    */
+
+             CPYF       FROMFILE(*libl/RV01PF) +
+                          TOFILE(*libl/VISMAFAK) FROMMBR(RV01PF) +
+                           MBROPT(*REPLACE) FMTOPT(*NOCHK)
+
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+
+/* Starter kopiering til integret filsystem                          */
+
+             CALL       PGM(LO762R) PARM(&FILN)
+
+             chgvar     var(&i)  value(%scan('.' &filn))
+             if         cond(&i *gt 0)  then(do)
+               chgvar   %sst(&filn &i 1)   value('_')
+             enddo
+/* Skal filen innehode en sufix?                                     */
+             chgvar     var(&co402_key) value('EKSTERN_REGNSKAP_SUFIX')
+             rtvdtaara  dtaara(*lda (944 3)) rtnvar(&fix)
+             chgvar     var(&fir)   value(&fix)
+             call       pgm(co402r) parm(&filg &fir &lag &co402_key +
+                          &co402_v1 &co402_v2)
+
+             chgvar     var(&filx) value(&filn)
+             if         cond(&co402_v1 *eq '1') then(do)
+               chgvar   var(&filx) value(&filn *tcat &co402_v2)
+             enddo
+
+   CHGVAR VAR(&FILS) VALUE(&BAN1 *CAT &FILG *CAT &BAN2 *tcat &FILx)
+   CHGVAR VAR(&FILT) VALUE(&BAN3 *CAT &BIBL *CAT &BAN4)
+             CPYTOSTMF  +
+                          FROMMBR(&FILT) TOSTMF(&FILS) +
+                          STMFOPT(*REPLACE) STMFCODPAG(*PCASCII)
+             CHGAUT     OBJ(&FILS) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+
+ END:        ENDPGM

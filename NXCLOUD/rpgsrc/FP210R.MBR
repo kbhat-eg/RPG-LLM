@@ -1,0 +1,880 @@
+     H datedit(*dmy) option(*nodebugio)
+     * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+     *                                                                       *
+     * System. . . . . : ASOFAK                                              *
+     * Program . . . . : FP210R                                              *
+     * Beskrivelse . . : Utskrift av etiketter, parameter                    *
+     * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     *                                                                       *
+     * Spesialversjon. :                                                     *
+     * Tilpasset for . :                                                     *
+     *                                                                       *
+     * Ref.   Dato  Sign Endringsbeskrivelse                               n *
+     * ----- ------ ---- ------------------------------------------------- --*
+     * R5.20 101103 KOB  Lagt inn fra/til dato på prisdato-valg              *
+     * R5.30 031004 KOB  Endret test på varegruppe fra-til                   *
+ 5.31* R5.31 091204 ASK  Lagt inn dummy-dato på parameterfil for å           *
+ 5.31*                   ungå time-stamp feil i FP212R.                      *
+ 5.31* R5.32 241005 KOB  Leverandørnr ble ikke lagt ut i parameterfil        *
+ 5.31* R5.42 010506 KOB  Lagt inn valg på lager                              *
+6.11 * R6.10 251109 bof  Fjernet ean-oppslag, sjekker std. subrutine         *
+6.12 * R6.10 140710 bsa  Lagt inn mulighet for sortering på leverandør og    *
+6.12 *                   varegruppe.                                         *
+6.20 * R6.20 031114 bsa  Nullstiller feilmeldingslinje                       *
+6.21 * R6.20 120615 bkv  Tok vekk krav til GTIN nr                           *
+6.22 * R6.20 211015 bsa  Feil sjekk ved F4                                   *
+6.30 * R6.30 251114 bsa  Justeringer i skjermbilde pga jacada                *
+6.31 * R6.30 150317 bsa  Endringer i kodesettet på skjermbildet              *
+7.xx  * 7.00  090316 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+     *                                                                       *
+     * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - * *
+     *
+     Ffp210d    cf   e             workstn
+     Fvfaspf    if   e           k disk
+     fvvarlr    if   e           k disk    rename(vvarpfr:vvarlrr)
+     Fparam     o  a f  128        disk
+     *
+     *
+     D mld             s             70    dim(11) ctdata perrcd(1)             MELDINGER
+     *
+     *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *               :  LOCAL DATA AREA                                 +
+     *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *
+     *
+     D                uds
+     D l_etyp                111    111  0
+     D l_etpr                112    112  0
+     D l_ken1                113    113  0
+     D l_ken2                114    114  0
+     D l_dato                115    120  0
+     D l_sort                121    121  0
+     *
+     D l_ruti                800    809
+     D l_type                891    891  0
+     D l_user                911    920
+     D l_firm                944    946  0
+     D l_fnav                951    980
+     d l_lage               1001   1002  0
+      *
+      * Definering av variable i nøkler
+      *
+     d vvarl1_vare     s                   like(vvvare)
+     *
+6.21 D*b22var          s              5  0
+     D wphogr          s                   like(b1fogr)
+     D wpuogr          s                   like(b1fogr)
+     D wphhgr          s                   like(b1fhgr)
+     D wphtxt          s                   like(vvtek1)
+     D wpin03          s              1
+     D wpldor          s              6  0
+     D wplnav          s             30
+     D wpspkr          s              1
+     D wptek1          s                   like(vvtek1)
+     D wpuhgr          s                   like(b1fhgr)
+     D wputxt          s                   like(vvtek1)
+     D wpuugr          s                   like(b1fugr)
+     D wpvare          s                   like(vvvare)
+     d w_dato          s               d   datfmt(*iso)
+     d w4fdat          s               d   datfmt(*iso)
+     d w4tdat          s               d   datfmt(*iso)
+6.11 D w_eann          s             14  0
+     D w_firm          s                   like(vvfirm)
+     D w_fvnr          s                   like(vvvare)
+     D w_tvnr          s                   like(vvvare)
+     D w_vare          s                   like(vvvare)
+     D w_var8          s              8  0
+5.31 d w_ddat          s               d   datfmt(*iso) inz(*loval)
+6.11 d w_eava          s                   like(vvvare)
+6.11 d w_eaen          s                   like(vvenhe)
+6.11 d w_east          s              1
+     *
+     *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *          C   A   L   C   U   L   A   T   I   O   N               +
+     *
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *  A1BLD, Rutinen behandler utvalggstype                          +
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *
+     c     a1tag         tag
+     *
+     c                   exfmt     a1bld
+     *
+     c                   if        *inkc = *on
+     c                   move      '1'           wpin03
+     c                   goto      slutt
+     c                   endif
+     *
+     c                   if        a1valg <> 0 and                                       .....
+     c                             a1valg <> 1 and                                           .
+     c                             a1valg <> 2 and                                           .
+     c                             a1valg <> 3                                               .
+     c                   eval      *in20 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(01)       meld                                        .
+     c                   goto      a1tag                                                     .
+     c                   endif                                                           .....
+     *
+     c                   if        a1valg = 0                                            .....
+     c                   goto      b1tag                                                     .
+     c                   endif                                                           .....
+     *
+     c                   if        a1valg = 1                                            .....
+     c                   goto      b2tag                                                     .
+     c                   endif                                                           .....
+     *
+     c                   if        a1valg = 2                                            .....
+     c                   goto      b3tag                                                     .
+     c                   endif                                                           .....
+     *
+     c                   if        a1valg = 3                                            .....
+     c                   goto      b4tag                                                     .
+     c                   endif                                                           .....
+     *
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *  B1BLD, Utvelgelse fra/til                                      +
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *
+     c     b1tag         tag
+     *
+     *  Blanker felt som benyttes
+     *
+     c                   eval      b1fvnr = *zeros
+     c                   eval      b1tvnr = *zeros
+     c                   eval      b1fhgr = *zeros
+     c                   eval      b1fugr = *zeros
+     c                   eval      b1thgr = *zeros
+     c                   eval      b1tugr = *zeros
+     c                   eval      b1fpls = *blank
+     c                   eval      b1tpls = *blank
+     c                   eval      b1anta = 1
+     *
+     c                   eval      *in20 = *off
+     c                   eval      *in21 = *off
+     c                   eval      *in22 = *off
+     c                   eval      *in23 = *off
+     c                   eval      *in96 = *off
+     c                   eval      meld = *blank
+     *
+     c     b1taga        tag
+     *
+     c                   exfmt     b1bld
+     *
+     c                   eval      *in30 = *off
+     c                   eval      *in31 = *off
+     c                   eval      *in32 = *off
+     c                   eval      *in33 = *off
+     c                   eval      *in34 = *off
+     c                   eval      *in35 = *off
+     c                   eval      *in36 = *off
+     c                   eval      *in37 = *off
+     *
+     c                   if        *inkc = *on
+     c                   move      '1'           wpin03
+     c                   goto      slutt
+     c                   endif
+     *
+     * Spørring på leverandørnr
+     *
+     c   kd              if        w_afld = 'B1LDOR'                                     .....
+     *                                                                 .
+     c                   call      'RL500R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wpldor                                      .
+     c                   parm                    wplnav                                      .
+     *                                                                 .
+     c                   movel     wpldor        b1ldor                                      .
+     c                   eval      *in30 = *on                                               .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Spørring på varenummer fra
+     *
+     c   kd              if        w_afld = 'B1FVNR'                                     .....
+     *                                                                 .
+     c                   call      'VV500R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wpvare                                      .
+     c                   parm                    wptek1                                      .
+     *                                                                 .
+     c                   movel     wpvare        b1fvnr                                      .
+     c                   eval      *in31 = *on                                               .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Spørring på varenummer til
+     *
+     c   kd              if        w_afld = 'B1TVNR'                                     .....
+     *                                                                 .
+     c                   call      'VV500R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wpvare                                      .
+     c                   parm                    wptek1                                      .
+     *                                                                 .
+     c                   eval      *in31 = *on                                               .
+     c                   movel     wpvare        b1tvnr                                      .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Spørring på overgruppe fra
+     *
+     c   kd              if        w_afld = 'B1FOGR'                                     .....
+     *                                                                 .
+     c                   call      'VG510R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wphogr                                      .
+     c                   parm                    wphtxt                                      .
+     *                                                                 .
+     c                   eval      *in32 = *on                                               .
+     c                   movel     wphogr        b1fogr                                      .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Spørring på overgruppe til
+     *
+6.22 c   kd              if        w_afld = 'B1TOGR'                                     .....
+     *                                                                 .
+     c                   call      'VG510R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wphogr                                      .
+     c                   parm                    wphtxt                                      .
+     *                                                                 .
+     c                   eval      *in33 = *on                                               .
+     c                   movel     wphogr        b1togr                                      .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Spørring på hovedgruppe fra
+     *
+     c   kd              if        w_afld = 'B1FHGR'                                     .....
+     *                                                                 .
+     c                   call      'VG511R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wphogr                                      .
+     c                   parm                    wphhgr                                      .
+     c                   parm                    wphtxt                                      .
+     *                                                                 .
+     c                   eval      *in32 = *on                                               .
+     c                   movel     wphogr        b1fogr                                      .
+     c                   movel     wphhgr        b1fhgr                                      .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Spørring på hovedgruppe til
+     *
+     c   kd              if        w_afld = 'B1THGR'                                     .....
+     *                                                                 .
+     c                   call      'VG511R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wphogr                                      .
+     c                   parm                    wphhgr                                      .
+     c                   parm                    wphtxt                                      .
+     *                                                                 .
+     c                   eval      *in33 = *on                                               .
+     c                   movel     wphogr        b1togr                                      .
+     c                   movel     wphhgr        b1thgr                                      .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Spørring på undergruppe fra
+     *
+     c   kd              if        w_afld = 'B1FUGR'                                     .....
+     *                                                                 .
+     c                   call      'VG512R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wpuogr                                      .
+     c                   parm                    wpuhgr                                      .
+     c                   parm                    wpuugr                                      .
+     c                   parm                    wputxt                                      .
+     *                                                                 .
+     c                   eval      *in34 = *on                                               .
+     c                   movel     wpuogr        b1fogr                                      .
+     c                   movel     wpuhgr        b1fhgr                                      .
+     c                   movel     wpuugr        b1fugr                                      .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Spørring på undergruppe til
+     *
+     c   kd              if        w_afld = 'B1TUGR'                                     .....
+     *                                                                 .
+     c                   call      'VG512R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wpuogr                                      .
+     c                   parm                    wpuhgr                                      .
+     c                   parm                    wpuugr                                      .
+     c                   parm                    wputxt                                      .
+     *                                                                 .
+     c                   eval      *in35 = *on                                               .
+     c                   movel     wpuogr        b1togr                                      .
+     c                   movel     wpuhgr        b1thgr                                      .
+     c                   movel     wpuugr        b1tugr                                      .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Ugyldig bruk av F4
+     *
+     c   kd              do                                                              .....
+     c                   eval      *in36 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   movel     mld(09)       meld                                        .
+     c                   goto      b1taga                                                    .
+     c                   enddo                                                           .....
+     *
+     c                   if        b1fvnr > b1tvnr                                       .....
+     c                   eval      *in30 = *on                                               .
+     c                   eval      *in20 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(02)       meld                                        .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     c                   if        b1fogr > b1togr                                       .....
+     c                   eval      *in32 = *on                                               .
+     c                   eval      *in21 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(02)       meld                                        .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     c                   if        b1fpls > b1tpls                                       .....
+     c                   eval      *in37 = *on                                               .
+     c                   eval      *in23 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(02)       meld                                        .
+     c                   goto      b1taga                                                    .
+     c                   endif                                                           .....
+     *
+     c                   if        b1anta = *zero                                        .....
+     c                   eval      b1anta = 1                                                .
+     c                   endif                                                           .....
+     *
+     c                   movel     b1fvnr        w_fvnr
+     c                   movel     b1tvnr        w_tvnr
+     *
+     c                   except    add001
+     *
+     c                   goto      c1tag
+     *
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *  B2BLD, Rutinen behandler utvalg på varenummer                  +
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *
+     c     b2tag         tag
+     *
+     c                   eval      *in30 = *on
+     c                   eval      meld = *blank
+     *
+     c     b2taga        tag
+     *
+     c                   eval      *in98 = *on
+     *
+     c                   exfmt     b2bld
+     *
+     c                   if        *inkc = *on
+     c                   move      '1'           wpin03
+     c                   goto      slutt
+     c                   endif
+     *
+     c                   if        *inke = *on
+     c                   goto      c1tag
+     c                   endif
+     *
+     * Spørring på varenummer
+     *
+     c   kd              if        w_afld = 'B2VARE'                                     .....
+     *                                                                 .
+     c                   call      'VV500R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wpvare                                      .
+     c                   parm                    wptek1                                      .
+     *                                                                 .
+     c                   movel     wpvare        w_var8                                      .
+     c                   move      w_var8        b2vare                                      .
+     c                   movel     wptek1        b2text                                      .
+     c                   if        b2anta = *zero                                        .....
+     c                   eval      b2anta = 1                                                .
+     c                   endif                                                           .....
+     c                   goto      b2taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Hvis 5 første pos i varenummer
+     * er 0, sjekk eget varenr
+     * ellers sjekk EAN-nr.
+     *
+6.21 c*                  movel     b2vare        b22var
+     *
+     c                   move      b2vare        w_var8
+     c                   move      *blanks       w_vare
+     c                   movel     w_var8        w_vare
+     c                   movel     b2vare        w_eann
+     *
+6.21 c*                  if        b22var <> *zeros                                      .....
+     *
+     * Sjekk varenummer mot ean-register
+     *
+6.11 c                   call      'VE710R  '
+6.11 c                   parm                    w_firm
+6.11 c                   parm                    w_eann
+6.11 c                   parm                    w_eava
+6.11 c                   parm                    w_eaen
+6.11 c                   parm                    w_east
+6.11 c                   if        w_east = '1'
+6.11 c                   movel     w_eava        w_vare                                    . .
+     c                   goto      b2tag1                                                  . .
+     c                   endif                                                         ..... .
+     *
+6.21 c*                  endif                                                           .....
+     *
+     c     b2tag1        tag
+     *
+6.20 c                   if        w_vare = *blanks   or
+6.20 c                             b2vare = *zeros
+6.20 c                   eval      meld = *blank
+6.20 c                   eval      *in96 = *off                                              .
+6.20 c                   goto      b2taga                                                    .
+6.20 c                   endif                                                           .....
+     *
+     * Sjekk eget varenummer
+     *
+     c     vvarlr_key    chain     vvarlr                             81
+     *
+     c                   if        *in81 = *on                                           .....
+     c                   eval      *in30 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(03)       meld                                        .
+     c                   goto      b2taga                                                    .
+     c                   endif                                                           .....
+     *
+     c                   movel     vvtek1        b2text                                      .
+     *
+     c                   if        b2anta = *zero                                        .....
+     c                   eval      b2anta = 1                                                .
+     c                   endif                                                           .....
+     *
+     c                   except    add002
+     *
+     c     b2tag5        tag
+     *
+     c                   eval      b2anta = *zero
+     c                   eval      b2vare = *zeros
+     c                   eval      w_vare = *zeros
+     c                   eval      w_eann = *zeros
+     c                   eval      *in30 = *on
+     *
+     c                   goto      b2taga
+     *
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *  B3BLD, Rutinen behandler utvalg på kampanje                    +
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *
+     *
+     c     b3tag         tag
+     *
+     c                   eval      meld = *blank
+     *
+     c     b3taga        tag
+     *
+     c                   eval      *in98 = *on
+     c                   eval      b3anta = 1
+     *
+     c                   exfmt     b3bld
+     *
+     c                   if        *inkc = *on
+     c                   move      '1'           wpin03
+     c                   goto      slutt
+     c                   endif
+     *
+     *  Sjekk om utvalg er utfylt
+     *
+     c                   if        b3anta = *zero                                        .....
+     c                   eval      *in31 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(05)       meld                                        .
+     c                   goto      b3taga                                                    .
+     c                   endif                                                           .....
+     *
+     c                   except    add003
+     *
+     c                   goto      c1tag
+     *
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *  B4BLD, Rutinen behandler utvalg på dato                        +
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *
+     *
+     c     b4tag         tag
+     *
+     c                   eval      meld = *blank
+     c     *dmy          move      w_dato        b4fdat
+     c     *dmy          move      w_dato        b4tdat
+     c                   eval      b4anta = 1
+     *
+     c     b4taga        tag
+     *
+     c                   eval      *in98 = *on
+     *
+     c                   exfmt     b4bld
+     *
+     * Spørring på leverandørnr
+     *
+     c   kd              if        w_afld = 'B4LDOR'                                     .....
+     *                                                                 .
+     c                   call      'RL500R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    wpldor                                      .
+     c                   parm                    wplnav                                      .
+     *                                                                 .
+     c                   movel     wpldor        b4ldor                                      .
+     c                   eval      *in30 = *on                                               .
+     c                   goto      b4taga                                                    .
+     c                   endif                                                           .....
+     *
+     c                   if        *inkc = *on
+     c                   move      '1'           wpin03
+     c                   goto      slutt
+     c                   endif
+     *
+     * Sjekk om riktig utfylt fra dato
+     *
+     c     *dmy          test(d)                 b4fdat                 25
+     c                   if        *in25 = *on                                           .....
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(10)       meld                                        .
+     c                   goto      b4taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Sjekk om riktig utfylt til dato
+     *
+     c                   if        b4tdat > 0                                            .....
+     c     *dmy          test(d)                 b4tdat                 25
+     c                   if        *in25 = *on                                           .....
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(10)       meld                                        .
+     c                   goto      b4taga                                                    .
+     c                   endif                                                           .....
+     c                   endif                                                           .....
+     *
+     *  Sjekk om utvalg er utfylt
+     *
+     c                   if        b4anta = *zero                                        .....
+     c                   eval      *in31 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(05)       meld                                        .
+     c                   goto      b4taga                                                    .
+     c                   endif                                                           .....
+     *
+     c                   eval      w4fdat = *loval
+     c                   eval      w4tdat = *loval
+     *
+     c     *dmy          move      b4fdat        w4fdat
+     *
+     c                   if        b4tdat > 0                                            .....
+     c     *dmy          move      b4tdat        w4tdat
+     c                   else
+     c     *dmy          move      b4fdat        w4tdat
+     c                   endif
+     *
+     c     *dmy          move      b4fdat        w_dato
+     *
+     c                   except    add004
+     *
+     c                   goto      c1tag
+     *
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *  C1BLD, Rutinen behandler valg av etikett-type                  +
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *
+     c     c1tag         tag
+     *
+     *  Blanker felt som benyttes
+     *
+     c                   eval      c1etpr = *zero
+     c                   eval      c1dato = 0
+     c     *dmy          move      w_dato        c1dato
+     c                   eval      c1sort = vnsort
+     c                   eval      c1enh1 = 1
+     c                   eval      c1enh2 = 2
+     *
+     c                   eval      *in20 = *off
+     c                   eval      *in21 = *off
+     c                   eval      *in22 = *off
+     c                   eval      *in23 = *off
+     c                   eval      *in24 = *off
+     c                   eval      *in25 = *off
+     c                   eval      *in26 = *off
+     c                   eval      *in96 = *off
+     c                   eval      *in98 = *off
+     *
+     c                   eval      meld = *blank
+     *
+     c     c1taga        tag
+     *
+     c                   exfmt     c1bld
+     *
+     c                   if        *inkc = *on
+     c                   move      '1'           wpin03
+     c                   goto      slutt
+     c                   endif
+     *
+     * Sjekk om riktig etikett-type
+     *
+     c                   if        c1etyp <> 0 and                                       .....
+     c                             c1etyp <> 1 and                                           .
+     c                             c1etyp <> 2 and                                           .
+     c                             c1etyp <> 3 and                                           .
+     c                             c1etyp <> 4 and                                           .
+     c                             c1etyp <> 5 and                                           .
+     c                             c1etyp <> 6 and                                           .
+     c                             c1etyp <> 7 and                                           .
+     c                             c1etyp <> 8 and                                           .
+     c                             c1etyp <> 9                                               .
+     c                   eval      *in20 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(06)       meld                                        .
+     c                   goto      c1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Sjekk om riktig pris-type
+     *
+     c                   if        c1etpr <> 1 and                                       .....
+     c                             c1etpr <> 2 and                                           .
+     c                             c1etpr <> 3                                               .
+     c                   eval      *in21 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(07)       meld                                        .
+     c                   goto      c1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Sjekk om riktig utfylt dato
+     *
+     c                   if        c1etpr = 3                                            .....
+     c     *dmy          test(d)                 c1dato                 25
+     c                   if        *in25 = *on                                           .....
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(10)       meld                                        .
+     c                   goto      c1taga                                                    .
+     c                   endif                                                           .....
+     c                   endif                                                           .....
+     *
+     * Sjekk om riktig sorterings-type
+     *
+     c                   if        c1sort <> 0 and                                       .....
+6.12 c                             c1sort <> 1 and                                           .
+6.12 c                             c1sort <> 2 and                                           .
+6.12 c                             c1sort <> 3                                               .
+     c                   eval      *in22 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+6.12 c**                 move      mld(01)       meld                                        .
+6.12 c                   move      mld(08)       meld                                        .
+     c                   goto      c1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Sjekk om riktig enhets-type
+     *
+     c                   if        c1enh1 <> 0 and                                       .....
+     c                             c1enh1 <> 1 and                                       .....
+     c                             c1enh1 <> 2 and                                           .
+     c                             c1enh1 <> 3                                               .
+     c                   eval      *in23 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(08)       meld                                        .
+     c                   goto      c1taga                                                    .
+     c                   endif                                                           .....
+     *
+     c                   if        c1enh2 <> 0 and                                       .....
+     c                             c1enh2 <> 1 and                                       .....
+     c                             c1enh2 <> 2 and                                           .
+     c                             c1enh2 <> 3                                               .
+     c                   eval      *in26 = *on                                               .
+     c                   eval      *in96 = *on                                               .
+     c                   eval      *in98 = *on                                               .
+     c                   move      mld(08)       meld                                        .
+     c                   goto      c1taga                                                    .
+     c                   endif                                                           .....
+     *
+     * Oppdater local
+     *
+     c                   eval      l_etyp = c1etyp
+     c                   eval      l_etpr = c1etpr
+     c                   eval      l_sort = c1sort
+     c                   eval      l_ken1 = c1enh1
+     c                   eval      l_ken2 = c1enh2
+     c                   eval      l_dato = c1dato
+     *
+     * Sjekker hvilket utskriftsprogram som skal benyttes
+     *
+     c                   move      *blanks       l_ruti                                      .
+     *
+     c                   select
+     *
+     * Prisetikett
+     *
+     c                   when      l_etyp = 1                                            .....
+     c                   movel     'FP213 '      l_ruti                                      .
+     *
+     * Hylle-etikett   75x28 mm
+     *
+     c                   when      l_etyp = 2                                            .....
+     c                   movel     'FP214 '      l_ruti                                      .
+     *
+     *  Hylle-etikett  100x28 mM
+     *
+     c                   when      l_etyp = 3                                            .....
+     c                   movel     'FP215 '      l_ruti                                      .
+     *
+     * Reol-etikett  202x60 mm
+     *
+     c                   when      l_etyp = 4                                            .....
+     c                   movel     'FP216 '      l_ruti                                      .
+     *
+     * Hylle-etikett   76x39 mm
+     *
+     c                   when      l_etyp = 5                                            .....
+     c                   movel     'FP217 '      l_ruti                                      .
+     *
+     * Hylle-etikett   48x38 mm
+     *
+     c                   when      l_etyp = 6                                            .....
+     c                   movel     'FP218 '      l_ruti                                      .
+     *
+     * Hylle-etikett  100x38 mm
+     *
+     c                   when      l_etyp = 7                                            .....
+     c                   movel     'FP219 '      l_ruti                                      .
+     *
+     * Reol-etikett   210x60 mm
+     *
+     c                   when      l_etyp = 8                                            .....
+     c                   movel     'FP220 '      l_ruti                                      .
+     *
+     * Hylle-etikett   76x39 mm  Laser/Interform
+     *
+     c                   when      l_etyp = 9                                            .....
+     c                   movel     'FP221 '      l_ruti                                      .
+     c                   endsl                                                           .....
+     *
+     c                   if        *inkd = *on
+     c                   eval      *inu2 = *on
+     c                   endif
+     *
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *  END OF JOB                                                     +
+     *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *
+     c     slutt         tag
+     *
+     c                   eval      *inlr = *on
+     *
+     * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     * Subrutine for initiering av program                             *
+     * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     *
+     c     *inzsr        begsr
+     *
+     c                   time                    w_dato
+     *
+     c                   move      l_firm        w_firm
+     *
+     c                   move      l_lage        b1lage
+     c                   move      l_lage        b3lage
+     c                   move      l_lage        b4lage
+     *
+     * Parameterliste
+     *
+     c     *entry        plist
+     c                   parm                    wpin03
+     *
+     c                   move      ' '           wpin03
+     *
+     * Hent etikettinformasjon
+     *
+     c     vfaspf_key    chain     vfaspf                             60
+     c                   if        *in60 = *on
+     c                   move      1             c1etyp
+X    c                   else
+     c                   move      vnetyp        c1etyp
+     c                   endif
+     *
+     * Key for faste data etiketter
+     *
+     c     vfaspf_key    klist
+     c                   kfld                    w_firm
+     *
+     * Key for vareregister via varenummer
+     *
+     c     vvarlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_vare
+     *
+     c                   endsr
+     *
+     Oparam     eadd         add001
+     O                                            1 'A'
+     O                       w_firm               4
+     O                       b1ldor              10
+     O                       w_fvnr              25
+     O                       w_tvnr              40
+     O                       b1fogr              42
+     O                       b1togr              44
+     O                       b1fhgr              46
+     O                       b1thgr              48
+     O                       b1fugr              51
+     O                       b1tugr              54
+     O                       b1fpls              60
+     O                       b1tpls              66
+5.31 O                       w_ddat              76
+5.31 O                       w_ddat              86
+     O                       b1anta             106
+     O                       b1lage             108
+      *
+     O          eadd         add002
+     O                                            1 'B'
+     O                       l_firm               4
+     O                       vvvare              25
+     O                       b2anta             106
+     O                       l_lage             108
+      *
+     O          eadd         add003                                             T104KR
+     O                                            1 'C'                         T104KR
+     O                       l_firm               4                             T104KR
+     O                       b3kamp               9                             T104KR
+     O                       b3anta             106                             T104KR
+     O                       b3lage             108
+      *
+     O          eadd         add004                                             T104KR
+     O                                            1 'D'                         T104KR
+     O                       l_firm               4                             T104KR
+R5.32O                       b4ldor              10
+     O                       w4fdat              20                             T104KR
+     O                       w4tdat              30                             T104KR
+     O                       b4anta             106                             T104KR
+     O                       b4lage             108
+      *                                                                   T104KR
+      *++++++++++++++++++++++  T A B E L L E R  +++++++++++++++++++++++++
+**     M E L D I N G E R :
+    Valgt kode er ugyldig, velg enten 0 eller 1
+    Fra er større enn til
+    Varenummer finnes ikke i vare-register
+    Ean-kode finnes ikke i vare-register
+    Antall er ikke utfylt
+    Valgt kode er ikke i bruk, velg tall fra 1 - 8
+    Valgt kode er ugyldig, velg enten 0, 1 eller 2
+    Valgt kode er ugyldig, velg enten 0, 1, 2 eller 3
+    Spørring ikke tilgjenglig på dette felt
+    Dato ikke riktig utfylt
+    Valgt kode er ugyldig, velg enten 0, 1, 2, 3 eller 4

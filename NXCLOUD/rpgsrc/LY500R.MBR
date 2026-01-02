@@ -1,0 +1,761 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : LY500R
+      * Beskrivelse . . : Spørring / søking etter slettede bestillinger
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       020501 AMD  Nytt program
+6.nu  *       040614 bof  Sjekket mtp. nummerutvidelse
+7.00  *  K00  220420 bsa  Utvidet skjermbile                       *
+7.01  *  K00  080721 bof  Ordnet i hht. GUI + utvidet selve skjermen 132
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fldellr    if   e           k disk    rename(ldelpfr:ldellrr)
+     fldell1    if   e           k disk    rename(ldelpfr:ldell1r)
+     fldell4    if   e           k disk    rename(ldelpfr:ldell4r)
+     fldell5    if   e           k disk    rename(ldelpfr:ldell5r)
+     fldell6    if   e           k disk    rename(ldelpfr:ldell6r)
+     fldell7    if   e           k disk    rename(ldelpfr:ldell7r)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+      *
+     fly500d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d ldellr_aarr     s                   like(lyaarr)
+     d ldellr_numm     s                   like(lynumm)
+     d ldellr_suff     s                   like(lysuff)
+     d ldell1_aarr     s                   like(lyaarr)
+     d ldell1_numm     s                   like(lynumm)
+     d ldell1_suff     s                   like(lysuff)
+     d ldell4_aarr     s                   like(lyaarr)
+     d ldell4_lena     s                   like(lylena)
+     d ldell5_aarr     s                   like(lyaarr)
+     d ldell5_bdat     s                   like(lybdat)
+     d ldell6_aarr     s                   like(lyaarr)
+     d ldell6_otyp     s                   like(lyotyp)
+     d ldell7_aarr     s                   like(lyaarr)
+     d ldell7_navn     s                   like(lynavn)
+     d rlevl1_ldor     s                   like(rllevr)
+     d votyl1_otyp     s                   like(vaotyp)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_kjop          s             12
+     d w_seqe          s              1
+     d b_forn          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(lyfirm)
+     d w_lnav          s                   like(rlnavn)
+     d w_udat          s               d   datfmt(*iso)
+      *
+     d w_aarr          s                   like(lyaarr)
+     d w_numm          s                   like(lynumm)
+     d w_suff          s                   like(lysuff)
+      *
+      * Definering av konstanter
+      *
+7.01 d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meleingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+      *
+      * F1= Bla-alternativer
+      *
+     c                   when      *inka
+     c                   exsr      xh1win
+     c                   exsr      forny
+     c                   goto      b2taga
+      *
+      * F3= Avslutt (+ F12)
+      *
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+      *
+      * F5= Forny
+      *
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+      *
+      * F23= Vise 2
+      *
+     c                   when      *inkx
+     c                   if        *in71  = *off
+     c                   eval      *in71  = *on
+     c                   eval      b2hedd = 'Ordredato'
+     c                   eval      b2hed1 = 'Slettegrunn'
+     c                   eval      b2hed2 = 'Slettekode'
+     c                   else
+     c                   eval      *in71  = *off
+     c                   eval      b2hedd = 'Ordredato'
+     c                   eval      b2hed1 = 'Vareadresse'
+     c                   eval      b2hed2 = 'Ordreverdi'
+     c                   endif
+     c                   exsr      forny
+     c                   goto      b2taga
+      *
+      * Roll
+      *
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+      *
+      * Styr cursor
+      *
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+      *
+     c                   endsl
+      *
+      * Sjekker input-felter
+      *
+     c                   exsr      xsjekk_inp
+     c                   if        b_feil = *on
+     c                   eval      b_feil = *off
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Posisjonering
+      *
+     c                   if        b2aarr <> 0      or
+     c                             b2numm <> 0      or
+     c                             b2dato <> 0      or
+     c                             b2lena <> *blank or
+     c                             b2navn <> *blank or
+     c                             b2otyp <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'A'
+     c     ldell4_key    setll     ldell4
+     c                   when      w_seqe = 'D'
+     c     ldell5_key    setll     ldell5
+     c                   when      w_seqe = 'L'
+     c     ldell6_key    setll     ldell6
+     c                   when      w_seqe = 'V'
+     c     ldell7_key    setll     ldell7
+     c                   other
+     c     ldell1_key    setll     ldell1
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjoner startverdi på årstall
+      * (Benyttes kun når bare årstall er oppgitt)
+      *
+     c                   if        b2aarr <> 0
+     c                   if        b2numm =  0
+     c                   if        b2dato =  0
+     c                   if        b2otyp =  *blank
+     c                   if        b2lena =  *blank
+     c                   if        b2navn =  *blank
+     c                   eval      w_seqe = ' '
+     c                   eval      ldell1_aarr = b2aarr
+     c                   eval      ldell1_numm = 0
+     c                   eval      ldell1_suff = 0
+     c     ldell1_key    setll     ldell1
+     c                   goto      end_pos
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+      * Posisjoner startverdi på ordrenummer
+      *
+     c                   if        b2numm <> 0
+     c                   eval      w_seqe = ' '
+     c                   eval      ldell1_aarr = b2aarr
+     c                   eval      ldell1_numm = b2numm
+     c                   eval      ldell1_suff = b2suff
+     c     ldell1_key    setll     ldell1
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på ordretype
+      *
+     c                   if        b2otyp <> *blank
+     c                   eval      w_seqe = 'O'
+     c                   eval      ldell6_aarr = b2aarr
+     c                   eval      ldell6_otyp = b2otyp
+     c     ldell6_key    setll     ldell6
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner på ordrenummer dersom ordretype er
+      * valgt både som posisjonering og selektering
+      *
+     c                   if        b2otyp <> *blank
+     c                   if        h1otyp <> *blank
+     c                   eval      w_seqe = ' '
+     c                   eval      ldell1_aarr = b2aarr
+     c                   eval      ldell1_numm = *zero
+     c                   eval      ldell1_suff = *zero
+     c     ldell1_key    setll     ldell1
+     c                   goto      end_pos
+     c                   endif
+     c                   endif
+      *
+      * Posisjoner startverdi på ldorenavn
+      *
+     c                   if        b2lena <> *blank
+     c                   eval      w_seqe = 'A'
+     c                   eval      ldell4_aarr = b2aarr
+     c                   eval      ldell4_lena = b2lena
+     c     ldell4_key    setll     ldell4
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på vareadresse
+      *
+     c                   if        b2navn <> *blank
+     c                   eval      w_seqe = 'V'
+     c                   eval      ldell7_aarr = b2aarr
+     c                   eval      ldell7_navn = b2navn
+     c     ldell7_key    setll     ldell7
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på ordredato
+      *
+     c                   if        b2dato <> 0
+     c                   eval      w_seqe = 'D'
+      *
+     c     *dmy          move      b2dato        ldell5_bdat
+     c                   eval      ldell5_aarr = b2aarr
+     c     ldell5_key    setll     ldell5
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og lyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2aarr = 0
+     c                   eval      b2numm = 0
+     c                   eval      b2suff = 0
+     c                   eval      b2dato = 0
+     c                   eval      b2otyp = *blank
+     c                   eval      b2lena = *blank
+     c                   eval      b2navn = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      w_aarr = b1aarr
+     c                   eval      w_numm = b1numm
+     c                   eval      w_suff = b1suff
+      *
+     c                   call      'LY510R'
+     c                   parm                    w_firm
+     c                   parm                    w_aarr
+     c                   parm                    w_numm
+     c                   parm                    w_suff
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for sjekking av input-felter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xsjekk_inp    begsr
+      *
+     c                   eval      b_feil = *off
+      *
+      * Dato
+      *
+     c                   if        b2dato <> 0
+     c     *dmy          test(d)                 b2dato                 34
+     c                   if        *in34  = *on                                          .....
+     c                   eval      b_feil = *on
+     c                   goto      end_sjekk                                                 .
+     c                   endif                                                           .....
+     c                   endif                                                           .....
+      *
+     c     end_sjekk     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * xh1win  Bilde for behandling av bla-alternativer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xh1win        begsr
+      *
+     c     h1taga        tag
+      *
+     c                   write     h1win
+     c                   exfmt     h1win
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc
+     c                   goto      end_h1win
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      h1taga
+     c                   endsl
+3.36  *
+3.36  * Etter at man har vært inne i dette vindu (H1WIN)
+3.36  * velges logisk fil tilbake til ordrerekkefølge
+3.36  * og sub-file lylles på nytt.
+3.36  *
+3.36 c                   eval      w_seqe = ' '
+3.36 c                   eval      ldell1_aarr = 0
+3.36 c                   eval      ldell1_numm = 0
+3.36 c                   eval      ldell1_suff = 0
+      *
+     c     end_h1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14  = *on
+     c                   write     b2ctl
+     c                   eval      *in14  = *off
+      *
+     c                   eval      *in15  = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å lylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+      * Velg logisk fil
+      *
+     c                   select
+     c                   when      w_seqe = 'A'
+     c                   read      ldell4                                 15
+     c                   when      w_seqe = 'D'
+     c                   read      ldell5                                 15
+     c                   when      w_seqe = 'O'
+     c                   read      ldell6                                 15
+     c                   when      w_seqe = 'V'
+     c                   read      ldell7                                 15
+     c                   other
+     c                   read      ldell1                                 15
+     c                   endsl
+      *
+      * End of file ?
+      *
+     c                   if        *in15
+     c                   leave
+     c                   endif
+      *
+      * Kommet til neste firma ?
+      *
+     c                   if        lyfirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+      * Skal ordretype være med ?
+      *
+3.31 c                   if        h1otyp = *blank and
+3.31 c                             h1oty2 = *blank and
+3.31 c                             h1oty3 = *blank
+3.31 c                   goto      xtamed
+3.31 c                   endif
+3.31  *
+3.31 c                   if        h1otyp <> *blank and
+3.31 c                             h1otyp =  lyotyp
+3.31 c                   goto      xtamed
+3.31 c                   endif
+3.31  *
+3.31 c                   if        h1oty2 <> *blank and
+3.31 c                             h1oty2 =  lyotyp
+3.31 c                   goto      xtamed
+3.31 c                   endif
+3.31  *
+3.31 c                   if        h1oty3 <> *blank and
+3.31 c                             h1oty3 =  lyotyp
+3.31 c                   goto      xtamed
+3.31 c                   endif
+3.31  *
+3.31 c                   iter
+3.31  *
+3.31 c     xtamed        tag
+      *
+      * Uaktuell bruker ?
+      *
+     c                   if        h1user <> *blank and
+     c                             h1user <> lyuser
+     c                   iter
+     c                   endif
+      *
+      * Uaktuell ldore ?
+      *
+     c                   if        h1ldor <> 0 and
+     c                             h1ldor <> lyldor
+     c                   iter
+     c                   endif
+      *
+      * lyll opp subfile
+      *
+     c                   eval      w_srrn = w_srrn + 1
+     c                   eval      b1valg = 0
+     c                   eval      b1aarr = lyaarr
+     c                   eval      b1numm = lynumm
+     c                   eval      b1suff = lysuff
+     c                   eval      b1otyp = lyotyp
+     c                   eval      b1navn = lynavn
+      *
+3.11 c                   move      '       '     b1navn
+     c     *dmy          move      lybdat        b1dato
+      *
+     c                   eval      b1lena      = *blank
+     c                   eval      rlevl1_ldor = lyldor
+     c     rlevl1_key    chain     rlevl1r                            90
+     c                   if        *in90
+     c                   eval      b1lena = lylena
+     c                   else
+     c                   eval      b1lena = rlnavn
+     c                   endif
+     c                   eval      b1ldor = lyldor
+      *
+     c                   eval      b1kjop = (lytoti - lytotr)
+     c                   eval      w_kjop = %editw(b1kjop : '         ,  ')
+     c                   move      w_kjop        b1navn
+      *
+     c                   if        *in71  = *on
+     c                   eval      b1navn = *blank
+     c                   movel     lykom1        b1navn
+     c                   move      '     '       b1navn
+     c                   move      lytype        b1navn
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12  = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13  = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12  = *off
+     c                   eval      *in13  = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av spørring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     spØrring      begsr
+      *
+      * ldore
+      *
+     c                   if        w_afld = 'H1ldor'
+     c                   call      'RK500R'
+     c                   parm                    w_firm
+     c                   parm                    h1ldor
+     c                   parm                    w_lnav
+     c                   goto      end_spØrr
+     c                   endif
+      *
+      * Ordre-type
+      *
+     c                   if        w_afld = 'H1OTYP'
+     c                   call      'VA550R'
+     c                   parm                    w_firm
+     c                   parm                    h1otyp
+     c                   goto      end_spØrr
+     c                   endif
+      *
+     c     end_spØrr     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for oppslag på ordre/suffix
+      *
+     c     ldellr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ldellr_aarr
+     c                   kfld                    ldellr_numm
+     c                   kfld                    ldellr_suff
+      *
+      * Key for posisjonering på ordre/suffix
+      *
+     c     ldell1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ldell1_aarr
+     c                   kfld                    ldell1_numm
+     c                   kfld                    ldell1_suff
+      *
+      * Key for posisjonering på ldorenavn
+      *
+     c     ldell4_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ldell4_aarr
+     c                   kfld                    ldell4_lena
+      *
+      * Key for posisjonering på ordre-dato
+      *
+     c     ldell5_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ldell5_aarr
+     c                   kfld                    ldell5_bdat
+      *
+      * Key for posisjonering på ordretype
+      *
+     c     ldell6_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ldell6_aarr
+     c                   kfld                    ldell6_otyp
+      *
+      * Key for posisjonering på vareadresse
+      *
+     c     ldell7_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ldell7_aarr
+     c                   kfld                    ldell7_navn
+      *
+      * Key for ldoreregister
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_ldor
+      *
+      * Key for ordretyperegister
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      * Henter firmanummer fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   eval      *in22 = *on
+      *
+      * Legg inn konstanter
+      *
+     c                   eval      b2hedd = 'Ordredato'
+     c                   eval      b2hed1 = 'Vareadresse'
+     c                   eval      b2hed2 = 'Ordreverdi'
+      *
+      * Henter dagens dato
+      *
+     c                   time                    w_udat
+      *
+      * Posisjonerer databasen, og lyller opp subfile
+      *
+     c                   eval      ldell1_aarr = 0
+     c                   eval      ldell1_numm = 0
+     c                   eval      ldell1_suff = 0
+     c     ldell1_key    setll     ldell1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *

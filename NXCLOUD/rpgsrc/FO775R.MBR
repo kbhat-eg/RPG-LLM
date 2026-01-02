@@ -1,0 +1,371 @@
+      /TITLE  ASOFAK Ordre, splitting av ordre til  suff ut fra lager
+     h option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FO775R
+      * Beskrivelse . . : Ordre, Splitting av ordre til suffix ut fra lager
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       161110 bof  Nytt program
+6.20  *       100111 bof  Tekstlinje forutsettes at den hører til varelinjen for
+6.NU  * R6.30 260514 bsa  Programmet gjennomgått mtp nummerutvidelser.
+      *
+8.01  *PRG2   210622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+8.02  *K000   090424 bsa  Kaller program for å hente høyeste suffiks på ordrenummer
+8.03  *K000   290824 bsa  Hvis nytt sufiks, oppdater tilhørende bestillingslinjer
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvltyl1    if   e           k disk    rename(vltypfr:vltyl1r)
+     ffodtl1    uf   e           k disk    rename(fodtpfr:fodtl1r)
+     ffodtlu    uf a e           k disk    rename(fodtpfr:fodtlur)
+     ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+     ffohelr    if   e           k disk    rename(fohepfr:fohelrr)
+     f                                     prefix(xx:2)
+     ffohelu    uf a e           k disk    rename(fohepfr:fohelur)
+8.03 flodtlu    uf   e           k disk    rename(lodtpfr:lodtlur)
+      *
+      * Definering av tabeller
+      *
+     d a_lage          s              2  0 dim(99)
+      *
+      * Definering av parametere
+      *
+     d p_firm          s                   like(fofirm)
+6.NU d p_numm          s                   like(fonumm)
+     d p_suff          s                   like(fosuff)
+     d p_stat          s              1
+      *
+      * Definering av variable i nøkler
+      *
+     d fodtl1_numm     s                   like(fdnumm)
+     d fodtl1_suff     s                   like(fdsuff)
+     d fodtlu_numm     s                   like(fdnumm)
+     d fodtlu_suff     s                   like(fdsuff)
+     d fodtlu_line     s                   like(fdline)
+     d fohel1_numm     s                   like(fonumm)
+     d fohel1_suff     s                   like(fosuff)
+     d fohelr_numm     s                   like(fonumm)
+     d fohelr_suff     s                   like(fosuff)
+     d fohelu_numm     s                   like(fonumm)
+     d fohelu_suff     s                   like(fosuff)
+6.20 d vltyl1_ltyp     s                   like(valtyp)
+8.03 d lodtlu_numm     s                   like(ldnumm)
+8.03 d lodtlu_suff     s                   like(ldsuff)
+8.03 d lodtlu_line     s                   like(ldline)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(fofirm)
+     d w_nysuff        s                   like(fosuff)
+8.02 d w_suff          s                   like(fosuff)
+     d i               s              2  0
+     d x               s              2  0
+6.20 d s_lage          s                   like(fdlage)
+5.54  *
+5.54  * Definering av datastruktur
+5.54  *
+5.54 d                 ds
+5.54 d d_urec                        80
+5.54 d  d_firm                        3  0 overlay(d_urec)
+5.61 d  d_aarr                        4  0 overlay(d_urec:4)
+6.nu d  d_numm                        8  0 overlay(d_urec:8)
+6.nu d  d_suff                        2  0 overlay(d_urec:16)
+6.nu d  d_kodb                        1    overlay(d_urec:18)
+6.nu d  d_date                         d   overlay(d_urec:19) datfmt(*iso)
+6.nu d  d_time                         t   overlay(d_urec:29) timfmt(*iso)
+6.nu d  d_user                       10    overlay(d_urec:37)
+6.nu d  d_wsid                       10    overlay(d_urec:47)
+      *
+      * Definering av Local Data Arae (LDA)
+      *
+     d                uds
+5.54 d l_wsid                901    910
+     d l_user                911    920
+5.54 d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Lese sjekker om splitting er nødvendig
+      *
+     c                   exsr      sjk_splitt
+      *
+     c                   if        i > 1
+     c                   exsr      splitt
+     c                   exsr      nye_summer
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker om splitting av ordre er nødvendig - flere lager på ordrelinjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjk_splitt    begsr
+      *
+     c                   eval      a_lage(*) = 0
+      *
+     c                   eval      i = 0
+     c                   eval      fodtl1_numm = p_numm
+     c                   eval      fodtl1_suff = p_suff
+     c     fodtl1_key    setll     fodtl1
+     c     fodtl1_key    reade     fodtl1
+     c                   dow       not %eof(fodtl1)
+     c                   if        %lookup(fdlage:a_lage) = 0
+     c                   eval      i = i +1
+     c                   eval      a_lage(i) = fdlage
+     c                   endif
+     c     fodtl1_key    reade     fodtl1
+     c                   enddo
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Splitter i nye suffix på lager som ligger i array fra 2 og oppover
+      * 1 følger gjeldende suffix.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     splitt        begsr
+      *
+      * leser heading ( som grunnlag)
+     c                   clear                   fohel1r
+     c                   eval      fohel1_numm = p_numm
+     c                   eval      fohel1_suff = p_suff
+     c     fohel1_key    chain     fohel1
+     c                   if        %found(fohel1)
+      *
+     c                   eval      x = 2
+     c                   dow       x <= i
+      *
+     c                   exsr      hent_suff
+      * skriver heading med ny suffix
+     c                   eval      fosuff = w_nysuff
+     c                   time                    fodate
+     c                   time                    fotime
+     c                   time                    foedat
+     c                   time                    foetim
+     c                   eval      fooous = l_user
+     c                   eval      foeusr = l_user
+     c                   write     fohelur
+      *
+      * leser alle detaljelinjer med gjeldende lager
+      *
+     c                   eval      fodtl1_numm = p_numm
+     c                   eval      fodtl1_suff = p_suff
+     c     fodtl1_key    setll     fodtl1
+     c     fodtl1_key    reade     fodtl1
+     c                   dow       not %eof(fodtl1)
+6.20  *
+6.20  * sjekker linjetype, hvis ikke tekstlinje,skal lager tas vare på
+6.20  * til evt. tekstlinje kommer.
+6.20 c                   eval      vltyl1_ltyp = fdltyp
+6.20 c     vltyl1_key    chain     vltyl1
+6.20 c                   if        valktx = 0
+6.20 c                   eval      s_lage = fdlage
+6.20 c                   endif
+6.20  *
+6.20  * hvis tekstlinje og skal den brukes foranliggende varelinje sitt lager
+6.20  *
+6.20 c                   if        valktx = 1
+6.20 c                   eval      fdlage = s_lage
+6.20 c                   endif
+      *
+     c                   if        fdlage = a_lage(x)
+     c                   eval      fdsuff = w_nysuff
+     c                   time                    fdodat
+     c                   time                    fdotim
+     c                   time                    fdedat
+     c                   time                    fdetim
+     c                   eval      fdoous = l_user
+     c                   eval      fdeusr = l_user
+      * skriver med ny suffix
+     c                   write     fodtlur
+8.03  *
+8.03  * Oppdater tilhørende bestillinhslinje
+8.03  *
+8.03 c                   if        fdbenr <> 0
+8.03 c                   eval      lodtlu_numm = fdbenr
+8.03 c                   eval      lodtlu_suff = fdbsuf
+8.03 c                   eval      lodtlu_line = fdblin
+8.03 c                   eval      lodtlu_line = fdblin
+8.03 c     lodtlu_key    chain     lodtlu
+8.03 c                   if        %found
+8.03 c                   eval      ldorsu = fdsuff
+8.03 c                   time                    ldedat
+8.03 c                   time                    ldetim
+8.03 c                   eval      ldeusr = l_user
+8.03 c                   update    lodtlur
+8.03 c                   endif
+8.03 c                   endif
+      * sletter lest linje
+     c                   delete    fodtl1r
+     c                   endif
+      *
+     c     fodtl1_key    reade     fodtl1
+     c                   enddo
+      *
+     c                   eval      x = x + 1
+      *
+     c                   enddo
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Henter siste suffix
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_suff     begsr
+8.02  *
+8.02  * Hent høyeste brukte suffiks på ordrenummer
+8.02  *
+8.02 c                   eval      w_suff = 0
+8.02 c                   call      'AS110R'
+8.02 c                   parm                    fonumm
+8.02 c                   parm                    w_suff
+      *
+8.02 c*                  eval      fohelr_numm = p_numm
+8.02 c*                  eval      fohelr_suff = 99
+8.02 c*    fohelr_key    setll     fohelr
+8.02 c*                  readp     fohelr
+      *
+8.02 c*                  eval      w_nysuff =  fosuff + 1
+8.02 c                   eval      w_nysuff =  w_suff
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Danner nye summer etter splitting, setter også loggkode på ny
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     nye_summer    begsr
+      *
+     c                   eval      fohel1_numm = p_numm
+     c     fohel1_key2   setll     fohel1
+     c     fohel1_key2   reade     fohel1
+     c                   dow       not %eof(fohel1)
+     c                   call      'FO700R  '
+     c                   parm                    fofirm
+     c                   parm                    fonumm
+     c                   parm                    fosuff
+      *
+     c                   if        fosuff <> p_suff
+5.54 c                   eval      d_kodb = '2'
+     c                   exsr      upd_logg
+     c                   endif
+     c     fohel1_key2   reade     fohel1
+     c                   enddo
+      *
+     c                   endsr
+5.65  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.65  * Subrutine for oppdatere logg-register
+5.65  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.65  *
+5.65 c     upd_logg      begsr
+5.65  *
+5.65  *
+     c                   eval      d_firm = fofirm
+     c                   eval      d_numm = fonumm
+     c                   eval      d_suff = fosuff
+     c
+5.65 c                   time                    d_date
+5.65 c                   time                    d_time
+5.65 c                   eval      d_user = l_user
+5.65 c                   eval      d_wsid = l_wsid
+5.65 c                   eval      d_aarr = %subdt(fobdat:*years)
+5.65 c                   call      'FU900R  '
+5.65 c                   parm                    p_stat
+5.65 c                   parm                    d_urec
+5.65  *
+5.65  *
+5.65 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+6.NU c                   parm                    p_numm
+     c                   parm                    p_suff
+      *
+      * Key for les på ordrehode
+      *
+     c     fohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohel1_numm
+     c                   kfld                    fohel1_suff
+      *
+      * Key for les på ordrehode
+      *
+     c     fohel1_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohel1_numm
+      *
+      * Key for les på ordrehode
+      *
+     c     fohelr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohelr_numm
+     c                   kfld                    fohelr_suff
+      *
+      * Key for oppslag på ordrehode
+      *
+     c     fohelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohelu_numm
+     c                   kfld                    fohelu_suff
+      *
+      * Key for oppslag på ordrelinje
+      *
+     c     fodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtl1_numm
+     c                   kfld                    fodtl1_suff
+      *
+      * Key for opppdat på ordrelinje
+      *
+     c     fodtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtlu_numm
+     c                   kfld                    fodtlu_suff
+6.20  *
+6.20  * Key for les av linjetype
+6.20  *
+6.20 c     vltyl1_key    klist
+6.20 c                   kfld                    w_firm
+6.20 c                   kfld                    vltyl1_ltyp
+8.03  *
+8.03  * Key for file : Bestilling-LINJE-REGISTER
+8.03  *
+8.03 c     lodtlu_key    klist
+8.03 c                   kfld                    w_firm
+8.03 c                   kfld                    lodtlu_numm
+8.03 c                   kfld                    lodtlu_suff
+8.03 c                   kfld                    lodtlu_line
+      *
+      * Legg inn firmanummer
+      *
+     c                   eval      w_firm = p_firm
+      *
+     c                   endsr

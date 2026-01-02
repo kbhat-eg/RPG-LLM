@@ -1,0 +1,1424 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASPGPL
+      * Program . . . . : AT110R
+      * Beskrivelse . . : Vedlikehold, Avtaler
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       160399 KRK  Nytt program
+7.xx  * 7.xx      140618  Endringer reltart til ny GUI. NB Kan kun gjelde BKV
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     faavtl1    if   e           k disk    rename(aavtpfr:aavtl1r)
+     faavtl2    if   e           k disk    rename(aavtpfr:aavtl2r)
+     faavtlr    if   e           k disk    rename(aavtpfr:aavtlrr)
+     faavtlu    uf a e           k disk    rename(aavtpfr:aavtlur)
+      *
+     fat110d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Datastruktur
+      *
+     d                 ds
+     d dsparm                       256
+     d  dsdoct                       10    overlay(dsparm:001)
+     d  dsaarr                       04  0 overlay(dsparm:011)
+     d  dsnumm                       06  0 overlay(dsparm:015)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d aavtl1_numm     s                   like(atnumm)
+     d aavtl2_text     s                   like(attext)
+     d aavtlr_numm     s                   like(atnumm)
+     d aavtlu_numm     s                   like(atnumm)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d wskode          s              1
+     d wsfell          s              6
+     d wstype          s              2
+     d wsfast          s             10
+     d wsnumm          s              6  0
+      *
+      * Definering av param. til spørreprog.
+      *
+     d w_retk          s              1
+     d w_avde          s                   like(atavde)
+     d w_levr          s                   like(atlevr)
+     d w_kund          s                   like(atkund)
+     d w_proj          s                   like(atproj)
+     d w_user          s                   like(atuser)
+     d w_pkod          s              3
+     d w_pbes          s             20
+     d w_atxt          s             20
+     d w_ktxt          s             30
+     d w_ltxt          s             30
+     d w_ptxt          s             30
+     d w_utxt          s             30
+      *
+     d p_akti          s              3
+     d p_kont          s              5  0
+     d p_spes          s              4  0
+     d p_txt1          s             30
+     d p_txt2          s             30
+      *
+      *
+     d w_firm          s                   like(atfirm)
+     d w_aarr          s                   like(ataarr)
+     d w_udat          s               d   datfmt(*iso)
+      *
+     d s_numm          s                   like(atnumm)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meleingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *  A1 Behandler inntasting av år                                  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      *
+     c     a1tag         tag
+     c                   time                    timstm           14 0
+     c                   move      timstm        a1aarr
+     c                   move      a1aarr        c1aarr
+      *
+     c                   exfmt     a1win
+      *
+      *  F3=Avslutt program
+      *
+     c     *INKC         IFEQ      *ON
+     c                   GOTO      avslutt
+     c                   END
+      *
+      * Initierer skjermbildet
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      w_aarr = a1aarr
+      *
+     c                   eval      aavtl1_numm = 999999
+     c     aavtl1_key    setll     aavtl1
+      *
+     c                   exsr      crt_subfile
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2numm <> *zero or
+     c                             b2text <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      aavtl2_text = b1text
+     c     aavtl2_key    setll     aavtl2
+     c                   other
+     c                   eval      aavtl1_numm = b1numm
+     c     aavtl1_key    setll     aavtl1
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Enhet
+      *
+     c                   if        b2numm <> *zero
+     c                   eval      w_seqe = *blank
+     c                   eval      aavtl1_numm = b2numm
+     c     aavtl1_key    setll     aavtl1
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Beskrivelse
+      *
+     c                   if        b2text <> *blank
+     c                   eval      w_seqe = 'B'
+     c                   eval      aavtl2_text = b2text
+     c     aavtl2_key    setll     aavtl2
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2numm = *zero
+     c                   eval      b2text = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   eval      c1numm = b1numm
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Kopier
+      *
+     c                   if        b1valg = 3
+     c                   eval      k1numm = b1numm
+     c                   exsr      xk1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1numm = b1numm
+     c                   exsr      xd1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1numm = b1numm
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Utskrift
+      *
+     c                   if        b1valg = 6
+     c                   eval      e1numm = b1numm
+     c                   exsr      xe1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      b_oppr = *on
+     c                   eval      b_forn = *off
+      *
+     c                   eval      c1numm = b2numm
+      *
+     c     c1taga        tag
+      *
+      * Sender opp informasjonsbilde dersom rad finnes fra før
+      *
+     c                   eval      aavtlr_numm = c1numm
+     c     aavtlr_key    chain     aavtlr
+     c                   if        %found
+     c                   exsr      xc1msg
+     c                   if        b_anul = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   exsr      xc2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c1bld
+     c                   endif
+      *
+      * Utskrift
+      *
+     c                   eval      e1numm = c1numm
+     c                   exsr      xe1win
+      *
+     c     end_c1bld     tag
+      *
+     c                   eval      b_oppr = *off
+     c                   eval      b2numm = 999999
+     c                   exsr      posisjoner
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   goto      end_c1msg
+     c                   endif
+      *
+     c     end_c1msg     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      aavtlr_numm = c1numm
+     c     aavtlr_key    chain     aavtlr
+      *
+     c                   eval      c2adat = 0
+     c                   eval      c2cdat = 0
+     c                   eval      c2sdat = 0
+     c                   eval      c2tdat = 0
+     c                   eval      c2odat = 0
+      *
+     c                   if        %found
+     c                   if        atadat <> *loval
+     c     *dmy          move      atadat        c2adat
+     c                   endif
+      *
+     c                   if        atcdat <> *loval
+     c     *dmy          move      atcdat        c2cdat
+     c                   endif
+      *
+     c                   if        atsdat <> *loval
+     c     *dmy          move      atsdat        c2sdat
+     c                   endif
+      *
+     c                   if        attdat <> *loval
+     c     *dmy          move      attdat        c2tdat
+     c                   endif
+      *
+     c                   if        atodat <> *loval
+     c     *dmy          move      atodat        c2odat
+     c                   endif
+      *
+     c                   eval      c2text = attext
+     c                   eval      c2type = attype
+     c                   eval      c2refr = atrefr
+     c                   eval      c2avde = atavde
+     c                   eval      c2user = atuser
+     c                   eval      c2grnr = atgrnr
+     c                   eval      c2levr = atlevr
+     c                   eval      c2kund = atkund
+     c                   eval      c2proj = atproj
+     c                   eval      c2krra = atkrra
+     c                   eval      c2krfo = atkrfo
+     c                   eval      c2eusr = ateusr
+     c     *dmy          move      atedat        c2edat
+     c                   else
+     c                   eval      c2text = *blank
+     c                   eval      c2type = *blank
+     c                   eval      c2refr = *blank
+     c                   eval      c2avde = *zero
+     c                   eval      c2user = *blank
+     c                   eval      c2grnr = *blank
+     c                   eval      c2levr = *zero
+     c                   eval      c2kund = *zero
+     c                   eval      c2proj = *zero
+     c                   eval      c2krra = *zero
+     c                   eval      c2krfo = *zero
+     c                   eval      c2eusr = *blank
+     c                   eval      c2edat = 0
+     c                   endif
+      *
+     c                   if        b1valg = 3
+     c                   eval      c1numm = k1numm
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30 = *on
+     c                   endif
+      *
+      * Hent,   Tekst for bruker
+      *
+     c                   exsr      sbuser
+      *
+      * Hent,   Tekst for avdeling
+      *
+     c                   exsr      sbavde
+      *
+      * Hent,   Tekst for leverandør
+      *
+     c                   exsr      sblevr
+      *
+      * Hent,   Tekst for kunde
+      *
+     c                   exsr      sbkund
+      *
+      * Hent,   Tekst for prosjekt
+      *
+     c                   exsr      sbproj
+      *
+     c     c2taga        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      * Spørringer
+      *
+     c                   if        *inkd
+      *
+      * Call program for Avtale type
+      *
+     c                   if        w_afld = 'C2TYPE'
+     c                   eval      w_pkod = *blank
+     c                   eval      w_pbes = *blank
+     c                   call      'ATP41R'
+     c                   parm                    w_pkod
+     c                   parm                    w_pbes
+      *
+     c                   if        w_pkod <> *blank
+     c                   eval      c2type = w_pbes
+     c                   endif
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Call program for bruker
+      *
+     c                   if        w_afld = 'C2USER'
+     c                   call      'AR750R'
+     c                   parm                    w_user
+     c                   parm                    w_utxt
+     c                   if        w_user <> *blank
+     c                   eval      c2user = w_user
+     c                   eval      c2utxt = w_utxt
+     c                   endif
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Call program for avdeling
+      *
+     c                   if        w_afld = 'C2AVDE'
+     c                   call      'RA507R'
+     c                   parm                    w_firm
+     c                   parm                    w_avde
+     c                   parm                    w_atxt
+     c                   if        w_avde <> 0
+     c                   eval      c2avde = w_avde
+     c                   eval      c2atxt = w_atxt
+     c                   endif
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Call program for leverandør
+      *
+     c                   if        w_afld = 'C2LEVR'
+     c                   call      'RL500R'
+     c                   parm                    w_firm
+     c                   parm                    w_levr
+     c                   parm                    w_ltxt
+     c                   if        w_levr <> 0
+     c                   eval      c2levr = w_levr
+     c                   eval      c2ltxt = w_ltxt
+     c                   endif
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Call program for kunde
+      *
+     c                   if        w_afld = 'C2KUND'
+     c                   call      'RK500R'
+     c                   parm                    w_firm
+     c                   parm                    w_kund
+     c                   parm                    w_ktxt
+     c                   if        w_kund <> 0
+     c                   eval      c2kund = w_kund
+     c                   eval      c2ktxt = w_ktxt
+     c                   endif
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Call program for prosjekt
+      *
+     c                   if        w_afld = 'C2PROJ'
+     c                   call      'RP500R'
+     c                   parm                    w_firm
+     c                   parm                    w_proj
+     c                   parm                    p_akti
+     c                   parm                    p_kont
+     c                   parm                    p_spes
+     c                   parm                    w_ptxt
+     c                   if        w_proj <> 0
+     c                   eval      c2proj = w_proj
+     c                   eval      c2ptxt = w_ptxt
+     c                   endif
+     c                   goto      c2taga
+     c                   endif
+      *
+     c                   endif
+      *
+      * Sjekk,  Finnes leverandør i LEVERANDØR-REGISTER
+      *
+     c                   if        c2levr <> *zero
+     c                   exsr      sblevr
+     c                   if        w_retk <> *blank
+     c                   eval      *in31 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+      * Sjekk,  Finnes leverandør i KUNDE-REGISTER
+      *
+     c                   if        c2kund <> *zero
+     c                   exsr      sbkund
+     c                   if        w_retk <> *blank
+     c                   eval      *in32 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+      * Sjekk,  Finnes prosjekt i KONTO-REGISTER
+      *
+     c                   if        c2proj <> *zero
+     c                   exsr      sbproj
+     c                   if        w_retk <> *blank
+     c                   eval      *in33 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+      * Sjekk,  Finnes avdeling i KODE-REGISTER
+      *
+     c                   if        c2avde <> *zero
+     c                   exsr      sbavde
+     c                   if        w_retk <> *blank
+     c                   eval      *in34 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+      * Sjekk,  Finnes bruker i BRUKER-REGISTER
+      *
+     c                   if        c2user <> *blank
+     c                   exsr      sbuser
+     c                   if        w_retk <> *blank
+     c                   eval      *in35 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+      * Validering av avtaletype
+      *
+     c                   if        c2type <> ' '                   and
+     c                             c2type <> 'Salg   '             and
+     c                             c2type <> 'Innkjøp'             and
+     c                             c2type <> 'Vedlikehold'         and
+     c                             c2type <> 'Samarbeid'           and
+     c                             c2type <> 'Kjøp/Salg av eiend.' and
+     c                             c2type <> 'Finansiering'        and
+     c                             c2type <> 'Prosjekt    '        and
+     c                             c2type <> 'Lisens      '        and
+     c                             c2type <> 'Leie        '        and
+     c                             c2type <> 'Utleie      '        and
+     c                             c2type <> 'Forsikringer'
+     c                   eval      *in36 = *on
+     c                   goto      c2taga
+     c                   endif                                                            .....
+      *
+      *
+      * Validering av input
+      *
+     c                   if        c2levr = *zero
+     c                   if        c2kund = *zero
+     c                   eval      *in31 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+     c                   if        c2avde = *zero
+     c                   eval      *in34 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   if        c2user = *blank
+     c                   eval      *in35 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   if        c2type = *blank
+     c                   eval      *in36 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   if        c2text = *blank
+     c                   eval      *in38 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   if        c2adat = *zero
+     c                   eval      *in41 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   if        c2sdat = *zero
+     c                   eval      *in42 = *on
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Valdiering av datoer
+      *
+     c                   if        c2adat <> *zero
+     c     *dmy          test(d)                 c2adat                 41
+     c                   if        *in41 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+     c                   if        c2cdat <> *zero
+     c     *dmy          test(d)                 c2cdat                 44
+     c                   if        *in42 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+     c                   if        c2sdat <> *zero
+     c     *dmy          test(d)                 c2sdat                 42
+     c                   if        *in43 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+     c                   if        c2tdat <> *zero
+     c     *dmy          test(d)                 c2tdat                 45
+     c                   if        *in44 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+     c                   if        c2odat <> *zero
+     c     *dmy          test(d)                 c2odat                 43
+     c                   if        *in45 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+      * Sjekk dato større enn..  (overføringsjuks!!)
+      *
+     c                   if        c2odat <> 0
+     c                   if        c2sdat <> 0
+     c     *dmy          move      c2sdat        atsdat
+     c                   endif
+     c     *dmy          move      c2odat        atodat
+      *
+     c                   if        atodat < atsdat
+     c                   eval      *in43 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+      * Validering av kryss/input
+      *
+     c                   if        c2levr <> *zero
+     c                   if        c2kund <> *zero
+     c                   eval      *in31 = *on
+     c                   goto      c2taga
+     c                   endif
+     c                   endif
+      *
+      * Henter neste ledige nummer
+      *
+     c     c1numm        ifeq      *zero
+     c                   move      '0'           wskode
+     c                   movel     'AVTALE'      wsfell
+     c                   move      *zero         wsnumm
+     c                   exsr      HNTNUM
+     c                   move      wsnumm        c1numm
+     c                   end
+      *
+      * Oppdatering
+      *
+     c                   clear                   aavtlur
+      *
+     c                   eval      aavtlu_numm = c1numm
+     c     aavtlu_key    chain     aavtlur
+      *
+     c                   eval      atadat = *loval
+     c                   eval      atcdat = *loval
+     c                   eval      atsdat = *loval
+     c                   eval      attdat = *loval
+     c                   eval      atodat = *loval
+      *
+     c                   if        c2adat <> 0
+     c     *dmy          move      c2adat        atadat
+     c                   endif
+     c                   if        c2cdat <> 0
+     c     *dmy          move      c2cdat        atcdat
+     c                   endif
+     c                   if        c2sdat <> 0
+     c     *dmy          move      c2sdat        atsdat
+     c                   endif
+     c                   if        c2tdat <> 0
+     c     *dmy          move      c2tdat        attdat
+     c                   endif
+     c                   if        c2odat <> 0
+     c     *dmy          move      c2odat        atodat
+     c                   endif
+      *
+     c                   if        c2cdat = 0
+     c     *dmy          move      c2adat        atcdat
+     c                   endif
+      *
+     c                   eval      attext = c2text
+     c                   eval      attype = c2type
+     c                   eval      atniva = 'Avtale'
+     c                   eval      atrefr = c2refr
+     c                   eval      atavde = c2avde
+     c                   eval      atuser = c2user
+     c                   eval      atgrnr = c2grnr
+     c                   eval      atlevr = c2levr
+     c                   eval      atkund = c2kund
+     c                   eval      atproj = c2proj
+     c                   eval      atkrra = c2krra
+     c                   eval      atkrfo = c2krfo
+      *
+     c                   if        c2ktxt <> *blank
+     c                   eval      atnavn = c2ktxt
+     c                   endif
+     c                   if        c2ltxt <> *blank
+     c                   eval      atnavn = c2ltxt
+     c                   endif
+      *
+     c                   time                    atedat
+     c                   time                    atetim
+     c                   eval      ateusr = l_user
+      *
+     c                   if        %found
+     c                   update    aavtlur
+     c                   else
+     c                   eval      atfirm = w_firm
+     c                   eval      ataarr = w_aarr
+     c                   eval      atnumm = c1numm
+     c                   write     aavtlur
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c                   if        b1valg = 2
+     c                   eval      b1text = attext
+     c                   endif
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      aavtlr_numm = d1numm
+     c     aavtlr_key    chain     aavtlr
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_d1win
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter rad
+      *
+     c                   eval      aavtlu_numm = d1numm
+     c     aavtlu_key    chain     aavtlur
+      *
+     c                   delete    aavtlur
+      *
+     c     end_d1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av utskrif       (E1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xe1win        begsr
+      *
+     c                   eval      aavtlr_numm = e1numm
+     c     aavtlr_key    chain     aavtlr
+      *
+     c                   eval      e1niva = 'Avtale'
+     c     *dmy          move      w_udat        e1cdat
+      *
+     c     e1taga        tag
+     c                   exfmt     e1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_e1win
+     c                   endif
+      *
+      * Spørringer
+      *
+     c                   if        *inkd
+      *
+      * Call program for Avtale nivå
+      *
+     c                   if        w_afld = 'E1NIVA'
+     c                   eval      w_pkod = *blank
+     c                   eval      w_pbes = *blank
+     c                   call      'ATP42R'
+     c                   parm                    w_pkod
+     c                   parm                    w_pbes
+     c                   if        w_pkod <> *blank
+     c                   eval      e1niva = w_pbes
+     c                   endif
+     c                   goto      e1taga
+     c                   endif
+     c                   endif
+      *
+      * Validering av avtaleniva
+      *
+     c                   if        e1niva <> 'Avtale '        and
+     c                             e1niva <> 'Vedlegg'        and
+     c                             e1niva <> 'Endringer'      and
+     c                             e1niva <> 'Korrespondanse' and
+     c                             e1niva <> 'Kommentarer'
+     c                   eval      *in31 = *on
+     c                   goto      e1taga
+     c                   endif                                                            .....
+      *
+      * Validering av Endringsdato
+      *
+     c                   if        e1cdat = 0
+     c                   eval      *in44 = *on
+     c                   goto      e1taga
+     c                   endif
+      *
+      * Valdiering av Endringsdato
+      *
+     c                   if        e1cdat <> *zero
+     c     *dmy          test(d)                 e1cdat                 44
+     c                   if        *in44 = *on
+     c                   goto      e1taga
+     c                   endif
+     c                   endif
+      *
+      * Oppdatering
+      *
+     c                   clear                   aavtlur
+      *
+     c                   eval      aavtlu_numm = e1numm
+     c     aavtlu_key    chain     aavtlur
+      *
+     c                   if        e1cdat <> 0
+     c     *dmy          move      e1cdat        atcdat
+     c                   endif
+      *
+     c                   if        e1niva = 'Avtale'
+     c                   eval      atcdat = atadat
+     c                   endif
+      *
+     c                   if        %found
+     c                   update    aavtlur
+     c                   endif
+      *
+      * Kaller opp utskrifts-program
+      *
+     c                   eval      dsdoct = e1niva
+     c                   eval      dsnumm = e1numm
+     c                   eval      dsaarr = w_aarr
+      *
+     c                   call      'AT116C'
+     c                   parm                    dsparm
+      *
+     c                   eval      b_forn = *on
+      *
+     c     end_e1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle kopierings-bildet (K1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xk1win        begsr
+      *
+      * Tar vare på nøkkel til rad det skal kopieres fra
+      *
+     c                   eval      s_numm = k1numm
+      *
+      * Fyller kopierings-bildet
+      *
+     c                   eval      aavtlr_numm = k1numm
+     c     aavtlr_key    chain     aavtlr
+      *
+     c     k1taga        tag
+      *
+     c                   exfmt     k1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_k1win
+     c                   endif
+      *
+      * Sjekk om utfylt
+      *
+     c                   if        k1numm = *zero
+     c                   eval      *in31 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Sjekker om rad finnes fra før
+      *
+     c                   eval      aavtlr_numm = k1numm
+     c     aavtlr_key    chain     aavtlr
+     c                   if        %found
+     c                   eval      *in32 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   eval      c1numm = s_numm
+     c                   exsr      xc2bld
+      *
+     c     end_k1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   read      aavtl2
+     c                   other
+     c                   read      aavtl1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             atfirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   if        %eof or
+     c                             ataarr <> w_aarr
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      aavtl2_text = attext
+     c                   other
+     c                   eval      aavtl1_numm = atnumm
+     c                   endsl
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1numm = atnumm
+     c                   eval      b1text = attext
+     c                   eval      b1user = atuser
+     c                   eval      b1avde = atavde
+     c                   eval      b1type = attype
+     c                   eval      b1navn = atnavn
+      *
+     c                   eval      b1adat = *zero
+     c                   if        atadat <> *loval
+3.12 c     *dmy          move      atadat        b1adat
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c                   select
+     c                   when      w_seqe = 'B'
+     c     aavtl2_key    setgt     aavtl2
+     c                   readp     aavtl2
+     c                   other
+     c     aavtl1_key    setgt     aavtl1
+     c                   readp     aavtl1
+     c                   endsl
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   readp     aavtl2
+     c                   other
+     c                   readp     aavtl1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             atfirm <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   if        %eof or
+     c                             ataarr <> w_aarr
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      aavtl2_text = attext
+     c                   other
+     c                   eval      aavtl1_numm = atnumm
+     c                   endsl
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c                   select
+     c                   when      w_seqe = 'B'
+     c     aavtl2_key    setll     aavtl2
+     c                   other
+     c     aavtl1_key    setll     aavtl1
+     c                   endsl
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekk/Hent tekst for bruker                       AS750R
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sbuser        begsr
+      *
+     c                   eval      c2utxt = *blank
+     c                   call      'AS750R'
+     c                   parm                    w_retk
+     c                   parm                    c2user
+     c                   parm                    w_utxt
+      *
+      *
+     c                   if        w_retk = *blank
+     c                   movel     w_utxt        c2utxt
+     c                   endif
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekk/Hent tekst for avdeling                     RS707R
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sbavde        begsr
+      *
+     c                   eval      c2atxt = *blank
+     c                   call      'RS707R'
+     c                   parm                    w_retk
+     c                   parm                    c2avde
+     c                   parm                    w_atxt
+      *
+      *
+     c                   if        w_retk = *blank
+     c                   movel     w_atxt        c2atxt
+     c                   endif
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekk/Hent tekst for leverandør                   RS760R
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sblevr        begsr
+      *
+     c                   eval      c2ltxt = *blank
+     c                   call      'RS760R'
+     c                   parm                    w_retk
+     c                   parm                    c2levr
+     c                   parm                    w_ltxt
+      *
+      *
+     c                   if        w_retk = *blank
+     c                   movel     w_ltxt        c2ltxt
+     c                   endif
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekk/Hent tekst for kunde                        RS750R
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sbkund        begsr
+      *
+     c                   eval      c2ktxt = *blank
+     c                   call      'RS750R'
+     c                   parm                    w_retk
+     c                   parm                    c2kund
+     c                   parm                    w_ktxt
+      *
+      *
+     c                   if        w_retk = *blank
+     c                   movel     w_ktxt        c2ktxt
+     c                   endif
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekk/Hent tekst for prosjekt                     RS750R
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sbproj        begsr
+      *
+     c                   eval      c2ptxt = *blank
+     c                   call      'RS770R'
+     c                   parm                    w_retk
+     c                   parm                    c2proj
+     c                   parm                    p_akti
+     c                   parm                    p_kont
+     c                   parm                    p_spes
+     c                   parm                    w_ptxt
+     c                   parm                    p_txt2
+      *
+      *
+     c                   if        w_retk = *blank
+     c                   movel     w_ptxt        c2ptxt
+     c                   endif
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *  Henter/Oppdatering av NUMMER-REGISTER                          *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      *
+     c     HNTNUM        BEGSR
+      *
+     c                   move      *blank        wstype
+     c                   move      *blank        wsfast
+      *
+      *  Kaller opp subprogram for henting av nummer fra NUMMER-REGISTER
+      *
+     c                   CALL      'AS100R'
+     c                   parm                    wskode
+     c                   parm                    w_firm
+     c                   parm                    wsfell
+     c                   parm                    wstype
+     c                   parm                    wsfast
+     c                   parm                    wsnumm
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for posisjonering på enhet
+      *
+     c     aavtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    aavtl1_numm
+      *
+      * Key for posisjonering på beskrivelse
+      *
+     c     aavtl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    aavtl2_text
+      *
+      * Key for les på enhet
+      *
+     c     aavtlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    aavtlr_numm
+      *
+      * Key for oppdatering av enhet
+      *
+     c     aavtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    aavtlu_numm
+      *
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Legger inn dagens dato
+      *
+     c                   time                    w_udat
+      *
+     c                   endsr

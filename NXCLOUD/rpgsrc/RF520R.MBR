@@ -1,0 +1,660 @@
+     h option(*nodebugio : *srcstmt) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : NEXSTEP
+      * Program . . . . : RF520R
+      * Beskrivelse . . : Spørring på feillogg for masterdata transaksjoner
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       021222 ASK  Nytt program
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fmlogi1    if   e           k disk    rename(mlogst:mlogi1r)
+     fmlogiu    uf   e           k disk    rename(mlogst:mlogiur)
+      *
+     frf520d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d mlogi1_odat     s                   like(mlodat)
+     d mlogi1_otim     s                   like(mlotim)
+     d mlogi1_otyp     s                   like(mlotyp)
+     d mlogiu_uid      s                   like(uid)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_firm          s                   like(mlofir)
+     d w_valg          s              1  0
+     d w_kund          s              6  0
+     d w_levr          s              6  0
+     d b_forn          s              1    inz(*off)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(19)
+
+     C/Exec SQL
+     C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR,
+     C+             commit=*none
+     C/End-Exec
+
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   endsl
+      *
+      * F1=Filter med nytt utlegg av skjermbilde
+      *
+     c                   if        *inka
+     c                   exsr      xh1win
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+     c                   goto      b2tagb
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        h1dato > 0
+     c                   eval      mlogi1_odat = %date(h1dato : *dmy)
+     c                   else
+     c                   eval      mlogi1_odat = *hival
+     c                   endif
+      *
+     c                   eval      mlogi1_otim = *hival
+     c                   eval      mlogi1_otyp = ' '
+     c     mlogi1_key    setll     mlogi1
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      b_forn = *off
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      mlogiu_uid = b1uid
+     c                   exsr      xb4win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   eval      b_forn = *on
+     c                   iter
+     c                   endif
+      *
+      * Oppdater
+      *
+     c                   if        b1valg = 2
+     c                   eval      mlogiu_uid = b1uid
+     c                   exsr      upd_mast
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      mlogiu_uid = b1uid
+     c                   exsr      xb3win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  H1 Behandle bilde for filter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xh1win        begsr
+      *
+      * Henter inn filterinformasjon
+      *
+     c     h1tag1        tag
+     c                   exfmt     h1win
+      *
+      * F4=Søk på transtype
+      *
+     c                   if        *inkd
+     c                   exsr      xh2win
+     c                   goto      h1tag1
+     c                   endif
+      *
+      * F3=Avslutt subrutinen
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  H2 Behandle bilde for filter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xh2win        begsr
+      *
+      * Henter inn filterinformasjon
+      *
+     c                   eval      h2va01 = ' '
+     c                   eval      h2va02 = ' '
+     c                   eval      h2va03 = ' '
+     c                   eval      h2va04 = ' '
+     c                   eval      h2va05 = ' '
+     c                   eval      h2va06 = ' '
+     c                   eval      h2va07 = ' '
+     c                   eval      h2va08 = ' '
+     c                   eval      h2va09 = ' '
+     c                   eval      h2va10 = ' '
+     c                   eval      h2va11 = ' '
+     c                   eval      h2va12 = ' '
+     c*                  eval      h2va13 = ' '
+     c*                  eval      h2va14 = ' '
+     c                   exfmt     h2win
+      *
+      * F3=Avslutt subrutinen
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+     c                   select
+     c                   when      h2va01 = '1'
+     c                   eval      h1type = 'KUND'
+     c                   when      h2va02 = '1'
+     c                   eval      h1type = 'LEVR'
+     c                   when      h2va03 = '1'
+     c                   eval      h1type = 'KONT'
+     c                   when      h2va04 = '1'
+     c                   eval      h1type = 'PROS'
+     c                   when      h2va05 = '1'
+     c                   eval      h1type = 'PRIS'
+     c                   when      h2va06 = '1'
+     c                   eval      h1type = 'KAMP'
+     c                   when      h2va07 = '1'
+     c                   eval      h1type = 'KPRI'
+     c                   when      h2va08 = '1'
+     c                   eval      h1type = 'BONG'
+     c                   when      h2va09 = '1'
+     c                   eval      h1type = 'KORD'
+     c                   when      h2va10 = '1'
+     c                   eval      h1type = 'LAGE'
+     c                   when      h2va11 = '1'
+     c                   eval      h1type = 'PENH'
+     c                   when      h2va12 = '1'
+     c                   eval      h1type = 'SALD'
+     c*                  when      h2va13 = '1'
+     c*                  eval      h1type = '    '
+     c*                  when      h2va14 = '1'
+     c*                  eval      h1type = '    '
+     c                   endsl
+     c*
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  B3 Behandle bilde for detaljinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb3win        begsr
+      *
+      * Henter inn opplysninger fra logg
+      *
+     c                   eval      *in31  = *off
+     c                   eval      *in32  = *off
+     c                   eval      *in33  = *off
+      *
+     c     mlogiu_key    chain     mlogiur
+      *
+     c                   eval      b3date = %char(mlodat : *dmy)
+     c                   eval      b3time = %char(mlotim : *hms)
+     c                   eval      b3feil1 = %subst(mloerr :1 : 50)
+     c                   eval      b3feil2 = %subst(mloerr :51 : 50)
+     c                   eval      b3feil3 = %subst(mloerr :101 : 50)
+     c                   eval      b3feil4 = %subst(mloerr :151 : 50)
+     c                   eval      b3srvid = mlosrv
+     c                   eval      b3abbid = mloaid
+      *
+      * Rediger bilde avhengig av feilmeldingstype
+      *
+     c                   if        mlotyp = 'KUND'
+     c                   eval      b3trty = 'KUNDE'
+     c                   eval      b3ktx1 = 'Kunde'
+     c                   eval      b3fld1 = mlotn1
+     c                   eval      *in31  = *on
+     c                   endif
+      *
+     c                   if        mlotyp = 'LEVR'
+     c                   eval      b3trty = 'LEVERANDØR'
+     c                   eval      b3ktx1 = 'Leverandør'
+     c                   eval      b3fld1 = mlotn1
+     c                   eval      *in31  = *on
+     c                   endif
+      *
+     c                   if        mlotyp = 'KONT'
+     c                   eval      b3fld1 = mlotn1
+     c                   eval      b3fld2 = mlotn2
+     c                   eval      b3trty = 'KONTAKTPERSON'
+     c                   eval      b3ktx2 = 'Kontaktperson'
+     c                   eval      *in31  = *on
+     c                   eval      *in32  = *on
+     c                   if        mlota1 = 'K'
+     c                   eval      b3ktx1 = 'Kunde'
+     c                   endif
+     c                   if        mlota1 = 'L'
+     c                   eval      b3ktx2 = 'Leverandør'
+     c                   endif
+     c                   endif
+      *
+     c                   if        mlotyp = 'PROS'
+     c                   eval      b3trty = 'KUNDE PROSJEKT'
+     c                   eval      b3ktx3 = 'Prosjekt'
+     c                   eval      b3fld3 = mlota2
+     c                   eval      *in33  = *on
+     c                   endif
+      *
+     c                   if        mlotyp = 'PRIS'
+     c                   eval      b3trty = 'ARTIKKEL PRIS'
+     c                   endif
+      *
+     c                   if        mlotyp = 'KAMP'
+     c                   eval      b3trty = 'KAMPANJE     '
+     c                   endif
+      *
+     c                   if        mlotyp = 'KPRI'
+     c                   eval      b3trty = 'KAMPANJE PRIS'
+     c                   endif
+      *
+     c                   if        mlotyp = 'BONG'
+     c                   eval      b3trty = 'KASSEBONG    '
+     c                   endif
+      *
+     c                   if        mlotyp = 'KORD'
+     c                   eval      b3trty = 'KUNDE ORDRE  '
+     c                   endif
+      *
+     c                   if        mlotyp = 'LAGE'
+     c                   eval      b3trty = 'LAGERBEHOLDNING'
+     c                   endif
+      *
+     c                   if        mlotyp = 'SALD'
+     c                   eval      b3trty = 'SALDOINFORMASJON'
+     c                   endif
+      *
+     c                   if        mlotyp = 'PENH'
+     c                   eval      b3trty = 'PRIS ENHET'
+     c                   endif
+      *
+     c                   exfmt     b3win
+      *
+      * F3=Avslutt subrutinen
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+      * F8=Kall oppdateringsprogram
+      *
+     c                   if        *inkh
+     c                   exsr      upd_mast
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  B4 Behandle bilde for sletting
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb4win        begsr
+      *
+      * Henter inn opplysninger fra logg
+      *
+     c     mlogiu_key    chain     mlogiur
+      *
+     c                   eval      b4trty = mlotyp
+     c                   eval      b4date = %char(mlodat : *dmy)
+     c                   eval      b4time = %char(mlotim : *hms)
+      *
+     c                   exfmt     b4win
+      *
+      * F3=Avslutt subrutinen
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+     c                   eval      mlobeh = 'J'
+     c                   update    mlogiur
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Oppdatere masterdata med standard vedlikeholdsprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     upd_mast      begsr
+      *
+     c     mlogiu_key    chain     mlogiur
+      *
+     c                   if        mlotyp = 'KUND'
+     c                   eval      w_valg = 2
+     c                   call      'RK101R'
+     c                   parm                    mlotn1
+     c                   parm                    w_valg
+     c                   endif
+      *
+     c                   if        mlotyp = 'LEVR'
+     c                   eval      w_valg = 2
+     c                   call      'RL101R'
+     c                   parm                    mlotn1
+     c                   parm                    w_valg
+     c                   endif
+      *
+     c                   if        mlotyp = 'KONT'
+     c                   if        mlota1 = 'K'
+     c                   eval      w_kund = mlotn1
+     c                   eval      w_levr = 0
+     c                   endif
+     c                   if        mlota1 = 'L'
+     c                   eval      w_levr = mlotn1
+     c                   eval      w_kund = 0
+     c                   endif
+      *
+     c                   call      'RF210R'
+     c                   parm                    w_firm
+     c                   parm                    w_kund
+     c                   parm                    w_levr
+     c                   endif
+      *
+     c                   if        mlotyp = 'PROS'
+     c                   call      'RP100C'
+     c                   endif
+      *
+     c                   if        mlotyp = 'SALD'
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14  = *on
+     c                   write     b2ctl
+     c                   eval      *in14  = *off
+      *
+     c                   eval      *in15  = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+     c                   read      mlogi1
+     c                   if        %eof  or
+     c                             mlofir <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+      *  Sjekk filter på type eller slettet
+      *
+     c                   if        h1type <> ' '  and
+     c                             mlotyp <> h1type
+     c                   iter
+     c                   endif
+      *
+     c                   if        h1slet   = ' '  and
+     c                             mlobeh <>  ' '
+     c                   iter
+     c                   endif
+      *
+      * Fyll opp subfile
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1uid = uid
+     c                   eval      b1trty = mlotyp
+     c                   eval      b1date = %char(mlodat : *dmy)
+     c                   eval      b1time = %char(mlotim : *hms)
+     c                   eval      b1feil = %subst(mloerr :1 : 78)
+      *
+      * Markere behandlede poster
+      *
+     c                   eval      *in35 = *off
+     c                   if        mlobeh <> ' '
+     c                   eval      *in35 = *on
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     mlogi1_key    setll     mlogi1
+     c                   readp     mlogi1
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     mlogi1
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     mlogi1_key    setll     mlogi1
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12  = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      w_virn = w_virn
+     c                   eval      *in13  = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12  = *off
+     c                   eval      *in13  = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for les på transaksjonslogg
+      *
+     c     mlogi1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mlogi1_odat
+     c                   kfld                    mlogi1_otim
+     c                   kfld                    mlogi1_otyp
+      *
+      * Key for direkte oppslag på transaksjonslogg
+      *
+     c     mlogiu_key    klist
+     c                   kfld                    mlogiu_uid
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      mlogi1_odat = *hival
+     c                   eval      mlogi1_otim = *hival
+     c                   eval      mlogi1_otyp = ' '
+     c     mlogi1_key    setll     mlogi1
+     c                   exsr      crt_subfile
+      *
+      *
+     c                   endsr
+      *

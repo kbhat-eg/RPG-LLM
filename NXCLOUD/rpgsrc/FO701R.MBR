@@ -1,0 +1,446 @@
+      /TITLE  ASOFAK Ordrehode, Oppdatering av totaler fra linjer
+     h option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FO701R
+      * Beskrivelse . . : Ordrelinjer, oppdatering av antall/kostpris/linjebeløp
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      * 6.10  250110 BSA  Nytt program
+6.1a  * R6.10 070513 bof  EHF krever avrunding av FDSUMS
+6.20  * 6.20  070411 bsa  Ekstra kontroller
+6.21  * 6.20  210212 bsa  Hvis ingen påslagsfaktor, må den bruke faktor 1.
+6.21  *                   NB Skal ikke bruke påslagsfaktor.
+6.22  * 6.20  260312 bsa  Overfører kostpris i parameterliste, og bruker denne
+6.22  *                   hvis utfylt.
+6.nu  * R6.30 030614 bsa  Programmet gjennomgått mtp nummerutvidelser.
+6.30  * R6.30 110618 nho  Flytter ordretype fra hodet da linjer og hode
+6.30  *                   har forskjellige 'typer'
+7.01  * 6.20              Oppdater med avvikende innkjøpspris.
+7.02  * 6.20  280614 bsa  Oppdater med avvikende kostpris.
+7.03  * K0000 180221 bsa  Bruk innkjøpspris som kostpris
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffodtl1    if   e           k disk    rename(fodtpfr:fodtl1r)
+     ffodtlu    uf   e           k disk    rename(fodtpfr:fodtlur)
+     ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+6.20 fvlagl1    if   e           k disk    rename(vlagpfr:vlagl1r)
+      *
+      * Definering av parametere
+      *
+     d p_firm          s                   like(fofirm)
+6.nu d p_numm          s                   like(fonumm)
+     d p_suff          s                   like(fosuff)
+     d p_line          s                   like(fdline)
+     d p_anta          s                   like(fdanta)
+     d p_inkp          s                   like(fdinpr)
+6.22 d p_kopr          s                   like(fdkopr)
+     d p_stat          s              1
+6.20 d p_lagv          s              1    inz(*off)
+      *
+      * Definering av variable i nøkler
+      *
+     d fodtlu_numm     s                   like(fdnumm)
+     d fodtlu_suff     s                   like(fdsuff)
+     d fodtlu_line     s                   like(fdline)
+     d fodtl1_numm     s                   like(fdnumm)
+     d fodtl1_suff     s                   like(fdsuff)
+     d fodtl1_line     s                   like(fdline)
+     d fohel1_numm     s                   like(fonumm)
+     d fohel1_suff     s                   like(fosuff)
+6.20 d vlagl1_vare     s                   like(vlvare)
+6.20 d vlagl1_lage     s                   like(vllage)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(fofirm)
+     d w_tots          s                   like(fotots)
+     d w_totk          s                   like(fototk)
+     d w_totr          s                   like(fototr)
+      *
+6.12 d w_kfak          s              8  6
+6.12 d w_stat          s              1
+6.12 d w_osts          s              1
+     d w_sumr          s             11  2
+     d w_sums          s             11  2
+6.12 d w_raba          s             13  4
+6.12  *
+6.12  * Lagerjustering
+6.12  *
+6.12 d                 ds
+6.nu d hlrec                        128
+6.12 d  hlvare                       15    overlay(hlrec)
+6.12 d  hllage                        2  0 overlay(hlrec:16)
+6.12 d  hldato                         d   overlay(hlrec:18) datfmt(*iso)
+6.12 d  hltime                         t   overlay(hlrec:28) timfmt(*iso)
+6.12 d  hlotyp                        2    overlay(hlrec:36)
+6.12 d  hlltyp                        2    overlay(hlrec:38)
+6.12 d  hlanta                       11  3 overlay(hlrec:40)
+6.12 d  hlkopr                        9  2 overlay(hlrec:51)
+6.12 d  hlrefr                       20    overlay(hlrec:60)
+6.12 d  hlsyst                        1    overlay(hlrec:80)
+6.12 d  hlaltk                        2    overlay(hlrec:81)
+6.12 d  hlrest                        1    overlay(hlrec:83)
+6.12 d  hltype                        1    overlay(hlrec:84)
+6.12 d  hlenhe                        3    overlay(hlrec:85)
+6.12 d  hlinlr                        1    overlay(hlrec:88)
+6.12 d  hllety                        1    overlay(hlrec:89)
+6.nu d  hlonum                        8  0 overlay(hlrec:90)
+6.nu d  hlolin                        4  0 overlay(hlrec:98)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+7.01 d l_filg                931    933
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      *
+7.01   dcl-s co402_verdi1  char(1);
+7.01   dcl-s co402_verdi2  char(2048);
+7.01   DCL-PR CO402R EXTPGM('CO402R');
+7.01     p_filgrp            char(3)     const;
+7.01     p_firm              packed(3:0) const;
+7.01     p_lager             packed(2:0) const;
+7.01     p_nokkel            char(50)    const;
+7.01     p_verdi1            char(1);
+7.01     p_verdi2            char(2048);
+7.01   END-PR;
+7.01 d u_701           s              1    inz(*off)
+7.02 d u_702           s              1    inz(*off)
+7.03 d u_703           s              1    inz(*off)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      *     Feilkoder:  9 = Ordrehodet finnes ikke
+      *                 8 = ordrelinje finnes ikke
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Hent opplysninger fra ordrehodet
+      *
+     c     fohel1_key    chain     fohel1
+     c                   if        not %found
+     c                   eval      p_stat = '9'
+     c                   goto      pgm_end
+     c                   endif
+      *
+      *  Les Ordrelinjer
+      *
+     c     fodtl1_key    chain     fodtl1r
+     c                   if        not %found
+     c                   eval      p_stat = '8'
+     c                   goto      pgm_end
+     c                   endif
+6.20  *
+6.20  * Sjekk at det er lagervare på angitt lager
+6.20  *
+6.20 c                   eval      vlagl1_vare = fdvare
+6.20 c                   eval      vlagl1_lage = fdlage
+6.20 c                   eval      p_lagv = *off
+6.20 c     vlagl1_key    chain     vlagl1r
+6.20 c                   if        %found and
+6.20 c                             vlvtyp = 'L'
+6.20 c                   eval      p_lagv = *on
+6.20 c                   endif
+6.20  *
+6.12 c                   if        p_anta <> 0
+6.20 c                   if        p_lagv = *on
+6.12  * Trekker ut opprinnelig antall
+6.12  * Legger over verdier i overførings-felter
+6.12  *
+6.12 c                   eval      hlvare = fdvare
+6.12 c                   eval      hllage = fdlage
+6.12 c                   eval      hlenhe = fdenh1
+6.12 c                   eval      hldato = *loval
+6.12 c                   eval      hltime = *loval
+6.30 c**                 eval      hlotyp = fdotyp
+6.30 c                   eval      hlotyp = footyp
+6.12 c                   eval      hlltyp = fdltyp
+6.12  *
+6.12 c                   eval      hlanta = fdanta * -1
+6.12 c                   eval      hlkopr = fdkopr
+6.12  *
+6.12 c                   eval      hlrefr = *blank
+6.12 c                   eval      hlsyst = 'F'
+6.12 c                   eval      hlaltk = *blank
+6.12 c                   eval      hlrest = *blank
+6.12  *
+6.12 c                   eval      hlrefr = 'O:' + %char(fdnumm) +
+6.12 c                                      ' L:' + %char(fdline)
+6.12 c                   eval      hlonum = fdnumm
+6.12 c                   eval      hlolin = fdline
+6.12 c                   move      fdlety        hllety
+6.12  *
+6.12  * Kaller lageroppdaterings-program
+6.12  *
+6.12 c                   eval      w_stat = *blank
+6.12  *
+6.12 c                   call      'VL001R'
+6.12 c                   parm                    w_stat
+6.12 c                   parm                    hlrec
+6.12  *
+6.12  * Legger til nytt antall
+6.12  *
+6.12 c                   eval      hlvare = fdvare
+6.12 c                   eval      hllage = fdlage
+6.12 c                   eval      hlenhe = fdenh1
+6.12 c                   eval      hldato = *loval
+6.12 c                   eval      hltime = *loval
+6.30 c**                 eval      hlotyp = fdotyp
+6.30 c                   eval      hlotyp = footyp
+6.12 c                   eval      hlltyp = fdltyp
+6.12  *
+6.12 c                   eval      hlanta = p_anta
+6.12 c                   eval      hlkopr = fdkopr
+6.12  *
+6.12 c                   eval      hlrefr = *blank
+6.12 c                   eval      hlsyst = 'F'
+6.12 c                   eval      hlaltk = *blank
+6.12 c                   eval      hlrest = *blank
+6.12  *
+6.12 c                   eval      hlrefr = 'O:' + %char(fdnumm) +
+6.12 c                                      ' L:' + %char(fdline)
+6.12 c                   eval      hlonum = fdnumm
+6.12 c                   eval      hlolin = fdline
+6.12 c                   move      fdlety        hllety
+6.12  *
+6.12  * Kaller lageroppdaterings-program
+6.12  *
+6.12 c                   eval      w_stat = *blank
+6.12  *
+6.12 c                   call      'VL001R'
+6.12 c                   parm                    w_stat
+6.12 c                   parm                    hlrec
+6.20  *
+6.20 c                   endif
+      *
+      *  Oppdater med nytt kvantum
+      *
+6.12 c     fodtlu_key    chain     fodtlu
+6.12 c                   if        %found
+6.12 c                   eval      fdanta = p_anta
+      *
+     c                   eval      fdeusr = l_user
+     c                   time                    fdedat
+     c                   time                    fdetim
+      *
+6.12 c                   update    fodtlur
+     c                   endif
+6.12  *
+6.12 c                   endif
+6.12  *
+      * Hvis avvikende innkjøpspris må vi oppdatere ordrelinja
+      *
+7.01 c                   if        u_701 = *off
+6.12 c                   if        p_inkp  <> 0
+     c*                            fdipny  <> p_inkp
+      *
+6.12  * Finn påslagsfaktor
+6.12  *
+6.21 c                   eval      w_kfak = 1
+6.12 c                   eval      w_osts = *blank
+6.12  *
+6.21 c                   if        1 = 2
+6.12 c                   call      'JV752R'
+6.12 c                   parm                    w_firm
+6.12 c                   parm                    fdvare
+6.12 c                   parm                    fdldor
+6.12 c                   parm                    fdlety
+6.12 c                   parm                    fdenh1
+6.12 c                   parm                    w_kfak
+6.12 c                   parm                    w_osts
+6.21 c                   endif
+      *
+      *  Oppdater med nye priser
+      *
+6.12 c     fodtlu_key    chain     fodtlu
+6.12 c                   if        %found
+6.12 c                   eval(h)   fdinpr = p_inkp
+      *
+     c                   eval      fdeusr = l_user
+     c                   time                    fdedat
+     c                   time                    fdetim
+      *
+6.12 c                   update    fodtlur
+     c                   endif
+      *
+     c                   endif
+7.01 c                   endif
+6.22  *
+6.22  * Hvis avvikende kostpris må vi oppdatere ordrelinja
+6.22  *
+7.02 c                   if        u_702 = *off
+6.22 c                   if        p_kopr  <> 0
+6.22  *
+6.22 c     fodtlu_key    chain     fodtlu
+6.22 c                   if        %found
+6.22 c                   eval(h)   fdkopr = p_kopr
+7.03 c                   if        u_703 = *on and
+7.03 c                             p_inkp <> 0
+7.03 c                   eval(h)   fdkopr = p_inkp
+7.03 c                   endif
+6.22  *
+6.22 c                   eval      fdeusr = l_user
+6.22 c                   time                    fdedat
+6.22 c                   time                    fdetim
+6.22  *
+6.22 c                   update    fodtlur
+6.22 c                   endif
+6.22  *
+6.22 c                   endif
+7.02 c                   endif
+      *
+      *  Så rekalkulerer linja (NB Betingelser osv skal ikke hentes inn på nytt)
+      *
+6.12 c     fodtlu_key    chain     fodtlu
+6.12 c                   if        %found
+6.12  *
+6.12  * Beregning av totaler
+6.12  *
+6.1a c*                  eval      w_sums = fdsapr * fdanta
+6.1a c                   eval(h)   w_sums = fdsapr * fdanta
+6.12 c                   eval      w_sumr = 0
+6.12  *
+6.12  * Rabatt
+6.12  *
+6.12 c                   if        fdrab1 <> 0
+6.12 c                   eval(h)   w_raba = (w_sums - w_sumr) * fdrab1 / 100
+6.12 c                   eval      w_sumr = w_sumr + w_raba
+6.12 c                   endif
+6.12  *
+6.12 c                   if        fdrab2 <> 0
+6.12 c                   eval(h)   w_raba = (w_sums - w_sumr) * fdrab2 / 100
+6.12 c                   eval      w_sumr = w_sumr + w_raba
+6.12 c                   endif
+6.12  *
+6.12 c                   if        fdbrr1 <> 0
+6.12 c                   eval(h)   w_raba = (w_sums - w_sumr) * fdbrr1 / 100
+6.12 c                   eval      w_sumr = w_sumr + w_raba
+6.12 c                   endif
+6.12  *
+6.12 c                   if        fdbrr2 <> 0
+6.12 c                   eval(h)   w_raba = (w_sums - w_sumr) * fdbrr2 / 100
+6.12 c                   eval      w_sumr = w_sumr + w_raba
+6.12 c                   endif
+6.12  *
+6.12  * Kostpris  (*** ?)
+6.12  *
+6.12 c**                 if        fdkopr = 0
+6.12 c**                 eval      fdkopr = fdsapr * hopros
+6.12 c**                 endif
+6.12  *
+6.12  * Legger inn totaler
+6.12  *
+6.12 c                   eval      fdsums = w_sums
+6.12 c                   eval      fdsumr = w_sumr
+6.12 c                   eval      fdsumk = fdkopr * fdanta
+6.12  *
+     c                   eval      fdeusr = l_user
+     c                   time                    fdedat
+     c                   time                    fdetim
+6.12  *
+6.12 c                   update    fodtlur
+6.12 c                   endif
+6.12  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     pgm_end       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+6.nu c                   parm                    p_numm
+     c                   parm                    p_suff
+     c                   parm                    p_line
+     c                   parm                    p_anta
+     c                   parm                    p_inkp
+6.22 c                   parm                    p_kopr
+     c                   parm                    p_stat
+      *
+      * Key for oppslag på ordrehode
+      *
+     c     fohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohel1_numm
+     c                   kfld                    fohel1_suff
+      *
+      * Key for oppslag på ordrelinje
+      *
+     c     fodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtl1_numm
+     c                   kfld                    fodtl1_suff
+     c                   kfld                    fodtl1_line
+      *
+      * Key for oppslag på ordrelinje
+      *
+     c     fodtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtlu_numm
+     c                   kfld                    fodtlu_suff
+     c                   kfld                    fodtlu_line
+6.20  *
+6.20  * Key for oppslag på lagerregister
+6.20  *
+6.20 c     vlagl1_key    klist
+6.20 c                   kfld                    w_firm
+6.20 c                   kfld                    vlagl1_vare
+6.20 c                   kfld                    vlagl1_lage
+      *
+      * Legg inn firmanummer
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      fohel1_numm = p_numm
+     c                   eval      fohel1_suff = p_suff
+     c                   eval      fodtl1_numm = p_numm
+     c                   eval      fodtl1_suff = p_suff
+     c                   eval      fodtl1_line = p_line
+     c                   eval      fodtlu_numm = p_numm
+     c                   eval      fodtlu_suff = p_suff
+     c                   eval      fodtlu_line = p_line
+7.01  *
+7.01  * Endring 7.01 Oppdater ordren med avvikende innkjøpspris
+7.01  *
+7.01   CallP CO402R(l_filg:w_firm:0:'FO701R_701':
+7.01                    co402_verdi1:co402_verdi2);
+7.01   if co402_verdi1 = '1';
+7.01     u_701 = *on;
+7.01   endif;
+7.02  *
+7.02  * Endring 7.02 Oppdater ordren med avvikende kostpris
+7.02  *
+7.02   CallP CO402R(l_filg:w_firm:0:'FO701R_702':
+7.02                    co402_verdi1:co402_verdi2);
+7.02   if co402_verdi1 = '1';
+7.02     u_702 = *on;
+7.02   endif;
+7.03  *
+7.03  * Endring 7.03 Bruk innkjøpspris som kostpris
+7.03  *
+7.03   CallP CO402R(l_filg:w_firm:0:'FO701R_703':
+7.03                    co402_verdi1:co402_verdi2);
+7.03   if co402_verdi1 = '1';
+7.03     u_703 = *on;
+7.03   endif;
+      *
+      *
+     c                   endsr

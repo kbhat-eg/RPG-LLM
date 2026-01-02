@@ -1,0 +1,459 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FO150R
+      * Beskrivelse . . : Ordre-hode, vedlikehold av ordreinformasjon
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+3.11  *       030206 HKO  Nytt program
+3.11  *       091107 bof  Lagt på plukket av
+      * 6.10  240609 BSA  Oppdatert med sporingsinformasjon
+6.NU  * R6.30 230514 bsa  Programmet gjennomgått mtp nummerutvidelser.
+7.xx  * 7.00  180216 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+      *
+8.01  *K000   120122 bsa  Hvis både varekunde, fakturakunde og kundeprosjekt,
+8.01  *K000               sørg for at varekunde vises i skjermbilde.
+8.02  *K000   030123 bsa  Hvis vi kjører med ekstern flåtestyring, kjør
+8.02  *K000               request til API for opprettelse av transport.
+8.02  *K000               Flåtestyring på lagernivå.
+8.03  *K000   180123 bsa  Flagg om skaffetekst i transportlogg.
+8.04  *K000   060223 bsa  Flagg om sjekk på loggkode i transportlogging
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+     ffusrl1    if   e           k disk    rename(fusrpfr:fusrl1r)
+     ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+     ffkprl1    if   e           k disk    rename(fkprpfr:fkprl1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     fvinfl1    if   e           k disk    rename(vinfpfr:vinfl1r)
+     ffohelu    uf a e           k disk    rename(fohepfr:fohelur)
+     fra09l1    if   e           k disk    rename(ra09pfr:ra09l1r)
+8.02 ffloglr    if   e           k disk    rename(flogpfr:floglrr)
+      *
+     ffo150d    cf   e             workstn
+      *
+      * Definering av local data area
+      *
+     d                uds
+     d l_user                911    920
+8.02 d l_filg                931    933
+     d l_fnav                951    980
+      *
+      * Definering av parametere
+      *
+     d p_firm          s                   like(fofirm)
+6.NU d p_numm          s                   like(fonumm)
+     d p_suff          s                   like(fosuff)
+      *
+      * Definering av variabler i nøkler
+      *
+     d fusrl1_user     s                   like(fbuser)
+     d fohel1_numm     s                   like(fonumm)
+     d fohel1_suff     s                   like(fosuff)
+     d fkprl1_kund     s                   like(flkund)
+     d fkprl1_kpro     s                   like(flkpro)
+     d rkunl1_kund     s                   like(rkkund)
+     d vinfl1_ityp     s                   like(vaityp)
+     d ra09l1_ikod     s                   like(raikod)
+8.02 d floglr_aarr     s                   like(fuaarr)
+8.02 d floglr_numm     s                   like(funumm)
+8.02 d floglr_suff     s                   like(fusuff)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(fofirm)
+6.NU d w_numm          s                   like(fonumm)
+     d w_suff          s                   like(fosuff)
+     d w_ikod          s              4  0
+     d w_itxt          s             30
+8.02 d w_reqs          s              5
+8.02 d w_roid          s             35
+8.02 d w_aarr          s              4  0
+8.02 d w_date          s               d   datfmt(*iso)
+8.03 d w_skaf          s              1  0
+8.03 d w_logg          s              1  0
+      *
+     d w_ldat          s                   like(foldat)
+      *
+      * Definering av konstanter
+      *
+     d lo              c                   'abcdefghijklmnopqrstuvwxyzæøåäö'
+     d up              c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅÄÖ'
+      *
+8.02 d b_trpl          s              1    inz(*off)
+      *
+8.02 d u_802           s              1    inz(*off)
+      *
+8.02   dcl-s co402_verdi1  char(1);
+8.02   dcl-s co402_verdi2  char(2048);
+8.02   DCL-PR CO402R EXTPGM('CO402R');
+8.02     p_filgrp            char(3)     const;
+8.02     p_firm              packed(3:0) const;
+8.02     p_lager             packed(2:0) const;
+8.02     p_nokkel            char(50)    const;
+8.02     p_verdi1            char(1);
+8.02     p_verdi2            char(2048);
+8.02   END-PR;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Henter ordre-informasjon
+      *
+     c     fohel1_key    chain     fohel1
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Henter opplysninger fra kode/status
+      *
+     c     fstsl1_key    chain     fstsl1
+      *
+      * Henter opplysninger fra bruker
+      *
+     c                   eval      fusrl1_user = l_user
+     c     fusrl1_key    chain     fusrl1
+      *
+      * Initierer skjermbilde
+      *
+     c                   eval      b1numm = p_numm
+     c                   eval      b1suff = p_suff
+     c                   eval      b1kund = fokund
+     c                   eval      b1kpro = fokpro
+     c                   eval      b1navn = fonavn
+     c                   eval      b1adr1 = foadr1
+     c                   eval      b1adr2 = foadr2
+     c                   eval      b1sted = fosted
+     c                   eval      b1mobi = fomobi
+     c                   eval      b1ityp = foityp
+     c                   eval      b1ldat = 0
+     c                   eval      b1inf1 = foinf1
+     c                   eval      b1inf2 = foinf2
+     c                   eval      b1plse = foplse
+      *
+     c                   if        foldat <> *loval
+     c     *dmy          move      foldat        b1ldat
+     c                   endif
+      *
+     c                   eval      rkunl1_kund = fokund
+     c     rkunl1_key    chain     rkunl1
+     c                   eval      b1knav = rknavn
+     c                   eval      b1kgat = rkgate
+     c                   eval      b1kad2 = rkadr2
+     c                   eval      b1kpnr = rkponr
+     c                   eval      b1kpst = rksted
+8.01  *
+8.01  * Vis riktig kunde i skjermbildet
+8.01  *
+8.01 c                   if        fokund <> 0 and
+8.01 c                             folkun <> 0 and
+8.01 c                             fokpro <> 0 and
+8.01 c                             fokund <> folkun
+8.01 c                   eval      rkunl1_kund = folkun
+8.01 c     rkunl1_key    chain     rkunl1
+8.01 c                   if        %found
+8.01 c                   eval      b1kund = folkun
+8.01 c                   eval      b1knav = rknavn
+8.01 c                   eval      b1kgat = rkgate
+8.01 c                   eval      b1kad2 = rkadr2
+8.01 c                   eval      b1kpnr = rkponr
+8.01 c                   eval      b1kpst = rksted
+8.01 c                   endif
+8.01 c                   endif
+      *
+     c                   if        fokpro <> 0
+     c                   eval      fkprl1_kund = fokund
+     c                   eval      fkprl1_kpro = fokpro
+     c     fkprl1_key    chain     fkprl1
+     c                   eval      b1pnav = flnavn
+     c                   endif
+      *
+     c                   if        foityp <> *blank
+     c                   eval      vinfl1_ityp = foityp
+     c     vinfl1_key    chain     vinfl1
+     c                   if        %found
+     c                   eval      b1itxt = vaitxt
+     c                   endif
+     c                   endif
+      *
+      * Viser bildet
+      *
+     c     b1tagb        tag
+      *
+     c                   exfmt     b1win
+      *
+      * F3=Avslutt
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      avslutt
+     c                   endif
+      *
+      * F4=Spørring
+      *
+     c                   if        *inkd = *on
+     c                   if        w_afld = 'B1ITYP'
+     c                   call      'VA540R'
+     c                   parm                    w_firm
+     c                   parm                    b1ityp
+     c                   parm                    b1itxt
+     c                   goto      b1tagb
+     c                   endif
+     c                   if        w_afld = 'B1PLSE'
+     c                   call      'RA509R'
+     c                   parm                    p_firm
+     c                   parm                    w_ikod
+     c                   parm                    w_itxt
+     c                   eval      b1plse = w_ikod
+     c                   goto      b1tagb
+     c                   endif
+     c                   endif
+      *
+      * Validering
+      *
+      * Ordre informsajonskode må være gyldig, og tillatt for bruker å
+      * legge inn
+      *
+     c                   if        b1ityp <> *blank
+      *
+     c                   eval      vinfl1_ityp = b1ityp
+     c     vinfl1_key    chain     vinfl1
+     c                   if        not %found
+     c                   eval      *in31 = *on
+     c                   goto      b1tagb
+     c                   endif
+      *
+     c                   if        vaiusr = '1' and
+     c                             fbko06 = 0
+     c                   eval      *in32 = *on
+     c                   goto      b1tagb
+     c                   endif
+      *
+     c                   endif
+      *
+      * Leveringsdato må være en gyldig dato, og
+      * nyere enn ordredato og dagens dato
+      *
+     c                   if        b1ldat <> 0
+      *
+     c     *dmy          test(d)                 b1ldat                 33
+     c                   if        *in33 = *on
+     c                   goto      b1tagb
+     c                   endif
+      *
+     c     *dmy          move      b1ldat        w_ldat
+     c                   if        w_ldat <> foldat
+     c                   if        w_ldat < fobdat or
+     c                             w_ldat < %date
+     c                   eval      *in34 = *on
+     c                   goto      b1tagb
+     c                   endif
+     c                   endif
+      *
+     c                   if        b1plse <> 0
+     c                   eval      ra09l1_ikod = b1plse
+     c     ra09l1_key    chain     ra09l1r
+     c                   if        not %found
+     c                   eval      *in35 = *on
+     c                   goto      b1tagb
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+      * Konvertere til store bokstaver dersom dette er parametersatt
+      *
+     c                   if        faahoy = 1
+     c     lo:up         xlate     b1navn        b1navn
+     c     lo:up         xlate     b1adr1        b1adr1
+     c     lo:up         xlate     b1adr2        b1adr2
+     c     lo:up         xlate     b1sted        b1sted
+     c                   endif
+      *
+      * Oppdaterer ordre-hode
+      *
+     c     fohelu_key    chain     fohelur
+      *
+     c                   eval      fonavn = %trim(b1navn)
+     c                   eval      foadr1 = %trim(b1adr1)
+     c                   eval      foadr2 = %trim(b1adr2)
+     c                   eval      fosted = %trim(b1sted)
+     c                   eval      fomobi = %trim(b1mobi)
+     c                   eval      foityp = b1ityp
+     c                   eval      foldat = *loval
+     c                   eval      foinf1 = b1inf1
+     c                   eval      foinf2 = b1inf2
+     c                   eval      foplse = b1plse
+      *
+     c                   if        b1ldat <> 0
+     c                   eval      foldat = %date(b1ldat:*dmy)
+     c                   endif
+      *
+6.10 c                   time                    foedat
+6.10 c                   time                    foetim
+6.10 c                   eval      foeusr = l_user
+     c                   update    fohelur
+8.02  *
+8.02  * Hvis vi kjører med integrasjon til transportstyrer, må vi sende request.
+8.02  * - sjekk at forsendelsesmåten har flåtestyring.
+8.02  *
+8.02 c                   if        u_802 = *on
+8.02  * Må ha loggkode allerede for at den skal sendes. Primært brukes dette
+8.02  * for opppdatering av feks leveringsdato.
+8.02 c                   eval      b_trpl = *off
+8.02 c                   eval      w_aarr = %subdt(w_date:*years)
+8.02 c                   eval      floglr_aarr = w_aarr
+8.02 c                   eval      floglr_numm = fonumm
+8.02 c                   eval      floglr_suff = fosuff
+8.02 c     floglr_key    setll     floglr
+8.02 c     floglr_key    reade     floglr
+8.02 c                   dow       not %eof
+8.02 c                   if        fukode = '2' or
+8.02 c                             fukode = '4' or
+8.02 c                             fukode = '6'
+8.02 c                   eval      b_trpl = *on
+8.02 c                   endif
+8.02 c     floglr_key    reade     floglr
+8.02 c                   enddo
+8.02  *
+8.02  * Sjekk på forrige år, hvis ikke ordren er plukket. Året følger
+8.02  * første hendelse på ordren.
+8.02  *
+8.02 c                   if        b_trpl = *off
+8.02  *
+8.02 c                   eval      floglr_aarr = w_aarr - 1
+8.02 c     floglr_key    setll     floglr
+8.02 c     floglr_key    reade     floglr
+8.02 c                   dow       not %eof
+8.02 c                   if        fukode = '2' or
+8.02 c                             fukode = '4' or
+8.02 c                             fukode = '6'
+8.02 c                   eval      b_trpl = *on
+8.02 c                   endif
+8.02 c     floglr_key    reade     floglr
+8.02 c                   enddo
+8.02  *
+8.02 c                   endif
+8.02  * Kjør logging
+8.02 c                   if        b_trpl = *on
+8.02  *
+8.02 c                   eval      w_reqs = *blanks
+8.03 c                   eval      w_skaf = 0
+8.04 c                   eval      w_logg = 0
+8.02 c                   call      'AP058R '
+8.02 c                   parm                    fofirm
+8.02 c                   parm                    fonumm
+8.02 c                   parm                    fosuff
+8.03 c                   parm                    w_skaf
+8.04 c                   parm                    w_logg
+8.02 c                   parm                    w_reqs
+8.02  *
+8.02 c                   endif
+8.02  *
+8.02 c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+      *
+      * Key for oppslag på ofak kode/status
+      *
+     c     fstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på ofak-bruker
+      *
+     c     fusrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fusrl1_user
+      *
+      * Key for oppslag på ordre-hode
+      *
+     c     fohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_numm
+     c                   kfld                    w_suff
+      *
+      * Key for oppslag på kundeprosjekt
+      *
+     c     fkprl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fkprl1_kund
+     c                   kfld                    fkprl1_kpro
+      *
+      * Key for opppslag på kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for oppslag på ordre-info-type
+      *
+     c     vinfl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vinfl1_ityp
+      *
+      * Key for oppdatering av ordre-hode
+      *
+     c     fohelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_numm
+     c                   kfld                    w_suff
+      *
+      * Key for oppslag på selger
+      *
+     c     ra09l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra09l1_ikod
+8.02  *
+8.02  * Key for oppslag på loggfil
+8.02  *
+8.02 c     floglr_key    klist
+8.02 c                   kfld                    w_firm
+8.02 c                   kfld                    floglr_aarr
+8.02 c                   kfld                    floglr_numm
+8.02 c                   kfld                    floglr_suff
+      *
+      * Henter informasjon fra parameter
+      *
+     c                   eval      w_firm = p_firm
+6.NU c                   eval      w_numm = p_numm
+     c                   eval      w_suff = p_suff
+8.02 c                   time                    w_date
+8.02  *
+8.02  * Endring 8.02 - Koblet til ekstern flåtestyring
+8.02  *
+8.02   CallP CO402R(l_filg:w_firm:0:'EKSTERN_FLATESTYRING':
+8.02                    co402_verdi1:co402_verdi2);
+8.02   if co402_verdi1 = '1';
+8.02     u_802 = *on;
+8.02   endif;
+      *
+     c                   endsr

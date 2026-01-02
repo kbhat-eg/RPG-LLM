@@ -1,0 +1,815 @@
+     H decedit('0.') datedit(*dmy-) option(*nodebugio) alwnull(*usrctl)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : NXCLOUD
+      * Program . . . . : IS120R
+      * Beskrivelse . . : Spørring på kundeposter Power Office
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       090624 ask  Nytt program
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frkunlr    if   e           k disk    rename(rkunpfr:rkunlrr)
+     frkmel1    if   e           k disk    rename(rkmepfr:rkmel1r)
+      *
+     fis120d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_filg                937    939
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+
+      //Fetch token
+
+         dcl-s authUrl varchar(1000);
+         dcl-s authUser VARCHAR(100);
+         dcl-s authPassword VARCHAR(100);
+         dcl-ds accessToken likeds(LogonResponse);
+         dcl-s response varchar(32000);
+         dcl-s response2 varchar(32000);
+         dcl-s token VARCHAR(1000);
+         dcl-s params varchar(2000);
+         dcl-s request  varchar(1024);
+         dcl-s pogReqest varchar(1000);
+         dcl-s httpstatus packed(3:0);
+         dcl-s currentTimestamp Timestamp;
+         dcl-s tokTimestamp Timestamp;
+         dcl-s minutesDiff Int(10);
+         dcl-s fromdate Date;
+         dcl-s todate Date;
+         dcl-s daysDiff Int(10);
+         dcl-s w_inte Date;
+         dcl-s w_length packed(6:0);
+         dcl-s w_skip packed(4:0);
+      *
+      * Parameter - program RF020R
+      *
+     d                 ds
+     d rxulda                       178
+     d  rxstat                        1    overlay(rxulda)
+     d  rxfirm                        3  0 overlay(rxulda:2)
+     d  rxsyst                        1    overlay(rxulda:5)
+     d  rxpros                        6    overlay(rxulda:6)
+     d  rxakti                        6    overlay(rxulda:12)
+     d  rxf001                        3    overlay(rxulda:18)
+     d  rxkont                        6  0 overlay(rxulda:21)
+     d  rxspes                        4  0 overlay(rxulda:27)
+     d  rxavde                        4  0 overlay(rxulda:31)
+     d  rxlinj                        4  0 overlay(rxulda:35)
+     d  rxtgrp                        3    overlay(rxulda:39)
+     d  rxtext                       78    overlay(rxulda:42)
+     d  rxf002                       13    overlay(rxulda:120)
+     d  rxvalg                        1    overlay(rxulda:133)
+     d  rxtist                         z   overlay(rxulda:134)
+     d  rxbiln                        6  0 overlay(rxulda:161)
+     d  rxrper                        2  0 overlay(rxulda:167)
+     d  rxraar                        4  0 overlay(rxulda:169)
+     d  rxonr                         6  0 overlay(rxulda:173)
+      *
+      * Definering av variabler i nøkler
+      *
+     d rkunlr_kund     s                   like(rkkund)
+      *
+      * Definering av variable
+      *
+     d p_kund          s              6  0
+      *
+     d jsonData        s            256a   Varying
+      *
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+      *
+     d w_bdat          s               d
+     d w_fdat          s               d
+      *
+     d w_firm          s                   like(rkfirm)
+     d w_kund          s              6
+     d w_raar          s              4  0
+     d w_kunn          s              6  0
+     d w_biln          s              8  0
+     d w_typa          s             50
+     d w_refn          s             50
+     d w_aar2          s              2  0
+     d w_aar4          s              4  0
+     d w_aara          s              4
+      *
+     d w_stal          s              1
+     d w_mvak          s              1
+     d w_mvtx          s             30
+     d w_dato          s               d   datfmt(*iso)
+     d w_mvas          s              6  2
+     d w_mvat          s              5  4
+     d w_mvaf          s             10  9
+     d w_bpro          s              5  2
+     d w_year          s              4  0
+     d w_fsum1         s                   like(rkkjØp)
+     d w_fsum2         s                   like(rkkjØp)
+     d w_path          s            256
+     d w_resp          s            256
+     d w_betaling      s             11
+     d w_referanse     s             10
+     d w_faktura       s             10
+     d w_indb          s              5I 0
+     d w_indr          s              5I 0
+     d w_indf          s              5I 0
+     d command         s            500
+      *
+     d b_alle          s              1    inz(*off)
+     d b_back          s              1    inz(*off)
+     d b_forw          s              1    inz(*off)
+     d b_eof           s              1    inz(*off)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+     c/Exec SQL
+     c+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR,
+     c+             commit=*none
+     c/End-Exec
+
+      ** Include prototypes
+      /COPY RWUTIL/QRPGLESRC,OAUTHPR
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+             b2aarr = %char(*year);
+             b2fdat = %char(fromdate : *dmy-);
+             b2tdat = %char(todate : *dmy-);
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   if        b_alle = *off
+     c                   eval      b2ptyp = 'Åpne poster'
+     c                   else
+     c                   eval      b2ptyp = 'Alle poster'
+     c                   endif
+             b2aarr = %char(*year);
+             b2fdat = %char(fromdate : *dmy-);
+             b2tdat = %char(todate : *dmy-);
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkb
+     c                   move      *loval        rxtist
+     c                   eval      rxbiln = *zero
+     c                   eval      rxrper = *zero
+     c                   eval      rxraar = *zero
+     c                   eval      rxonr  = *zero
+     c                   exsr      notat
+     c                   goto      b2tagb
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inkf
+     c                   exsr      open_all
+     c                   goto      b2tagb
+     c                   when      *inkh = *on
+     c                   exsr      xe2win
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      bla_bak
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bla_frem
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+      * Filen er tom
+      *
+     c*                  if        b1binr = 0
+     c*                  goto      avslutt
+     c*                  endif
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Vise faktura
+      *
+     c                   if        b1valg = 8
+     c                   eval      *in30  = *on
+     c                   eval      w_biln = %dec(b1binr:8:0)
+     c                   eval      w_kunn = %dec(b2knum:6:0)
+     c                   eval      w_aar2 = %dec(%subst(b1bida:7:2):2:0)
+     c                   eval      w_aar4 = 2000 + w_aar2
+     c                   eval      w_raar = w_aar4
+      *
+     c                   call      'SO510R'
+     c                   parm                    w_firm
+     c                   parm                    w_raar
+     c                   parm                    w_kunn
+     c                   parm                    w_biln
+     c                   endif
+      *
+      * Vis arkiv
+      *
+     c                   if        b1valg = 9
+      *
+     c                   eval      w_typa = 'FAKTURA'
+     c                   move      b1bida        w_aar2
+     c                   eval      w_aar4 = 2000 + w_aar2
+     c                   eval      w_aara = %char(w_aar4)
+     c*                  eval      w_refn = %trimr(w_aara)+%trimr(b1binr)
+      *
+     c                   call      'AP622C'
+     c                   parm                    w_typa
+     c                   parm                    w_refn
+      *
+     c                   endif
+      *
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+      *
+     c                   enddo
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+       exec SQL
+              open trans;
+
+     c                   dou       w_srrn = w_spge
+      *
+      * Fyll opp subfile
+      *
+       exec sql
+             fetch next
+              from trans
+               into :w_bdat,
+                    :w_fdat,
+                    :b1binr,
+                    :b1obel,
+                    :b1rbel,
+                    :w_faktura:w_indf,
+                    :w_betaling:w_indb,
+                    :w_referanse:w_indr;
+             if sqlcod = 100 or sqlstt = '02000';
+               *in15 = *on;
+               leave;
+             endif;
+             if sqlcod < 0;
+               *in15 = *on;
+               leavesr;
+             endif;
+
+             if w_indb = 0;
+                  b1bitx ='Innbetaling';
+             endif;
+             if w_indf = 0;
+                  b1bitx = 'Faktura ' + w_faktura;
+               if w_referanse <> ' ';
+                  b1binr = %dec(w_referanse:8:0);
+                else;
+                  b1binr = 0;
+               endif;
+               else;
+                if w_indr = 0;
+                  b1bitx = 'Kasse ' + w_referanse;
+                endif;
+             endif;
+
+             b1bida = %char(w_bdat : *dmy-);
+             b1ffda = %char(w_fdat : *dmy-);
+             b1valg = 0;
+      *
+             if b_alle = *off;
+               if b1rbel <> 0;
+                w_srrn = w_srrn + 1;
+                write     b1sfl;
+               endif;
+             else;
+              w_srrn = w_srrn + 1;
+              write     b1sfl;
+             endif;
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppkall av notatark
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     notat         begsr
+      *
+     c                   eval      rxfirm = w_firm
+     c                   eval      rxsyst = 'K'
+     c                   eval      rxpros = *blank
+     c                   eval      rxakti = ' '
+     c                   eval      rxkont = rkkund
+     c                   eval      rxspes = 0
+     c                   eval      rxavde = 0
+     c                   eval      rxlinj = *zeros
+     c                   eval      rxtext = *blank
+     c                   eval      rxvalg = *blank
+      *
+     c                   call      'RF020R'
+     c                   parm                    rxulda
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for visning av reskontro statistikk
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xe2win        begsr
+      *
+      * Henter kjøp ifjor fra fakturahistorikk
+      *
+     c                   eval      w_year = *year - 1
+
+       exec sql
+        declare sok1 cursor for
+        select sum(sofsum) as w_fsum1
+        from sohepf
+        where  soaarr  = :w_year and
+               sokund  = :p_kund
+        for read only;
+
+      * Utfør uthenting av poster
+
+       exec sql
+        open sok1;
+      *
+      * Legger resultat i arbeidsfelt
+      *
+       exec sql
+        fetch sok1
+        into :w_fsum1;
+
+     c                   eval      e2kjØf = w_fsum1
+
+      * Henter kjøp iår fra fakturahistorikk
+
+     c                   eval      w_year = *year
+
+       exec sql
+        declare sok2 cursor for
+        select sum(sofsum) as w_fsum2
+        from sohepf
+        where  soaarr  = :w_year and
+               sokund  = :p_kund
+        for read only;
+
+      * Utfør uthenting av poster
+
+       exec sql
+        open sok2;
+
+      * Legger resultat i arbeidsfelt
+
+       exec sql
+        fetch sok2
+        into :w_fsum2;
+      *
+     c                   eval      e2kjØp = w_fsum2
+      *
+     c                   move      rksald        e2sald
+     c                   move      rkgrns        e2grns
+      *
+      * Hent mva % og beregn memosaldo inkl. mva dersom kunden er avg.pliktig
+      *
+     c                   if        rkmkod = 1
+      *
+     c                   eval      w_stal = *blank
+     c                   eval      w_mvak = '3'
+      *
+     c                   call      'RS205R'
+     c                   parm                    w_stal
+     c                   parm                    w_mvak
+     c                   parm                    w_mvtx
+     c                   parm                    w_dato
+     c                   parm                    w_mvas
+     c                   parm                    w_mvat
+     c                   parm                    w_mvaf
+     c                   parm                    w_bpro
+      *
+     c                   eval(h)   e2mems = rkmems * w_mvat
+     c                   else
+     c                   eval      e2mems = rkmems
+     c                   endif
+      *
+      *
+     c                   exfmt     e2win
+      *
+     c                   endsr
+       //
+       // Subroutine handeling page back in data
+       //
+
+       begsr bla_bak;
+
+        b_eof = *off;
+        w_skip = w_skip + 14;
+        exsr pog_connect;
+        exsr rest_api;
+        exsr rest_data;
+        if b_eof = *on;
+         exfmt m1msg3;
+         leavesr;
+        endIf;
+        exsr clr_subfile;
+        w_ssrn = 0;
+        exsr crt_subfile;
+
+       endsr;
+
+       //
+       // Subroutine handeling page forward in data
+       //
+
+       begsr bla_frem;
+
+        b_eof = *off;
+        w_skip = w_skip - 14;
+        exsr pog_connect;
+        exsr rest_api;
+        exsr rest_data;
+        if b_eof = *on;
+         exfmt m1msg3;
+         leavesr;
+        endIf;
+        exsr clr_subfile;
+        w_ssrn = 0;
+        exsr crt_subfile;
+       endsr;
+
+       //
+       // Subroutine handeling switch open/all
+       //
+
+       begsr open_all;
+
+        if b_alle = *off;
+          b_alle = *on;
+        else;
+          b_alle = *off;
+        endif;
+
+        b_eof = *off;
+        w_skip = 0;
+        exsr pog_connect;
+        exsr rest_api;
+        exsr rest_data;
+        if b_eof = *on;
+         exfmt m1msg3;
+         leavesr;
+        endIf;
+        exsr clr_subfile;
+        w_ssrn = 0;
+        exsr crt_subfile;
+       endsr;
+
+       //
+       // Subroutine handeling logon and security to PowerOffice
+       //
+
+       begsr pog_connect;
+
+       // Fetch security info
+
+       exec sql
+        select afudss
+        into   :authUrl
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'pog_url';
+
+       exec sql
+        select afudss
+        into   :authUser
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'pog_client';
+
+       exec sql
+        select afudss
+        into   :authPassword
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'pog_secret';
+
+      // Fetch token from standard program   (accessToken)
+
+       accessToken = Logon(authUrl : authUser : authPassword);
+            if accessToken.Status = 'E';
+              m1mld1 = %subst(accessToken.Message:1:70);
+              m1mld2 = %subst(accessToken.Message:71:70);
+              exfmt m1msg1;
+              *inlr = *on;
+              return;
+            EndIf;
+       token = %trim(accessToken.AccessToken);
+
+      // Building REST call
+
+       exec sql
+        select afudss
+        into   :pogReqest
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'pog_reqest';
+
+       // Create the Headers for the call, as JSON according to DB2 spec
+
+        params = '{"sslTolerate":"true", ' +
+             '"header":"Authorization,Bearer '+token+'", ' +
+             '"header":"Accept,application/json", ' +
+             '"header":"Content-Type,application/json"'+
+             '}';
+
+       endsr;
+
+       //
+       // Subroutine retrieving data from PowerOffice
+       //
+
+       begsr rest_api;
+
+       if b_alle = *on;
+        request = %trim(pogReqest) + '/reporting/customerledger' +
+                 '?fromdate=' + %char(fromdate) + '&toDate=' + %char(todate) +
+                  '&$filter=CustomerCode%20eq%20' + %char(p_kund) +
+                  '&$top=14' + '&$orderby=PostingDate%20desc' +
+                  '&$skip=' + %char(w_skip);
+        else;
+        request = %trim(pogReqest) + '/reporting/customerledger' +
+                 '?fromdate=' + %char(fromdate) + '&toDate=' + %char(todate) +
+                  '&$filter=(CustomerCode%20eq%20' + %char(p_kund) +
+                  '%20and%20Balance%20ne%200)' +
+                  '&$top=14' + '&$orderby=PostingDate%20desc' +
+                  '&$skip=' + %char(w_skip);
+       endif;
+
+           Exec SQL
+            SELECT response_message, response_http_header
+             into :response, :response2
+             FROM table(HTTP_GET_VERBOSE(
+              trim(:request),
+              trim(:params)
+              ));
+
+        w_length = %len(%triml(response));
+
+       endsr;
+       //
+       // Subroutine handeling data from PowerOffice
+       //
+
+       begsr rest_data;
+
+        // Extract Jason response into a temporary table
+
+           Exec SQL
+            CREATE TABLE qtemp.pogcust(
+                postingDate    date,
+                dueDate        date,
+                voucherNo      numeric(8, 0) ,
+                amount         numeric(12, 2),
+                balance        numeric(12, 2),
+                fakturanr      varchar(8),
+                betaling       varchar(11),
+                referanse      varchar(10)
+           );
+           if sqlcod = -000000601;
+            Exec SQL
+             delete from qtemp.pogcust;
+             commit;
+            else;
+             command = 'STRJRNPF FILE(QTEMP/POGCUST) JRN(BUTIJRN)';
+             Exec sql CALL QSYS2.QCMDEXC(:command) ;
+           endif;
+
+           Exec SQL
+            INSERT INTO qtemp.pogcust(
+                           postingDate, dueDate, voucherNo, amount, balance,
+                           fakturanr, betaling, referanse)
+                  select
+                         t.postingDate,
+                         t.dueDate,
+                         t.voucherNo,
+                         coalesce(t.amount, 0),
+                         coalesce(t.balance, 0),
+                         t.fakturanr,
+                         t.betaling,
+                         t.referanse
+                   FROM json_table(:response, 'lax $.data[*]'
+                   COLUMNS (
+                    postingDate date
+                                PATH 'lax $.postingDate',
+                    dueDate     date
+                                PATH 'lax $.dueDate',
+                    voucherNo   decimal(8, 0)
+                                PATH 'lax $.voucherNo'
+                                default 0 on empty
+                                default 0 on error,
+                    amount      decimal(12, 2)
+                                PATH 'lax $.amount'
+                                default 0 on empty
+                                default 0 on error,
+                    balance     decimal(12, 2)
+                                PATH 'lax $.balance'
+                                default 0 on empty
+                                default 0 on error,
+                    fakturanr   varchar(10)
+                                PATH 'lax $.documentNo',
+                    betaling    varchar(11)
+                                PATH 'lax $.paidFromBankAccount',
+                    referanse   varchar(10)
+                                PATH 'lax $.customMatchingReference'
+                            )
+                   ) AS t;
+             commit;
+
+            if sqlcod <> 0;
+              b_eof = *on;
+            endIf;
+
+        // Inserting temporary table into cursor for subfile
+
+           Exec SQL
+             declare trans cursor for
+                    select postingDate,
+                           dueDate,
+                           voucherNo,
+                           amount,
+                           balance,
+                           fakturanr,
+                           betaling,
+                           referanse
+                    from   qtemp.pogcust
+                    for read only;
+           Exec SQL
+                    close trans;
+       endsr;
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Initializing program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Fetch parameters
+      *
+     c     *entry        plist
+     c                   parm                    p_kund
+      *
+      * Key for reading cutomer
+      *
+     c     rkunlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunlr_kund
+      *
+     c                   eval      w_kund = %char(p_kund)
+     c                   eval      w_firm = l_firm
+     c                   move      *date         w_dato
+      *
+      * Finner aktuell kunde
+      *
+     c                   eval      rkunlr_kund = p_kund
+     c     rkunlr_key    chain     rkunlr
+     c                   if        %found
+     c                   eval      b2knum = w_kund
+     c                   eval      b2knav = rknavn
+     c                   eval      b2sald = rksald
+     c                   else
+     c                   eval      b2knum = w_kund
+     c                   eval      b2knav = 'Kunde ikke funnet'
+     c                   endif
+      * Hent inn informasjon om memosaldo
+     c     rkunlr_key    chain     rkmel1                             61
+      *
+     c                   eval      *in22 = *on
+      *
+      * Henter informasjon fra POG
+      *
+        daysDiff = 365;
+        fromdate = %date() - %days(daysDiff);
+        todate = %date();
+        w_skip = 0;
+        exsr pog_connect;
+        exsr rest_api;
+        exsr rest_data;
+        exsr crt_subfile;
+      *
+     c                   endsr

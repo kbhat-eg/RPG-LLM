@@ -1,0 +1,506 @@
+     h/TITLE  Utskrift av frittstående bankgiro
+     h decedit('0,') datedit(*dmy.)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Program . . . . : FO950R
+      * Beskrivelse . . : Utskrift av frittstående bankgiro
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      * R3.11 280100 AMD  Frittstående bankgiro dro med seg utskrift fra
+      *                   år 2000 når det ble kjørt på år 1999.
+      * R3.12 230300 AMD  Lagt inn tilpasninger opp mot ny versjon av
+      *                   ASPGPL med printerstyring / OCR.
+5.04  * R5.04 171002 AMD  Kiddnummer hentes nå fra hist fakt reg.
+5.04  *                   Rutineregister styrer om kort eller lang kidd
+6.nu  * R6.30 040614 bsa  Programmet gjennomgått mtp nummerutvidelser.
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     fsohel1    if   e           k disk    rename(sohepfr:sohel1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+     faforl1    if   e           k disk    rename(aforpfr:aforl1r)
+      *
+     ffo950p    o    e             printer
+      *
+      * Kroner i alfafelt
+      *
+     d akr             s              1    dim(9)
+      *
+      * Modulus 10 utregninger.
+      *
+     d a10             s              1    dim(24)
+     d m10             s              1  0 dim(24)
+     d u10             s              1  0 dim(12)
+      *
+      * - - - - - - - - - - - - - -
+      * Datastruktur parameter-inn
+      * - - - - - - - - - - - - - -
+      *
+     d                 ds
+6.nu d d_parm                        32
+     d  d_aarr                        4  0 overlay(d_parm)
+     d  d_otyp                        2    overlay(d_parm:5)
+6.nu d  d_ffnr                        8  0 overlay(d_parm:7)
+6.nu d  d_tfnr                        8  0 overlay(d_parm:15)
+6.nu d  d_prog                       10    overlay(d_parm:23)
+      *
+      * - - - - - - - - - - - - - - - -
+      * Datastruktur  bankgiro fra
+      * - - - - - - - - - - - - - - - -
+      *
+     d                 ds
+     d d_ktoa                        11  0
+     d  d_kta1                        4  0 overlay(d_ktoa)
+     d  d_kta2                        2  0 overlay(d_ktoa:5)
+     d  d_kta3                        5  0 overlay(d_ktoa:7)
+      *
+      * - - - - - - - - - - - - - - - -
+      * Datastruktur  bankgiro til
+      * - - - - - - - - - - - - - - - -
+      *
+     d                 ds
+     d d_ktob                        13
+     d  d_ktb1                        4    overlay(d_ktob)
+     d  d_blk1                        1    overlay(d_ktob:5)
+     d  d_ktb2                        2    overlay(d_ktob:6)
+     d  d_blk2                        1    overlay(d_ktob:8)
+     d  d_ktb3                        5    overlay(d_ktob:9)
+      *
+      * - - - - - - - - - - - - - -
+      * Henter inn data fra LDA
+      * - - - - - - - - - - - - - -
+      *
+     d                uds
+     d l_hex1                760    779
+     d l_hex2                        20
+     d l_ruti                        10
+     d l_alin                856    858  0
+     d l_kidk                883    883  0
+     d l_ocrk                885    885  0
+     d l_firm                944    946  0
+      *
+      * Definering av parametere
+      *
+     d p_parm          s             28
+      *
+      * Definering av variable i nøkler
+      *
+     d w_firm          s                   like(sofirm)
+     d sohel1_aarr     s                   like(soaarr)
+     d sohel1_binr     s                   like(sobinr)
+     d sohel1_numm     s                   like(sonumm)
+     d sohel1_suff     s                   like(sosuff)
+     d rkunl1_kund     s                   like(sokund)
+     d votyl1_otyp     s                   like(vaotyp)
+     d aforl1_ruti     s             10
+      *
+      * Definering av variable
+      *
+     d n               s              2  0
+     d xx              s              2  0
+     d yy              s              2  0
+     d fa10            s              1  0
+     d fcycle          s              1  0
+     d kidd10          s             24
+     d ksif10          s              1  0
+     d modr10          s              1  0
+     d mods10          s              3  0
+     d w_fsum          s                   like(sofsum)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Styre-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Initierings-rutine
+      *
+     c                   if        fcycle = *zero
+     c                   exsr      xstrsr
+     c                   endif
+      *
+      * Behandle ordrehode
+      *
+     c                   dow       *in61 = *off
+     c     sofirm        cabne     w_firm        xferdi                         Nytt firma
+     c     soaarr        cabne     d_aarr        xferdi                         Nytt firma
+     c     sobinr        cabgt     d_tfnr        xferdi                         Tilnr. passert
+     c     sootyp        cabne     d_otyp        xlesny                         Uakt. ordretype
+      *
+     c                   if        sokund <> a1kund or
+     c                             sobinr <> a1binr
+     c                   exsr      xajour
+     c                   exsr      xprint
+     c                   endif
+      *
+     c                   eval      a1kund = sokund
+     c                   eval      a1binr = sobinr
+      *
+     c                   if        sofkda <> *loval
+     c     *dmy          move      sofkda        a1fkda
+     c                   endif
+      *
+     c                   if        soffda <> *loval
+     c     *dmy          move      soffda        a1ffda
+     c                   endif
+      *
+     c                   eval      w_fsum = sofsum
+      *
+5.04  * Klargjøring av kidd-nummer
+5.04  *
+5.04 c                   if        l_kidk = 1
+5.04 c                   movel     sokidd        p1kkid
+5.04 c                   endif
+5.04  *
+5.04 c                   if        l_kidk = 2
+5.04 c                   movel     sokidr        p1kkid
+5.04 c                   endif
+      *
+     c     xlesny        tag
+     c                   read      sohel1                                 61
+     c                   enddo
+      *
+     c     xferdi        tag
+     c                   exsr      xajour
+     c                   exsr      xprint
+      *
+      * Ferdig
+      *
+     c     xslutt        tag
+     c                   eval      *inlr = *on
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * XAJOUR Klargjør data for print
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xajour        begsr
+      *
+      * Hente inn kunderegister
+      *
+     c                   eval      rkunl1_kund = a1kund
+     c     rkunl1_key    chain     rkunl1r                            64
+     c                   eval      a1navn = rknavn
+     c                   eval      a1gate = rkgate
+     c                   eval      a1adr2 = rkadr2
+     c                   eval      a1sted = rksted
+      *
+      * Legg ut faktura-beløp
+      *
+     c                   z-add     w_fsum        t1totb
+      *
+      * Beregne modulus 10
+      * på beløpsfeltet
+      *
+     c                   movel     t1totb        p1kron
+     c                   move      t1totb        p1Ører
+     c                   move      *blank        kidd10
+     c                   move      t1totb        kidd10
+     c                   exsr      mod10
+     c                   move      ksif10        p1bsif
+      *
+      * Fjerne foranstilte nuller
+      * i et alfanummerisk felt
+      *
+     c                   movea     p1kron        akr
+     c                   z-add     1             n
+     c                   dow       akr(n) = '0'
+     c                   move      ' '           akr(n)
+     c                   add       1             n
+     c     n             cabgt     9             xsorti
+     c                   enddo
+     c     xsorti        tag
+     c                   movea     akr(1)        p1kron
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * XPRINT Skriver bankgiro
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xprint        begsr
+      *
+      * Skrive bankgiro kun dersom:
+      *  - Totalbeløp på faktura er større enn 0
+      *  - Betalingsmåte fra kunderegister   = 1
+      *
+     c                   if        t1totb > 0
+     c                             and rkbetm = 1
+      *
+      * Skrive bankgiro felles informasjon
+      *
+     c                   write     p1gir                                30
+      *
+      * Skrive bankgiro H-linje dersom ikke OCR
+      *
+     c                   if        l_ocrk = 0
+     c                   write     p3gir                                30
+     c                   endif
+      *
+      * Skrive bankgiro H-linje dersom OCR og 4224
+      *
+     c                   if        l_ocrk = 1
+     c                   write     p4gir                                30
+     c                   endif
+      *
+      * Skrive bankgiro H-linje dersom OCR og Axix-boks
+      *
+     c                   if        l_ocrk = 2
+     c                   eval      p1hex1 = l_hex1
+     c                   eval      p1hex2 = l_hex2
+     c                   write     p5gir                                30
+     c                   endif
+      *
+      * Skrive bankgiro H-linje dersom 5224 skriver
+      *
+     c                   if        l_ocrk = 3
+     c                   write     p6gir                                30
+     c                   endif
+      *
+      * Skrive bankgiro H-linje dersom OCR og Nett-print
+      *
+     c                   if        l_ocrk = 4
+     c                   eval      p1hex1 = l_hex1
+     c                   eval      p1hex2 = l_hex2
+     c                   write     p7gir                                30
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * MDMEMBER *** Kopiert inn fra MODUS10 copy-member. ***
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Husk!! inn før /COPY av MODUS10 i ditt program følgende
+      * statmemnt:
+      *                    MOVE *BLANK    KIDD10 24
+      *                    MOVE 'felt'    KIDD10
+      *  'felt' må byttes ut med det felt som det i hvert tilfelle
+      *         skal beregnes MODULUS 10 av.
+      *
+      *     Kall av subrutine MOD10 for modulus-10 utregning.
+      *
+      *                    EXSR MOD10
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Husk!! Felt KSIF10, KIDD10 inneholder h.h.v. sjekksiffer/
+      *        utregningssiffer (beløp-kundeident.felt e.l.).
+      *        Dersom det i programmet er flere modulus 10 sjekker
+      *        må disse feltene bevares i egne opprettede felt, fordi
+      *        de vil endres ved hver modulus 10 sjekk da de brukes
+      *        omigjen.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     mod10         begsr
+      *
+      * MDMEMBER *** Kopiert inn fra MODUS10 copy-member. ***
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *        Start subrutinen for modulus-10 utregning.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c                   z-add     1             xx                                            R2.04
+     c                   z-add     2             yy                                            R2.04
+     c                   z-add     2             fa10
+     c                   z-add     0             mods10
+     c                   z-add     0             modr10
+     c                   z-add     0             ksif10
+      *
+      * På grunn av forskjeller mellom S/36 og AS400
+      * må MOVEA gå via et alfa-array før det legges
+      * over i et nummerisk array.
+      *
+     c                   movea     kidd10        a10                            Tillegg
+     c                   move      a10           m10                            Endring
+      *
+     c     utr10         tag
+      *
+     c                   if        xx > 12                                                     R2.04
+     c                   z-add     1             xx                                            R2.04
+     c                   z-add     1             yy                                            R2.04
+     c                   goto      add10
+     c                   else
+     c     m10(yy)       mult      fa10          u10(xx)                                       R2.04
+     c                   if        m10(yy) > 4                                                 R2.04
+     c                   add       1             mods10
+     c                   endif
+     c                   add       1             xx                                            R2.04
+     c                   add       2             yy                                            R2.04
+     c                   goto      utr10
+     c                   endif
+      *
+     c     add10         tag
+      *
+     c                   if        xx > 12                                                     R2.04
+     c                   goto      sif10
+     c                   endif
+     c                   add       u10(xx)       mods10                                        R2.04
+     c                   add       m10(yy)       mods10                                        R2.04
+     c                   add       1             xx                                            R2.04
+     c                   add       2             yy                                            R2.04
+      *
+     c                   goto      add10
+      *
+     c     sif10         tag
+     c                   move      mods10        modr10
+     c     10            sub       modr10        ksif10
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppstart
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xstrsr        begsr
+      *
+     c                   z-add     1             fcycle
+      *
+      * Legger inn firma i nøkkel
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Legger inn år i nøkkel
+      *
+     c                   eval      sohel1_aarr = d_aarr
+      *
+      * Klargjøre resterende
+      * nøkkelbegrep
+      *
+     c                   eval      sohel1_binr = d_ffnr
+     c                   eval      sohel1_numm = *zero
+     c                   eval      sohel1_suff = *zero
+      *
+     c     sohel1_key    setll     sohel1
+     c                   read      sohel1                                 61
+      *
+      * Finn første aktuelle post
+      *
+     c                   dow       *in61 = *off
+     c     sofirm        cabne     w_firm        yferdi                         Nytt firma
+     c     sobinr        cabgt     d_tfnr        yferdi                         Tilnr. passert
+     c     sootyp        cabne     d_otyp        ylesny                         Uakt. ordretype
+      *
+     c                   eval      a1kund = sokund
+     c                   eval      a1binr = sobinr
+      *
+     c                   if        sofkda <> *loval
+     c     *dmy          move      sofkda        a1fkda
+     c                   endif
+      *
+     c                   if        soffda <> *loval
+     c     *dmy          move      soffda        a1ffda
+     c                   endif
+      *
+     c                   eval      w_fsum = sofsum
+      *
+     c                   goto      yferdi
+      *
+     c     ylesny        tag
+     c                   read      sohel1                                 61
+     c                   enddo
+     c     yferdi        tag
+      *
+      * Klargjøring dersom firma -
+      * opplysninger skal printes ut
+      *
+     c                   if        afprfi = 1                                            .....
+     c     afirl1_key    chain     afirl1r                            66                     .
+     c                   eval      a1fnav = aafnav                                           .
+     c                   eval      a1fad1 = aafad1                                           .
+     c                   eval      a1fad2 = aafad2                                           .
+     c                   eval      a1fste = aafste                                           .
+      *
+      * Bankgironummer må
+      * redigeres inn i et
+      * alfafelt p.g.a. OCR
+      *
+     c                   eval      d_ktoa = aafbgi                                           .
+     c                   move      d_kta1        d_ktb1                                      .
+     c                   move      d_kta2        d_ktb2                                      .
+     c                   move      d_kta3        d_ktb3                                      .
+     c                   eval      p2fbgi = d_ktob                                           .
+     c                   eval      p1fbgi = aafbgi                                           .
+     c                   endif                                                           .....
+      *
+      * Slår opp ordretype
+      *
+     c                   eval      votyl1_otyp = d_otyp
+     c     votyl1_key    chain     votyl1r                            67
+      *
+      * Er ordretype negativ ?
+      *
+     c                   if        vaokre = '-'
+     c                   move      *on           *in36
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Nullstilling av felter som ikke kan redefineres
+      *
+      *
+     c                   eval      aforl1_ruti    = *blank
+     c                   eval      n = *zero
+      *
+      * Key for Heading-file
+      *
+     c     sohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    sohel1_aarr
+     c                   kfld                    sohel1_binr
+     c                   kfld                    sohel1_numm
+     c                   kfld                    sohel1_suff
+      *
+      * Key for kunderegister
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for firmaregister
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for ordretyper
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      * Key for formular-register
+      *
+     c     aforl1_key    klist
+     c                   kfld                    aforl1_ruti
+      *
+      * Hente inn formular-register
+      *
+     c                   eval      aforl1_ruti = l_ruti
+      *
+     c     aforl1_key    chain     aforl1r                            69
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Tar inn parameter fra forrige program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c     *entry        plist
+     c                   parm                    p_parm
+      *
+     c                   eval      d_aarr = *zero
+     c                   eval      d_otyp = *blank
+     c                   eval      d_ffnr = *zero
+     c                   eval      d_tfnr = *zero
+     c                   eval      d_parm = p_parm
+      *
+      *
+     c                   endsr
+      *

@@ -1,0 +1,760 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FC150R
+      * beskrivelse . . : prisgr. kopierng, vedlikehold
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringslansrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       201516 bof  Nytt program
+6.32  *       280317 bof  Utvidet med NVE (nordvestlandet)
+7.xx  *  7.00 281216 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+68.01 *       300322 bof  Utvidet med HOL (Holmestrand-distriktet)
+8.02  *       220822 bof  Utvidet med SKI og ROM
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffcpll1    if   e           k disk    rename(fcplpfr:fcpll1r)
+     ffcpll2    if   e           k disk    rename(fcplpfr:fcpll2r)
+     ffcpllr    if   e           k disk    rename(fcplpfr:fcpllrr)
+     ffcpllu    uf a e           k disk    rename(fcplpfr:fcpllur)
+      *
+     fFC150d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d fcpll1_lprg     s                   like(fclprg)
+     d fcpll2_lreg     s                   like(fclreg)
+     d fcpllr_lprg     s                   like(fclprg)
+     d fcpllu_lprg     s                   like(fclprg)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(fclfrm)
+      *
+     d s_lprg          s                   like(fclprg)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meldingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile                                  DSP SFL
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile                                  CRT SFL
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on                                  CRT SFL
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2lprg <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   eval      fcpll1_lprg = b1lprg
+     c     fcpll1_key    setll     fcpll1
+      *
+     c                   exsr      clr_subfile                                  TØM SFL
+     c                   exsr      crt_subfile                                  CRT SFL
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjoner startverdi på recordformat
+      *
+     c                   if        b2lprg <> *blank
+     c                   eval      w_seqe = *blank
+     c                   eval      fcpll1_lprg = b2lprg
+     c     fcpll1_key    setll     fcpll1
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile                                  TØM SFL
+     c                   exsr      crt_subfile                                  CRT SFL
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2lprg = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   eval      c1lprg = b1lprg
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Kopier
+      *
+     c                   if        b1valg = 3
+     c                   eval      k1lprg = b1lprg
+     c                   exsr      xk1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1lprg = b1lprg
+     c                   exsr      xd1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1lprg = b1lprg
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      b_oppr = *on
+     c                   eval      b_forn = *off
+      *
+     c                   eval      c1lprg = b2lprg
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_c1bld
+     c                   endsl
+      *
+     c                   if        c1lprg = *blank
+     c                   goto      end_c1bld
+     c                   endif
+      *
+      * Sender opp informasjonsbilde dersom rad finnes fra før
+      *
+     c                   eval      fcpllr_lprg = c1lprg
+     c     fcpllr_key    chain     fcpllr                             90
+     c                   if        *in90 = *off
+     c                   exsr      xc1msg
+     c                   if        b_anul = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   exsr      xc2bld
+      *
+     c                   eval      c1lprg = *blank
+      *
+     c                   goto      c1taga
+      *
+     c     end_c1bld     tag
+      *
+     c                   eval      b_oppr = *off
+     c                   eval      b2lprg = *blank
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   goto      end_c1msg
+     c                   endif
+      *
+     c     end_c1msg     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+      *
+     c                   eval      fcpllr_lprg = c1lprg
+     c     fcpllr_key    chain     fcpllr                             90
+      *
+     c                   if        *in90 = *off
+     c                   eval      c2lmas = fclmas
+     c                   eval      c2lkra = fclkra
+     c                   eval      c2lksp = fclksp
+     c                   eval      c2lkti = fclkti
+     c                   eval      c2lreg = fclreg
+     c                   eval      c2lans = fclans
+     c                   eval      c2eusr = fcleus
+     c     *dmy          move      fcleda        c2edat
+     c                   else
+     c                   eval      c2lmas = 0
+     c                   eval      c2lkra = 0
+     c                   eval      c2lksp = 0
+     c                   eval      c2lkti = 0
+     c                   eval      c2lreg = *blank
+     c                   eval      c2lans = *blank
+     c                   eval      c2eusr = *blank
+     c                   eval      c2edat = *zero
+     c                   eval      c2eusr = *blank
+     c                   endif
+      *
+     c                   if        b1valg = 3
+     c                   eval      c1lprg = k1lprg
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30  = *on
+     c                   endif
+      *
+     c     c2tagb        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      * Validering av input
+      *
+     c                   if        c2lans = *blank
+     c                   eval      *in31 = *on
+     c                   goto      c2tagb
+     c                   endif
+      *
+     c                   if        c2lreg <> 'MDT' and
+     c                             c2lreg <> 'VST' and
+     c                             c2lreg <> 'SVE' and
+     c                             c2lreg <> 'SOV' and
+6.32 c                             c2lreg <> 'NVE' and
+8.01 c                             c2lreg <> 'HOL' and
+8.02 c                             c2lreg <> 'SKI' and
+8.02 c                             c2lreg <> 'ROM' and
+     c                             c2lreg <> 'SOR'
+     c                   eval      *in32 = *on
+     c                   goto      c2tagb
+     c                   endif
+      *  sjekker om master på denne regionen allerede er registrert
+      *
+     c                   if        c2lmas = 1
+     c                   eval      fcpll2_lreg = c2lreg
+     c     fcpll2_key    setll     fcpll2
+     c     fcpll2_key    reade     fcpll2
+     c                   dow       not %eof(fcpll2)
+     c                   if        fclmas = 1 and
+     c                             fclprg <> c1lprg
+     c                   eval      *in33 = *on
+     c                   goto      c2tagb
+     c                   endif
+     c     fcpll2_key    reade     fcpll2
+     c                   enddo
+     c                   endif
+     c
+      *
+      * Oppdatering
+      *
+     c                   clear                   fcpllur
+      *
+     c                   eval      fcpllu_lprg = c1lprg
+     c     fcpllu_key    chain     fcpllur                            90
+      *
+     c                   eval      fclmas = c2lmas
+     c                   eval      fclkra = c2lkra
+     c                   eval      fclksp = c2lksp
+     c                   eval      fclkti = c2lkti
+     c                   eval      fclreg = c2lreg
+     c                   eval      fclans = c2lans
+      *
+     c                   time                    fcleda
+     c                   time                    fcleti
+     c                   eval      fcleus = l_user
+      *
+     c                   if        *in90 = *off
+6.10 c                   time                    fcleda
+6.10 c                   time                    fcleti
+6.10 c                   eval      fcleus = l_user
+     c                   update    fcpllur
+     c                   else
+     c                   eval      fclfrm= w_firm
+     c                   eval      fclprg = c1lprg
+6.10 c                   time                    fcloda
+6.10 c                   time                    fcloti
+6.10 c                   eval      fclous = l_user
+6.10 c                   time                    fcleda
+6.10 c                   time                    fcleti
+6.10 c                   eval      fcleus = l_user
+     c                   write     fcpllur
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c                   if        b1valg = 2
+     c                   eval      b1lans = fclans
+     c                   eval      b1lmas = fclmas
+     c                   eval      b1lkra = fclkra
+     c                   eval      b1lksp = fclksp
+     c                   eval      b1lkti = fclkti
+     c                   endif
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      fcpllr_lprg = d1lprg
+     c     fcpllr_key    chain     fcpllr                             90
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_d1win
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter recordformat
+      *
+     c                   eval      fcpllu_lprg = d1lprg
+     c     fcpllu_key    chain     fcpllur                            90
+     c                   delete    fcpllur
+      *
+     c     end_d1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle kopierings-bildet (K1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xk1win        begsr
+      *
+      * Tar vare på nøkkel til rad det skal kopieres fra
+      *
+     c                   eval      s_lprg = k1lprg
+      *
+      * Fyller kopierings-bildet
+      *
+     c                   eval      fcpllr_lprg = k1lprg
+     c     fcpllr_key    chain     fcpllr                             90
+     c                   eval      k2lprg = fclprg
+     c                   eval      k2lans = fclans
+      *
+     c     k1tagb        tag
+      *
+     c                   exfmt     k1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_k1win
+     c                   endif
+      *
+      * Sjekk om utfylt
+      *
+     c                   if        k1lprg = *blank
+     c                   eval      *in31 = *on
+     c                   goto      k1tagb
+     c                   endif
+      *
+      * Sjekker om rad finnes fra før
+      *
+     c                   eval      fcpllr_lprg = k1lprg
+     c     fcpllr_key    chain     fcpllr                             90
+     c                   if        *in90 = *off
+     c                   eval      *in32 = *on
+     c                   goto      k1tagb
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   eval      c1lprg = s_lprg
+     c                   exsr      xc2bld
+      *
+     c     end_k1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil                     SFL END
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      fcpll1
+      *
+     c                   if        %eof or                                      EOF
+     c                             fclfrm<> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      fcpll1_lprg = fclprg
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1lprg = fclprg
+     c                   eval      b1lreg = fclreg
+     c                   eval      b1lmas = fclmas
+     c                   eval      b1lans = fclans
+     c                   eval      b1lkra = fclkra
+     c                   eval      b1lksp = fclksp
+     c                   eval      b1lkti = fclkti
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     fcpll1_key    setgt     fcpll1
+     c                   readp     fcpll1
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     fcpll1
+      *
+     c                   if        %eof or
+     c                             fclfrm<> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      fcpll1_lprg = fclprg
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     fcpll1_key    setll     fcpll1
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for posisjonering på recordformat
+      *
+     c     fcpll1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fcpll1_lprg
+      *
+      * Key for les på rcordformat
+      *
+     c     fcpllr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fcpllr_lprg
+      *
+      * Key for les på rcordformat
+      *
+     c     fcpll2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fcpll2_lreg
+      *
+      * Key for oppdatering av recordformat
+      *
+     c     fcpllu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fcpllu_lprg
+      *
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Initierer skjermbilde
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      fcpll1_lprg = *blank
+     c     fcpll1_key    setll     fcpll1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

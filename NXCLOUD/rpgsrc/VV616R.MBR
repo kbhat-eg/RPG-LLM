@@ -1,0 +1,809 @@
+     h option(*nodebugio) datedit(*ymd)
+     h decedit('0,')
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : VV616R
+      * Beskrivelse . . : Vare, utskrift dekningskontroll
+      *
+      *                   Utskrift av DG pr. rabattkategori pr. overgruppe,
+      *                   hovedgruppe og undergruppe
+      *                   Programmet er begrenset til å håndtere 21
+      *                   rabattkategorier
+      *                   Behandler kun leveringstype 0
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       260118 bof  Nytt program
+6.31  *       270418 bkv  Sender Excel kun på epost
+6.32  *       040518 bkv  Visning av GTIN som tekst i Excel
+6.33  *       190618 bof  Justert sql, slik at den får med varer uten gtin
+6.34  *       231018 bof  Omskriving til lagring av xls på IFS området.
+6.35  * 6.30  170918 bkv  Utvidet med trelast sortiment
+6.36  *       270418 bof  utvidet med valg på lager
+6.37  *       270418 bof  utvidet liste med varetype
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.37 fvlagl1    if   e           k disk    rename(vlagpfr:vlagl1r)
+     fvvarl8    if   e           k disk    rename(vvarpfr:vvarl8r)
+     fvogrl1    if   e           k disk    rename(vogrpfr:vogrl1r)
+     fvhgrl1    if   e           k disk    rename(vhgrpfr:vhgrl1r)
+     fvugrl1    if   e           k disk    rename(vugrpfr:vugrl1r)
+     fvvenl1    if   e           k disk    rename(vvenpfr:vvenl1r)
+     fvvepl1    if   e           k disk    rename(vveppfr:vvepl1r)
+     ffpril1    if   e           k disk    rename(fpripfr:fpril1r)
+     fra06pf    if   e           k disk    rename(ra06pfr:ra06pfr)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+     faforl1    if   e           k disk    rename(aforpfr:aforl1r)
+     fausrl1    if   e           k disk    rename(ausrpfr:ausrl1r)
+     ffusrl1    if   e           k disk    rename(fusrpfr:fusrl1r)
+     fra09l1    if   e           k disk    rename(ra09pfr:ra09l1r)
+6.34 fFWDGPF    if a e           k disk    rename(FWDGPFR:FWDGPFR)
+      *
+      *
+      * Definering av array
+      *
+     d a_rkat          s              3  0 dim(21)
+     d a_sapr_vare     s             13  2 dim(21)
+     d a_kopr_vare     s             13  2 dim(21)
+     d a_raba_vare     s             13  2 dim(21)
+     d a_DB_vare       s             13  2 dim(21)
+     d a_dekn          s              5  2 dim(21)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+6.34 d l_bach                595    635
+6.34 d l_firm                944    946  0
+6.34 d l_filg                931    933
+6.34 d l_user                911    920
+6.35 d l_lagr               1001   1002  0
+      *
+      * Definering av datastrukturer
+      *
+      * Datastruktur for parameterliste -inn
+      *
+     d                 ds
+6.36 d d_list                        44
+     d  d_firm                        3  0 overlay(d_list:1)
+     d  d_ogrp                        2  0 overlay(d_list:4)
+     d  d_hgrp                        2  0 overlay(d_list:6)
+     d  d_ugrp                        3  0 overlay(d_list:8)
+     d  d_rkaf                        4  0 overlay(d_list:11)
+     d  d_rkat                        4  0 overlay(d_list:15)
+     d  d_kund                        6  0 overlay(d_list:19)
+     d  d_kpro                        6  0 overlay(d_list:25)
+     d  d_dato                         d   overlay(d_list:31) datfmt(*iso)
+6.36 d  d_lage                        2  0 overlay(d_list:43)
+      *
+      * Datastruktur - parametre inn til VP900R
+      *
+     d                 ds
+     d hirec                        120
+     d  hifirm                        3  0 overlay(hirec)
+     d  hirkat                        3  0 overlay(hirec:4)
+     d  hikund                        6  0 overlay(hirec:7)
+     d  hikpro                        6  0 overlay(hirec:13)
+     d  hivare                       15    overlay(hirec:19)
+     d  hilety                        1  0 overlay(hirec:34)
+     d  hienhe                        3    overlay(hirec:35)
+     d  hidato                         d   overlay(hirec:38) datfmt(*iso)
+     d  hitime                         t   overlay(hirec:48) timfmt(*iso)
+     d  hinumm                        8  0 overlay(hirec:56)
+     d  hikode                        1    overlay(hirec:64)
+     d  hidekn                        5  2 overlay(hirec:65)
+     d  hiavgf                        1  0 overlay(hirec:70)
+     d  hipriv                        1  0 overlay(hirec:71)
+     d  hitilb                        1    overlay(hirec:72)
+     d  hiskaf                        1    overlay(hirec:73)
+     d  hildor                        6  0 overlay(hirec:74)
+     d  hisapr                        9  2 overlay(hirec:80)
+     d  hikopr                        9  2 overlay(hirec:89)
+     d  hiprgr                        1    overlay(hirec:98)
+     d  hiinlr                        1    overlay(hirec:120)
+      *
+      * Datastruktur - parametre ut fra VP900R
+      *
+     d                 ds
+     d d_orec                        80
+     d  d_kpri                        1    overlay(d_orec:2)
+     d  d_sapr                        9  2 overlay(d_orec:12)
+     d  d_kopr                        9  2 overlay(d_orec:21)
+     d  d_rab1                        5  2 overlay(d_orec:30)
+     d  d_rab2                        5  2 overlay(d_orec:35)
+     d  hoprgr                        1    overlay(d_orec:71)
+      *
+      * Definering av parametre
+      *
+6.36 d p_parm          s             44
+      *
+      * Definering av variabler i nøkler
+      *
+     d aforl1_ruti     s                   like(afruti)
+     d ausrl1_user     s                   like(abuser)
+6.31 d fusrl1_user     s                   like(fbuser)
+     d ra09l1_ikod     s                   like(raikod)
+     d fpril1_prgr     s                   like(fpprgr)
+     d fpril1_rkat     s                   like(fprkat)
+     d fpril1_kkat     s                   like(fpkkat)
+     d fpril1_kund     s                   like(fpkund)
+     d fpril1_kpro     s                   like(fpkpro)
+     d fpril1_vare     s                   like(fpvare)
+     d fpril1_enhe     s                   like(fpenhe)
+     d fpril1_lety     s                   like(fplety)
+      *
+      * Definering av variable
+      *
+     d b_frst          s              1    inz(*on)
+     d b_excl          s              1    inz(*off)
+     d b_eof           s              1    inz(*off)
+      *
+     d x               s              2  0
+     d w_sapr          s              9  2
+     d w_saprn         s              9  2
+     d w_bupr          s              9  2
+     d w_kopr          s              9  2
+     d w_inpr          s              9  2
+     d w_lety          s              1  0
+     d w_inlr          s              1
+6.34 d w_raba          s             13  2
+6.34 d w_dekx          s             13  2
+6.34 d w_db            s             13  2
+      *
+     d w_firm          s                   like(vvfirm)
+6.34 d w_spri          s              9  2
+     d w_dekn          s              5  2
+     d w_ant           s              9  0
+     d w_dato          s                   like(vvedat)
+6.37 d w_lage          s              2  0
+6.37 d w_avde          s              4  0
+6.37 d w_ldor          s                   like(vvldor)
+     d w_selg          s              4  0
+6.34 d w_fldr          s             20
+6.34 d w_ffil          s             10
+6.34 d w_fmbr          s             10
+6.34 d w_fnav          s             25
+6.34 d w_ftyp          s              3
+      *
+     d w_prgr          s              1
+     d w_ogrf          s                   like(vvogrp)
+     d w_ogrt          s                   like(vvogrp)
+     d w_hgrf          s                   like(vvhgrp)
+     d w_hgrt          s                   like(vvhgrp)
+     d w_ugrf          s                   like(vvugrp)
+     d w_ugrt          s                   like(vvugrp)
+      *
+     d i_pgti          s              5i 0
+     d i_enhe          s              5i 0
+6.37 d i_vtyp          s              5i 0
+      *
+     d w_jstat         s              2  0
+     d w_jtext         s            200
+     d w_dato2         s             12  0
+     d w_ddmy          s              6  0
+     d w_tids          s              6  0
+     d w_date          s               d   datfmt(*iso)
+     d h_valu          s             15
+     d d_type          s             10
+6.35 d w_lv_vtyp       s                   like(vvvtyp)
+6.35 d w_lv_utda       s                   like(vvudat)
+6.35 d w_lv_ldor       s                   like(vvldor)
+6.35 d w_lv_lage       s              2  0
+6.35 d w_lv_nobb       s                   like(vvnobb)
+6.35 d w_lv_modn       s                   like(vvnmod)
+6.35 d w_lv_lldo       s                   like(vvldor)
+6.35 d w_lv_llva       s                   like(vvlvar)
+      *
+     C/Exec SQL
+     C+  Set Option DatFmt=*ISO
+     C/End-Exec
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c                   time                    w_dato
+      *
+      *
+      * Utskrift av header
+      *
+     c                   exsr      hode
+6.34 c                   exsr      skriv_hode
+6.34  *
+      * Behandling
+      *
+     c                   exsr      behandling
+6.34  *
+6.34  *
+6.34  * kopierer oppdateringsliste til ifs mappe
+6.34  *
+6.34  *
+6.34 c                   if        b_excl = *on
+6.34 c                   eval      w_fldr = *Blank
+6.34 c                   eval      w_fldr = 'pcfiler'
+6.34 c                   eval      w_ffil = 'FWDGPF'
+6.34 c                   eval      w_fmbr = 'FWDGPF'
+6.34 c                   eval      w_fnav = 'DGlist' + %trim(l_user)
+6.34 c                   eval      w_ftyp = 'xls'
+6.34 c                   call      'ASPTOSTMF'
+6.34 c                   parm                    w_ffil
+6.34 c                   parm                    w_fmbr
+6.34 c                   parm                    w_fldr
+6.34 c                   parm                    w_fnav
+6.34 c                   parm                    w_ftyp
+6.34 c                   parm                    w_ftyp
+6.34 c                   endif
+6.34  *
+6.34  * Avslutt
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering og utskrift av hode-opplysninger
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hode          begsr
+      *
+      * Henter firmaopplysninger
+      *
+     c     afirl1_key    chain     afirl1r                            90
+      *
+6.36 c                   eval      w_lage = d_lage
+6.36 c                   eval      w_avde = 0
+6.36  * Henter prisgruppe
+6.36  *
+6.36 c                   call      'VL712R   '
+6.36 c                   parm                    w_firm
+6.36 c                   parm                    w_lage
+6.36 c                   parm                    w_avde
+6.36 c                   parm                    w_prgr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandling    begsr
+      *
+     c                   eval      w_ant = 0
+     c                   eval      b_eof = *off
+     c                   if        d_ogrp <> 0
+     c                   eval      w_ogrf = d_ogrp
+     c                   eval      w_ogrt = d_ogrp
+     c                   else
+     c                   eval      w_ogrf = 0
+     c                   eval      w_ogrt = 99
+     c                   endif
+     c                   if        d_hgrp <> 0
+     c                   eval      w_hgrf = d_hgrp
+     c                   eval      w_hgrt = d_hgrp
+     c                   else
+     c                   eval      w_hgrf = 0
+     c                   eval      w_hgrt = 99
+     c                   endif
+     c                   if        d_ugrp <> 0
+     c                   eval      w_ugrf = d_ugrp
+     c                   eval      w_ugrt = d_ugrp
+     c                   else
+     c                   eval      w_ugrf = 0
+     c                   eval      w_ugrt = 999
+     c                   endif
+      *
+     c/exec sql
+     c+ declare varer cursor for
+     c+ select distinct vvvare,
+     c+        vvnobb,
+     c+        vvldor,
+     c+        vvogrp,
+     c+        vvhgrp,
+     c+        vvugrp,
+     c+        vvnmod,
+     c+        vvtek1,
+     c+        vvtek2,
+     c+        vvenhe,
+     c+        veenhe,
+     c+        vvkpri,
+6.37 c+        vlvtyp,
+     c+        vgotxt,
+     c+        vghtxt,
+     c+        vgutxt,
+     c+        vepgti,
+     c+        rlnavn
+     c+ from   vvarpf
+6.37 c+        inner join vlagpf
+6.37 c+        on vvfirm = vlfirm and
+6.37 c+           vvvare = vlvare and
+6.37 c+           vllage = :w_lage
+     c+        inner join vogrpf
+     c+        on vvfirm = vgofir and
+     c+           vvogrp = vgoogr
+     c+        inner join vhgrpf
+     c+        on vvfirm = vghfir and
+     c+           vvogrp = vghogr and
+     c+           vvhgrp = vghhgr
+     c+        inner join vugrpf
+     c+        on vvfirm = vgufir and
+     c+           vvogrp = vguogr and
+     c+           vvhgrp = vguhgr and
+     c+           vvugrp = vguugr
+     c+        inner join rlevpf
+     c+        on vvfirm = rlfirm and
+     c+           vvldor = rllevr
+     c+        inner join vvenpf
+     c+        on vvfirm = vefirm and
+     c+           vvvare = vevare and
+     c+           vesaen = 1
+6.33 c+        left outer join vveppf
+     c+        on vefirm = vepfir and
+     c+           vevare = vepvar and
+     c+           vvldor = vepldo and
+     c+           veenhe = vepenh
+     c+ where  vvfirm =  :w_firm and
+     c+        vvogrp >= :w_ogrf and
+     c+        vvogrp <= :w_ogrt and
+     c+        vvhgrp >= :w_hgrf and
+     c+        vvhgrp <= :w_hgrt and
+     c+        vvugrp >= :w_ugrf and
+     c+        vvugrp <= :w_ugrt and
+6.37 c+        (vlvtyp = 'L' or
+6.37 c+         vlvtyp = 'S')
+     c+ for read only
+     c/end-exec
+     c/exec sql
+     c+ open varer
+     c/end-exec
+      *
+     c                   dow       b_EOF = *off
+      *
+     c/exec sql
+     c+ fetch varer
+     c+ into  :vvvare,
+     c+       :vvnobb,
+     c+       :vvldor,
+     c+       :vvogrp,
+     c+       :vvhgrp,
+     c+       :vvugrp,
+     c+       :vvnmod,
+     c+       :vvtek1,
+     c+       :vvtek2,
+     c+       :vvenhe,
+     c+       :veenhe :i_enhe,
+     c+       :vvkpri,
+6.37 c+       :vlvtyp :i_vtyp,
+     c+       :vgotxt,
+     c+       :vghtxt,
+     c+       :vgutxt,
+     c+       :vepgti :i_pgti,
+     c+       :rlnavn
+     c/end-exec
+      *
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c/exec sql
+     c+  close varer
+     c/end-exec
+     c                   eval      b_eof = *on
+     c                   leavesr
+     c                   endif
+6.34 c                   eval      b_excl = *on
+6.34  *
+     c                   if        i_pgti <> 0
+     c                   eval      vepgti = 0
+     c                   endif
+      *
+     c                   if        i_enhe <> 0
+     c                   eval      veenhe = vvenhe
+     c                   endif
+      *
+     c                   eval      w_spri = 0
+     c                   if        d_kund <> 0
+      * prøver å finne spesialpris
+     c                   eval      fpril1_rkat = 0
+     c                   eval      fpril1_kkat = 0
+     c                   eval      fpril1_kund = d_kund
+     c                   eval      fpril1_kpro = d_kpro
+     c                   eval      fpril1_vare = vvvare
+     c                   eval      fpril1_enhe = veenhe
+     c                   eval      fpril1_lety = 0
+     c     fpril1_key    chain     fpril1
+     c                   if        %found
+     c                   eval      w_spri = fpsapr
+     c                   endif
+     c                   endif
+      *
+6.35  * sjekker om trelast-vare
+6.35  *
+6.35 c                   call      'VL710R'
+6.35 c                   parm                    w_firm
+6.35 c                   parm                    vvvare
+6.35 c                   parm                    w_lv_lage
+6.35 c                   parm                    w_lv_vtyp
+6.35 c                   parm                    w_lv_utda
+6.35 c                   parm                    w_lv_ldor
+6.35 c                   parm                    w_inlr
+6.35 c                   parm                    w_lv_nobb
+6.35 c                   parm                    w_lv_modn
+6.35 c                   parm                    w_lv_lldo
+6.35 c                   parm                    w_lv_llva
+
+      *
+      * Henter og summer kostpris og salgspris på vare før rabatter
+      *
+     c                   eval      w_lety = 0
+     c                   eval      w_inlr = *on
+      *
+     c                   call      'VP701R'
+     c                   parm                    w_firm
+     c                   parm                    vvvare
+     c                   parm                    w_prgr
+     c                   parm                    veenhe
+     c                   parm                    w_lety
+     c                   parm                    d_dato
+     c                   parm                    w_inlr
+     c                   parm                    w_sapr
+     c                   parm                    w_bupr
+     c                   parm                    w_kopr
+     c                   parm                    w_inpr
+      *
+      * Summerer opp kostpris og salgspris pr. rabattkategori pr. vare
+      *
+     c                   do        21            x
+      *
+     c                   if        a_rkat(x) = 0
+     c                   leave
+     c                   endif
+      *
+     c                   eval      hifirm = w_firm
+     c                   eval      hirkat = a_rkat(x)
+     c                   eval      hikund = 0
+     c                   eval      hikpro = 0
+     c                   eval      hivare = vvvare
+     c                   eval      hilety = 0
+     c                   eval      hienhe = veenhe
+     c                   eval      hidato = d_dato
+     c                   eval      hitime = *loval
+     c                   eval      hinumm = 0
+     c                   eval      hikode = *blank
+     c                   eval      hidekn = 0
+     c                   eval      hitilb = *on
+     c                   eval      hiavgf = 0
+     c                   eval      hipriv = 0
+     c                   eval      hiskaf = *off
+     c                   eval      hildor = 0
+     c                   eval      hisapr = 0
+     c                   eval      hikopr = 0
+     c                   eval      hiprgr = w_prgr
+     c                   eval      hiinlr = *on
+      *
+     c                   call      'VP900R'
+     c                   parm                    hirec
+     c                   parm                    d_orec
+      *
+     c                   eval      w_saprn =  d_sapr
+      *
+     c                   if        d_rab1 > 0
+     c                   eval(h)   w_saprn = w_saprn - (w_saprn * d_rab1 / 100)
+     c                   endif
+     c                   if        d_rab2 > 0
+     c                   eval(h)   w_saprn = w_saprn - (w_saprn * d_rab2 / 100)
+     c                   endif
+     c                   if        w_saprn <> 0
+     c                   eval(h)   a_raba_vare(x) =
+     c                             100 *((d_sapr-w_saprn)/d_sapr)
+     c                   endif
+      *
+     c                   eval      a_sapr_vare(x) =  w_saprn
+      *
+     c                   eval      a_kopr_vare(x) =  d_kopr
+      *
+     c                   enddo
+      *
+     c                   exsr      detalj
+     c     neste         tag
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine utskrift av detaljlinje (brudd på hovedgruppe/undergruppe)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     detalj        begsr
+      *
+      * Kalkulerer generell DG
+      *
+
+     c                   if        w_sapr <> 0
+     c                   select
+     c                   when      (100 - (w_kopr * 100 / w_sapr))
+     c                             < -999,99
+     c                   eval      w_dekn = -999,99
+     c                   when      (100 - (w_kopr * 100 / w_sapr))
+     c                             > 999,99
+     c                   eval      w_dekn = 999,99
+     c                   other
+     c                   eval(h)   w_dekn = 100 -
+     c                             (w_kopr * 100 / w_sapr)
+     c                   endsl
+     c                   endif
+      *
+      * Kalkulerer DG for hver vare
+      *
+     c                   movea     *zeros        a_dekn
+     c                   movea     *zeros        a_db_vare
+     c
+     c                   do        21            x
+      *
+     c                   if        a_sapr_vare(x) <> 0
+     c                   eval      a_db_vare(x) = a_sapr_vare(x) -
+     c                             a_kopr_vare(x)
+      *
+     c                   select
+     c                   when      (100 -
+     c                             (a_kopr_vare(x) * 100 / a_sapr_vare(x)))
+     c                             < -999,99
+     c                   eval      a_dekn(x) = -999,99
+     c                   when      (100 -
+     c                             (a_kopr_vare(x) * 100 / a_sapr_vare(x)))
+     c                             > 999,99
+     c                   eval      a_dekn(x) = 999,99
+     c                   other
+     c                   eval(h)   a_dekn(x) = 100 -
+     c                             (a_kopr_vare(x) * 100 / a_sapr_vare(x))
+     c                   endsl
+     c                   endif
+     c                   enddo
+      *
+6.34 c                   exsr      skriv_detalj
+     c                   eval      w_Ant = w_ant + 1
+      *
+      * Nullstiller summeringsfelt og array for undergruppe
+      *
+     c                   eval      w_sapr = 0
+     c                   eval      w_kopr = 0
+      *
+     c                   movea     *zeros        a_sapr_vare
+     c                   movea     *zeros        a_kopr_vare
+      *
+     c                   endsr
+6.34  *-------------------------------------------------------------------------
+6.34  * Subrutine for å legge ut heanding
+6.34  *-------------------------------------------------------------------------
+6.34  *
+6.34 c     skriv_hode    begsr
+6.34 c                   eval      EXCLDG = *blank
+6.34 c                   eval      EXCLDG ='Lev.nr'   + X'05' +
+6.34 c                                    'Lev.navn'  + X'05' +
+6.34 c                                    'Ogr.nr'    + X'05' +
+6.34 c                                    'Ogr.navn'  + X'05' +
+6.34 c                                    'Hgr.nr'    + X'05' +
+6.34 c                                    'Hgr.navn'  + X'05' +
+6.34 c                                    'Ugr.nr'    + X'05' +
+6.34 c                                    'Ugr.navn'  + X'05' +
+6.34 c                                    'Modul'     + X'05' +
+6.34 c                                    'Varenr.'   + X'05' +
+6.34 c                                    'Nobbnr.'   + X'05' +
+6.37 c                                    'Varetype'   + X'05' +
+6.34 c                                    'Varetekst1' + X'05' +
+6.34 c                                    'Varetekst2' + X'05' +
+6.34 c                                    'Salgs enhet1' + X'05' +
+6.34 c                                    'GTIN'       + X'05' +
+6.34 c                                    'Salgspris'  + X'05' +
+6.34 c                                    'Kostpris'   + X'05' +
+6.34 c                                    'Innkj.pris' + X'05' +
+6.34 c                                    'Priskode'   + X'05' +
+6.34 c                                    'DG før rab'  + X'05' +
+6.34 c                                    'Spesialpris'+ X'05'
+6.34  *
+6.34 c                   do        21            x
+6.34 c                   if        a_rkat(x) <> 0
+6.34 c                   eval      h_valu='Rk ' +
+6.34 c                             %char(a_rkat(x)) + ' %'
+6.34 c                   eval      EXCLDG = %trim(EXCLDG) +
+6.34 c                                      h_valu + X'05'
+6.34 c                   eval      h_valu='Rk ' +
+6.34 c                             %char(a_rkat(x)) + ' DG'
+6.34 c                   eval      EXCLDG = %trim(EXCLDG) +
+6.34 c                                      h_valu + X'05'
+6.34 c                   eval      h_valu='Rk ' +
+6.34 c                             %char(a_rkat(x)) + ' DB'
+6.34 c                   eval      EXCLDG = %trim(EXCLDG) +
+6.34 c                                      h_valu + X'05'
+6.34 c                   endif
+6.34 c                   enddo
+6.34  **
+6.34 c*     'Æ':X'46'     xlate     excldg        excldg
+6.34 c*     'æ':X'A0'     xlate     excldg        excldg
+6.34 c*     'Ø':X'77'     xlate     excldg        excldg
+6.34 c*     'ø':X'90'     xlate     excldg        excldg
+6.34 c*     'Å':X'2A'     xlate     excldg        excldg
+6.34 c*     'å':X'EF'     xlate     excldg        excldg
+6.34 c                   write     FWDGPFR
+6.34  *
+6.34 c                   endsr
+6.34  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.34  * Subrutiner for  detaljlinjer                                    *
+6.34  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.34 c     skriv_Detalj  begsr
+6.34  *
+6.35 c                   if        w_lv_nobb <> 0
+6.35 c                   eval      vvnobb  = w_lv_nobb
+6.35 c                   eval      vvnmod  = w_lv_modn
+6.35 c                   endif
+6.34  *
+6.34  * Så skriver vi de foskjellige linjene
+6.34  *
+6.34 c                   eval      EXCLDG = *blank
+6.34 c                   eval      EXCLDG =%char(vvldor)     + X'05' +
+6.34 c                                     %trim(rlnavn)    + X'05' +
+6.34 c                                    %char(vvogrp)      + X'05' +
+6.34 c                                    %trim(vgotxt)      + X'05' +
+6.34 c                                    %char(vvhgrp)      + X'05' +
+6.34 c                                    %trim(vghtxt)      + X'05' +
+6.34 c                                    %char(vvugrp)      + X'05' +
+6.34 c                                    %trim(vgutxt)      + X'05' +
+6.34 c                                    %char(vvnmod)      + X'05' +
+6.34 c                                    %trim(vvvare)      + X'05' +
+6.34 c                                    %char(vvnobb)      + X'05' +
+6.37 c                                    %trim(vlvtyp)      + X'05' +
+6.34 c                                    %trim(vvtek1)     + X'05' +
+6.34 c                                    %trim(vvtek2)      + X'05' +
+6.34 c                                    %trim(veenhe)      + X'05' +
+6.34 c                                    '"=""' +%char(vepgti) +
+6.34 c                                    '"""'      + X'05' +
+6.34 c                                    %editc(w_sapr : 'L') + X'05' +
+6.34 c                                    %editc(w_kopr : 'L') + X'05' +
+6.34 c                                    %editc(w_inpr : 'L') + X'05' +
+6.34 c                                    %trim(vvkpri)      + X'05' +
+6.34 c                                    %editc(w_dekn : 'L') + X'05' +
+6.34 c                                    %editc(w_spri : 'L') + X'05'
+6.34 c                   do        21            x
+6.34 c                   if        a_rkat(x) <> 0
+6.34  * Rabat %
+6.34 c                   eval      w_raba=a_raba_vare(x)
+6.34 c                   eval      EXCLDG = %trim(EXCLDG) +
+6.34 c                                    %editc(w_raba : 'L') + X'05'
+6.34  * dekning
+6.34 c                   eval      w_dekx=a_dekn(x)
+6.34 c                   eval      EXCLDG = %trim(EXCLDG) +
+6.34 c                                    %editc(w_dekx : 'L') + X'05'
+6.34  * DB
+6.34 c                   eval      w_db=a_db_vare(x)
+6.34 c                   eval      EXCLDG = %trim(EXCLDG) +
+6.34 c                                    %editc(w_db : 'L') + X'05'
+6.34 c                   endif
+6.34 c                   enddo
+6.34  *
+6.34 c*     'Æ':X'46'     xlate     excldg        excldg
+6.34 c*     'æ':X'A0'     xlate     excldg        excldg
+6.34 c*     'Ø':X'77'     xlate     excldg        excldg
+6.34 c*     'ø':X'90'     xlate     excldg        excldg
+6.34 c*     'Å':X'2A'     xlate     excldg        excldg
+6.34 c*     'å':X'EF'     xlate     excldg        excldg
+6.34  *
+6.34 c                   write     FWDGPFR
+6.34 c                   endsr
+6.34  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutiner for å fylle inn rab.kat array i forhold til paramter *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     c     fyll_rkat     begsr
+      *  Fyller opp array for rabattkategori
+      *
+     c                   eval      x = 0
+      *
+     c     ra06pf_key    setll     ra06pf
+     c     ra06pf_key    reade     ra06pf                                 90
+     c                   dow       *in90 = *off and
+     c                             x < 21
+     c                   if        rafkod >= d_rkaf and
+     c                             rafkod <= d_rkat and
+     c                             rafkod <> 0
+     c                   eval      x = x + 1
+     c                   eval      a_rkat(x) = rafkod
+     c                   endif
+     c     ra06pf_key    reade     ra06pf                                 90
+     c                   enddo
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_parm
+      *
+      * Key for les på rabattkategori-register
+      *
+     c     ra06pf_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på spesialpris
+      *
+     c     fpril1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fpril1_prgr
+     c                   kfld                    fpril1_rkat
+     c                   kfld                    fpril1_kkat
+     c                   kfld                    fpril1_kund
+     c                   kfld                    fpril1_kpro
+     c                   kfld                    fpril1_vare
+     c                   kfld                    fpril1_enhe
+     c                   kfld                    fpril1_lety
+      *
+      * Key for oppslag på firmaregister
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      * Key for rutineregisteret
+      *
+     c     aforl1_key    klist
+     c                   kfld                    aforl1_ruti
+      * Key for file : GPL-BRUKER-REGISTER
+      *
+     c     ausrl1_key    klist
+     c                   kfld                    ausrl1_user
+6.31  *
+6.31  * Key for file : GPL-BRUKER-REGISTER
+6.31  *
+6.31 c     fusrl1_key    klist
+6.31 c                   kfld                    w_firm
+6.31 c                   kfld                    fusrl1_user
+6.31  *
+6.31  * Key for firma
+6.31  *
+6.31 c     afir_key      klist
+6.31 c                   kfld                    w_firm
+      *
+      * Key for oppslag på selger
+      *
+     c     ra09l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra09l1_ikod
+6.31  *
+6.31  * Henter selger fra BRUKER-REGISTERENE
+6.31  *
+6.31 c                   eval      w_selg = 0
+6.31 c                   eval      ausrl1_user = l_user
+6.31 c     ausrl1_key    chain     ausrl1
+6.31 c                   if        %found(ausrl1)
+6.31 c                   eval      fusrl1_user = l_user
+6.31 c     fusrl1_key    chain     fusrl1
+6.31 c                   if        %found(fusrl1)
+6.31 c                   eval      w_selg = fbselg
+6.31 c                   endif
+6.31 c                   endif
+6.31 c
+      *
+      * Leser firmadata ifm avsenderinformasjon
+      *
+     c     afir_key      chain     afirl1
+6.34
+      * Splitter datastruktur i parametre og variable
+      *
+     c                   eval      d_list = p_parm
+      *
+     c                   eval      w_firm = l_firm
+6.35 c                   eval      w_lv_lage = l_lagr
+     c                   exsr      fyll_rkat
+      *
+      *
+      * Henter firmaopplysninger
+      *
+     c     afirl1_key    chain     afirl1r                            90
+      *
+      * Henter prisgruppe
+      *
+     c                   call      'VL711R   '
+     c                   parm                    w_prgr
+      *
+      *
+     c                   endsr

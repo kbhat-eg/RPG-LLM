@@ -1,0 +1,650 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FO751R
+      * Beskrivelse . . : Viser priser gitt på tilbud som ikke er mer
+      *                   6 mnd. gamle og ikke er omgjort til spes.pris
+      *                   Tilbud som har passert utg.dato vises ikke.
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       100114 bof  Nytt program
+6.30  * 6.30  020414 bkv  Ikke hvis varetype T eller D
+6.3q  *       260515 bof  Datoformat sql
+6.31  *       300816 bof  Endret sortering til bilagsdato synkende.
+6.32  *       060618 bof  Feilretting, tester mot dagens dato.
+6.33  * 6.30  170918 bkv  Utvidet med trelast sortiment
+7.01  *       020317 bof  Lagt på filter, vise utgåtte.
+8.01  *PRG2   210622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skvdrmindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvarlr    if   e           k disk    rename(vvarpfr:vvarlrr)
+     ffodtlr    if   e           k disk    rename(fodtpfr:fodtlrr)
+     ffohelr    if   e           k disk    rename(fohepfr:fohelrr)
+     frkunlr    if   e           k disk    rename(rkunpfr:rkunlrr)
+6.33 fvvlel1    if   e           k disk    rename(vvlepfr:vvlel1r)
+      *
+     fFO751d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(fofirm)
+     d p_numm          s                   like(fonumm)
+     d p_kund          s                   like(fokund)
+6.20 d p_vare          s                   like(fdvare)
+6.20 d p_sapr          s                   like(fdsapr)
+6.20 d p_rab1          s                   like(fdrab1)
+6.20 d p_rab2          s                   like(fdrab2)
+6.20 d p_enh1          s                   like(fdenh1)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variable i nøkler
+      *
+     d fohelr_numm     s                   like(fonumm)
+     d rkunlr_kund     s                   like(rkkund)
+     d vvarlr_vare     s                   like(vvvare)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+6.30 d w_vtyp          s                   like(vvvtyp)
+6.30 d w_utda          s                   like(vvudat)
+6.30 d w_ldor          s                   like(vvldor)
+6.30 d b_inlr          s              1    inz(*off)
+6.33 d w_lv_nobb       s                   like(vvlnob)
+6.33 d w_lv_modn       s                   like(vvlmod)
+6.33 d w_lv_lldo       s                   like(vvlnle)
+6.33 d w_lv_llva       s                   like(vvllva)
+      *
+      *
+     d w_seqe          s              1
+     d b_subf          s              1    inz(*off)
+     d b_open_sok      s              1    inz(*off)
+     d b_valg_ok       s              1    inz(*off)
+     d b_funn          s              1    inz(*off)
+      *
+     d w_firm          s                   like(fofirm)
+     d w_kund          s                   like(fokund)
+     d w_vare          s                   like(fdvare)
+     d w_dato          s                   like(fobdat)
+6.32 d w_ddat          s                   like(fobdat)
+     d w_udat          s                   like(fobdat)
+7.01 d w_udao          s                   like(fobdat)
+     d w_npri          s                   like(fdsapr)
+     d w_rab1          s                   like(fdsapr)
+      *
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(10)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skvdrmbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skvdrmbilde for CMD-taster
+      *
+6.3q C/Exec SQL
+6.3q C+  Set Option DatFmt=*ISO
+6.3q C/End-Exec
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.32 c                   time                    w_ddat
+      *
+      * Send Alt
+     c                   if        b_funn = *off
+     c                   goto      avslutt
+     c                   endif
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+7.01 c                   when      *inka
+7.01 c                   exsr      xh1win
+7.01 c                   exsr      forny
+7.01 c                   goto      b2tagb
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   if        b_funn = *off
+     c                   goto      avslutt
+     c                   endif
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c*                  if        b2numm <> 0
+     c*                  exsr      posisjoner
+     c*                  goto      b2tagb
+     c*                  endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   if        b_valg_ok = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   if        b_subf = *on
+     c                   goto      b2taga
+     c                   endif
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'S'
+     c                   eval      b_open_sok = *on
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for søking i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c*    sØk           begsr
+      *
+     c*                  eval      w_seqe = 'S'
+     c*                  eval      b_open_sok = *on
+      *
+     c*                  eval      s_stek = b2stek
+      *
+      * Utleder søketekster ut av søketekst
+      *
+     c*                  call      'AS700R'
+     c*                  parm                    b2stek
+     c*                  parm                    w_ste1
+     c*                  parm                    w_ste2
+     c*                  parm                    w_ste3
+     c*                  parm                    w_ste4
+     c*                  parm                    w_ste5
+      *
+      * Blanker subfile, og fyller opp i.h.t. søk
+      *
+     c*                  exsr      clr_subfile
+     c*                  exsr      crt_subfile
+      *
+      * Blanker søkefelt
+      *
+     c*                  eval      b2stek = *blank
+      *
+     c*                  endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c*    posisjoner    begsr
+      *
+      * Navn
+      *
+     c*                  if        b2alfa <> *blank
+     c*                  eval      w_seqe = *blank
+     c*                  eval      rlevl2_alfa = b2alfa
+     c*    rlevl2_key    setll     rlevl2
+     c*                  goto      end_pos
+     c*                  endif
+      *
+      * Leverandør
+      *
+     c*                  if        b2ldor <> 0
+     c*                  eval      w_seqe = 'L'
+     c*                  eval      rlevl1_levr = b2ldor
+     c*    rlevl1_key    setll     rlevl1
+     c*                  goto      end_pos
+     c*                  endif
+      *
+     c*    end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c*                  exsr      clr_subfile
+     c*                  exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c*                  eval      b2alfa = *blank
+     c*                  eval      b2ldor = 0
+      *
+     c*                  endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_subf = *off
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      b_subf = *on
+     c                   eval      w_virn = w_srrn
+      *
+      * Legg til sortiment
+      *
+     c                   if        b1valg = 1
+     c                   eval      p_sapr = b1sapr
+     c                   eval      p_rab1 = b1rab1
+     c                   eval      p_rab2 = b1rab2
+     c                   eval      p_enh1 = b1enh1
+     c                   eval      b_valg_ok = *on
+     c                   leave
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   exsr      xc2win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+      * Initierer SQL for søk
+      *
+     c                   if        w_seqe = 'S' and
+     c                             b_open_sok = *on
+     c/exec sql
+     c+                  declare sok cursor for
+6.31 c+                  select a.fdvare,
+6.31 c+                         a.fdnumm,
+6.31 c+                         a.fdenh1,
+6.31 c+                         a.fdsapr,
+6.31 c+                         a.fdrab1,
+6.31 c+                         a.fdrab2,
+6.31 c+                         a.fdlage,
+6.31 c+                         b.fobdat
+6.31 c+                  from   fodtpf as a
+6.31 c+                  inner join fohepf as b
+6.31 c+                  on a.fdfirm = b.fofirm  and
+6.31 c+                     a.fdnumm = b.fonumm  and
+6.31 c+                     a.fdsuff = b.fosuff
+6.31 c+                  where  a.fdfirm = :w_firm and
+6.31 c+                         a.fdvare = :w_vare and
+6.31 c+                         b.fokund = :w_kund and
+6.31 c+                         b.footyp in (select vaotyp from votypf
+     c+                                      where vaoakk = 0) and
+6.31 c+                         b.fonumm not in (select fpnumm from fpripf)
+6.31 c+                  order by b.fobdat desc
+     c+                  for read only
+     c/end-exec
+     c/exec sql
+     c+                  close sok
+     c/end-exec
+     c/exec sql
+     c+                  open sok
+     c/end-exec
+     c                   endif
+      *
+      * Fyller opp subfile
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c/exec sql
+     c+                  fetch next
+     c+                  from  sok
+     c+                  into  :fdvare,
+     c+                        :fdnumm,
+     c+                        :fdenh1,
+     c+                        :fdsapr,
+     c+                        :fdrab1,
+     c+                        :fdrab2,
+6.31 c+                        :fdlage,
+6.31 c+                        :fobdat
+     c/end-exec
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c                   eval      *in15 = *on
+     c                   endif
+      *
+     c                   if        *in15
+     c                   leave
+     c                   endif
+      *
+     c                   eval      fohelr_numm = fdnumm
+     c     fohelr_key    chain     fohelr
+     c                   if        not %found
+     c                   iter
+     c                   endif
+      *
+      * Hvis utgår dato er utfylt, skal det ikke vises hvis passer
+      *
+7.01 c                   if        h1utla = '1'
+     c                   if        fotdat <> *loval and
+7.01 c                             fotdat < w_udao
+     c                   iter
+     c                   endif
+7.01 c                   endif
+      *
+     c                   if        fonumm = p_numm
+     c                   iter
+     c                   endif
+     c
+      * finner varetype
+6.30 c                   call      'VL710R'
+6.30 c                   parm                    w_firm
+6.30 c                   parm                    fdvare
+6.30 c                   parm                    fdlage
+6.30 c                   parm                    w_vtyp
+6.30 c                   parm                    w_udat
+6.30 c                   parm                    w_ldor
+6.30 c                   parm                    b_inlr
+6.33 c                   parm                    w_lv_nobb
+6.33 c                   parm                    w_lv_modn
+6.33 c                   parm                    w_lv_lldo
+6.33 c                   parm                    w_lv_llva
+6.30 c
+6.30 c                   if        w_vtyp = 'T'
+6.30 c                             or w_vtyp = 'D'
+6.30 c                   iter
+6.30 c                   endif
+      *
+      * Skriver til subfile
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b_funn = *on
+     c                   eval      b1valg = 0
+     c                   eval      b1numm = fdnumm
+     c                   eval      b1enh1 = fdenh1
+     c                   if        fonavn <> *blank
+     c                   movel     fonavn        b1navn
+     c                   else
+     c                   movel     fokuna        b1navn
+     c                   endif
+     c                   if        fobdat <> *loval
+     c     *dmy          move      fobdat        b1bdat
+     c                   else
+     c                   eval      b1bdat = 0
+     c                   endif
+      * skal vise både salgspris og rabatter, samt overføre dette.
+     c*                  eval      w_rab1 = 100 - fdrab1
+     c*                  eval      w_rab1 = w_rab1 * fdrab2
+     c*                  eval      w_rab1 = w_rab1 / 100
+     c*                  eval      w_rab1 = w_rab1 + fdrab1
+     c*                  eval(h)   w_npri = fdsapr -
+     c*                                    (fdsapr * w_rab1 / 100)
+     c*                  eval      b1sapr = w_npri
+     c                   eval      b1sapr = fdsapr
+     c                   eval      b1rab1 = fdrab1
+     c                   eval      b1rab2 = fdrab2
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   eval      b_open_sok = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        w_seqe = 'S'
+     c                   exsr      forny
+     c                   goto      end_bck
+     c                   endif
+      *
+     c     end_bck       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+     c                   eval      *in22 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for vis av detaljer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2win        begsr
+      *
+      *
+     c                   endsr
+      *
+7.01  *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  * xh1win  Bilde for behandling av filter
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01 c     xh1win        begsr
+7.01  *
+7.01 c     h1taga        tag
+7.01  *
+     c                   write     h1win
+7.01 c                   exfmt     h1win
+7.01  *
+7.01 c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+6.20 c                   parm                    p_numm
+6.20 c                   parm                    p_kund
+     c                   parm                    p_vare
+     c                   parm                    p_sapr
+     c                   parm                    p_rab1
+     c                   parm                    p_rab2
+     c                   parm                    p_enh1
+      *
+      * Key for oppslag på ordre
+      *
+     c     fohelr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohelr_numm
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunlr_kund
+      *
+      * Key for oppslag på vare
+      *
+     c     vvarlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarlr_vare
+      *
+      *
+      * Henter parametre, og initierer skjermbildet
+      *
+     c                   eval      w_firm = p_firm
+      *
+     c                   eval      *in22 = *on
+7.01 c                   time                    w_udao
+7.01 c                   eval      h1utla = '1'
+      *
+      * setter dato for hvor langt man skal hente tilbud fra
+     c                   time                    w_dato
+     c     w_dato        subdur    6:*months     w_dato
+      *
+     c                   eval      b2vare = p_vare
+6.20 c                   eval      b2kund = p_kund
+     c                   eval      w_vare = p_vare
+6.20 c                   eval      w_kund = p_kund
+      *
+     c                   eval      vvarlr_vare = w_vare
+     c     vvarlr_key    chain     vvarlr
+     c                   if        %found(vvarlr)
+     c                   movel     vvtek1        b2vnav
+     c                   endif
+      *
+     c                   eval      rkunlr_kund = w_kund
+     c     rkunlr_key    chain     rkunlr
+     c                   if        %found(rkunlr)
+     c                   movel     rknavn        b2navn
+     c                   endif
+      *
+     c                   eval      b_funn = *off
+     c                   eval      p_sapr = 0
+     c                   eval      p_enh1 = *blank
+     c                   eval      w_seqe = 'S'
+     c                   eval      b_open_sok = *on
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

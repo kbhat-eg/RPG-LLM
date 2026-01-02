@@ -1,0 +1,642 @@
+     h/TITLE  Salderer utfra samle-nr.
+     h datedit(*dmy) option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * System. . . . . : ASOKON                                        *
+      * Program . . . . : RF106R                                        *
+      * Beskrivelse . . : Salderer utfra samle-nr.                      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Spesialversjon. :                                               *
+      * Tilpasset for . :                                               *
+      *                                                                 *
+      * Referanse  Dato   Endringsbeskrivelse                      Sign.*
+      * --------- ------  ----------------------------------------------*
+      *           241102  Konvertert på nytt fra RPG               KOB  *
+      *           241102  Tidl. RF107R                             KOB  *
+T5.00 * V5.00     300103  Disagio leverandør ble postert feil vei. HFL  *
+T5.01 * V5.00     130303  Fjernet bruk av U4 for å styre oppdat.   HFL  *
+T5.01 *                   Pgm. kjøres bare ved journalkjøring.     HFL  *
+T5.00 * V5.00     280403  Agio/disagio ble postert feil vei i H-bokHFL  *
+T5.00 * V5.30     160304  Lagt ut bilagsnr. i samlegirofelt ved    KOB  *
+T5.01 *                   kontantrabatt på leverandørposter.       KOB  *
+T5.00 * V5.40     020405  Fjernet feilkonti                        KOB  *
+R5.60 * R5.60     300708  Endret test på beløp pos/neg.            KOB  *
+6.12  *           080709  Disse linjer er fjernet.  Men test       NHO  *
+6.12  *                   på rjrstb < enn skal være >              NHO  *
+6.11  * R6.10     250909  Lagt inn  sporingsinformasjon            BSA  *
+6.13  *           070312  Fjernet test vedr. hent av agio, disagio NHO  *
+7.01  *K00        060720  lagt på return + ab705r  + switch        bof  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+610  frjoul1    uf   e           k disk    rename(rjoupfr:rjoul1r)
+     frktrl5    if   e           k disk    rename(rktrpfr:rktrl5r)
+     frktrlu    uf   e           k disk    rename(rktrpfr:rktrlur)
+     frltrl5    if   e           k disk    rename(rltrpfr:rltrl5r)
+     frltrlu    uf   e           k disk    rename(rltrpfr:rltrlur)
+     fra04l1    if   e           k disk    rename(ra04pfr:ra04l1r)
+     frjoulu    o    e           k disk    rename(rjoupfr:rjoulur)
+      *
+610  d                uds
+610  d l_user                911    920
+7.01 d l_flgr                931    933
+     d l_firm                944    946  0
+610   *
+      * Definering av variable i nøkler
+     d rktrlu_kund     s                   like(rnkund)
+     d rktrlu_bdat     s                   like(rnbdat)
+     d rktrlu_tist     s                   like(rntist)
+     d rktrl5_samf     s                   like(rnsamf)
+     d rltrlu_levr     s                   like(rolevr)
+     d rltrlu_bdat     s                   like(robdat)
+     d rltrlu_tist     s                   like(rotist)
+     d rltrl5_samb     s                   like(rosamb)
+      *
+610  d rjoul1_nivo     s                   like(rjnivo)
+610  d rjoul1_memb     s                   like(rjmemb)
+610  d rjoul1_firm     s                   like(rjfirm)
+610  d rjoul1_raar     s                   like(rjraar)
+610  d rjoul1_rper     s                   like(rjrper)
+610  d rjoul1_bunt     s                   like(rjbunt)
+      *
+     d wkto12          s                   like(radk12)
+     d wsps12          s                   like(rads12)
+     d wavd12          s                   like(rada12)
+     d wkto13          s                   like(radk13)
+     d wavd13          s                   like(rada13)
+     d wsps13          s                   like(rads13)
+      *
+     d wjagio          s                   like(rjneto)
+     d wjneto          s                   like(rjneto)
+     d wjrstb          s                   like(rjrstb)
+     d wjvalb          s                   like(rjvalb)
+     d wnrest          s                   like(rnrest)
+     d wolevr          s                   like(rolevr)
+     d worest          s                   like(rorest)
+     d wovalr          s                   like(rovalr)
+     d w_firm          s                   like(rjfirm)
+610  d w_memb          s                   like(rjmemb)
+7.01 d w_jkey          s             41
+7.01 d w_jnav          s             15
+7.01 d w_jsta          s              2  0
+7.01 d w_jmld          s            200
+     d
+      *
+7.01   dcl-s co402_verdi1  char(1);
+7.01   dcl-s co402_verdi2  char(2048);
+7.01   DCL-PR CO402R EXTPGM('CO402R');
+7.01     p_filgrp            char(3)     const;
+7.01     p_firm              packed(3:0) const;
+7.01     p_lager             packed(2:0) const;
+7.01     p_nokkel            char(50)    const;
+7.01     p_verdi1            char(1);
+7.01     p_verdi2            char(2048);
+7.01   END-PR;
+7.01 d u_logg          s              1    inz(*off)                            logging ajltpf
+      *  Posteringer inn
+      *
+     i***rjoupfr
+     i***                                          rjfirm        l3
+7.01 c                   if        u_logg = *on
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Start RF106R        '
+7.01 c                   eval      w_jnav = 'OKON_RF106R-'
+7.01 c                   call      'AB700R'
+7.01 c                   parm                    w_jnav
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jmld
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Start RF106R       '
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jsta
+7.01 c                   parm                    w_jmld
+7.01 c                   endif
+7.01  *
+610   *    leser fil/ ble lest med I P
+610  c                   eval      rjoul1_nivo = *blank
+610  c                   eval      rjoul1_memb = w_memb
+610  c                   eval      rjoul1_firm = l_firm
+610  c                   eval      rjoul1_raar = *zeros
+610  c                   eval      rjoul1_rper = *zeros
+610  c                   eval      rjoul1_bunt = *zeros
+610  c     rjoul1_key    setll     rjoul1r
+610  c                   read      rjoul1r                                16
+610   *
+610  c                   if        rjmemb <> w_memb
+610  c                   move      *on           *in16
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Slutt RF106R før LR'
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jsta
+7.01 c                   parm                    w_jmld
+7.01  *
+610  c                   move      *on           *inlr
+610  c                   endif
+610   *
+610  c                   if        *in16  = '1'
+7.01 c                   if        u_logg = *on
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Slutt RF106R før LR'
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jsta
+7.01 c                   parm                    w_jmld
+7.01 c                   endif
+7.01  *
+610  c                   move      *on           *inlr
+610  c                   goto      slutt
+610  c                   endif
+610   *
+610  c     dummy         tag
+      *
+6.13 c******             if        w_firm <> rjfirm
+      *
+     c                   eval      w_firm = rjfirm
+     c     ra04l1_key    chain     ra04l1
+      *
+     c                   if        radk12 <> *zero                              Agio
+     c                   z-add     rada12        wavd12
+     c                   z-add     radk12        wkto12
+     c                   z-add     rads12        wsps12
+     c                   endif
+      *
+     c                   if        radk13 <> *zero                              Disagio
+     c                   z-add     rada13        wavd13
+     c                   z-add     radk13        wkto13
+     c                   z-add     rads13        wsps13
+     c                   endif
+      *
+6.13 c******             endif
+      *
+      * Bare saldering mot samlenummer behandles
+      *
+     c                   if        rjkrys <> 'S'
+     c                   goto      slutt
+     c                   endif
+      *
+      * Bare kunde og leverandørposter behandles
+      *
+     c                   if        rjreid <> 'K' and
+     c                             rjreid <> 'L'
+     c                   goto      slutt
+     c                   endif
+      *
+ 6.12c                   if        rjrstb > 0
+     c                   z-sub     rjrstb        wjrstb
+     c                   z-sub     rjvalb        wjvalb
+     c                   else
+     c                   z-add     rjrstb        wjrstb
+     c                   z-add     rjvalb        wjvalb
+     c                   endif
+      *
+     c                   eval      wjagio = *zeros
+     c                   eval      wolevr = *zeros
+      *
+      *  Kundepostering og saldering mot samle-nr.
+      *
+     c                   if        rjreid = 'K' and
+     c                             rjrefn <> *zeros
+      *
+     c                   eval      wnrest = *zeros
+     c                   eval      rktrl5_samf = rjrefn
+     c     rktrl5_key    setll     rktrl5
+      *
+      * Kundepostering - bla igjennom for sjekk at totalt går i null
+      *
+     c     kktles        tag
+      *
+     c                   read      rktrl5                                 15
+      *
+     c     *in15         cabeq     *on           kktchk                         EOF
+      *
+     c                   if        rjrefn = rnsamf
+      *
+     c                   if        rjkont <> rnkund
+     c                   goto      kktles
+     c                   endif
+      *
+     c                   if        rjbilk = 96
+     c                   goto      skurab
+     c                   endif
+      *
+     c                   add       rnrest        wnrest
+     c                   goto      kktles
+      *
+     c                   else
+      *
+     c                   goto      kktchk
+     c                   endif
+      *
+      *  Kundepostering - bla igjennom på nytt for evnt. oppdatering
+      *
+     c     kktchk        tag
+      *
+     c                   if        wjrstb <> wnrest
+     c                   goto      slutt
+     c                   endif
+      *
+     c                   eval      rktrl5_samf = rjrefn
+     c                   eval      rnbiln = *zeros
+      *
+     c     rktrl5_key    setll     rktrl5
+      *
+     c     kktlet        tag
+      *
+     c                   read      rktrl5                                 15
+      *
+     c                   if        *in15 = *off and
+     c                             rjrefn = rnsamf
+      *
+     c                   if        rjkont <> rnkund
+     c                   goto      kktlet
+     c                   endif
+      *
+     c                   eval      rktrlu_kund = rnkund
+     c                   eval      rktrlu_bdat = rnbdat
+     c                   eval      rktrlu_tist = rntist
+     c     rktrlu_key    chain     rktrlu
+      *
+     c                   if        %found
+     c                   eval      rnrest = *zeros
+     c                   eval      rnvalr = *zeros
+     c                   eval      rnrefn = rjbiln
+      *
+      * Sjekk oppgjørsdato
+      *
+     c                   if        rjbdat <> rnodat
+     c                   eval      rnodat = rjbdat
+     c                   endif
+      *
+6.11 c                   time                    rnedat
+6.11 c                   time                    rnetim
+6.11 c                   eval      rneusr = l_user
+     c                   update    rktrlur                                      OPPDATER
+     c                   endif
+      *
+     c                   goto      kktlet
+     c                   endif
+      *
+      *  Postering inn - merk post for saldert
+      *
+     c                   eval      rjrstb = *zeros                                          . .
+     c                   eval      rjrstv = *zeros
+     c                   eval      rjrefn = *zeros
+     c                   eval      rjkrys = *blank
+     c                   eval      rjopdt = 'K'
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+610  c                   update    rjoul1r
+     c                   goto      slutt
+      *
+     c                   endif
+      *
+      *
+      *  Leverandørpostering og saldering mot samle-nr.
+      *
+     c                   if        rjreid = 'L' and
+     c                             rjrefn <> *zeros
+      *
+     c                   eval      worest = *zeros
+      *
+     c                   eval      rltrl5_samb = rjrefn
+     c     rltrl5_key    setll     rltrl5
+      *
+      *  Leverandørpostering - bla igjennom for sjekk at totalt går i null
+      *                                                                  .
+     c     kltles        tag
+      *
+     c                   read      rltrl5                                 15
+      *
+     c     *in15         cabeq     *on           kltchk                         EOF
+      *
+     c                   if        rjrefn = rosamb
+      *
+     c                   if        rjkont <> rolevr
+     c                   goto      kltles
+     c                   endif
+      *
+     c                   if        rjbilk = 96
+     c                   goto      slerab
+     c                   endif
+      *
+     c                   add       rorest        worest
+     c                   add       rovalr        wovalr
+     c                   goto      kltles
+     c                   else
+      *
+     c                   if        rjblde = 'T'
+     c     wjrstb        sub       worest        wjagio                         Agio/Disagio
+     c                   z-add     worest        wjrstb
+     c                   endif
+      *
+     c                   goto      kltchk
+     c                   endif
+      *
+      *  Levrandørpostering - bla igjennom på nytt for evnt. oppdatering
+      *
+     c     kltchk        tag
+      *
+     c                   if        wjrstb <> worest
+     c                   goto      slutt
+     c                   endif
+      *
+     c                   eval      rltrl5_samb = rjrefn
+     c     rltrl5_key    setll     rltrl5
+      *                                                                . .
+     c     kltlet        tag
+      *
+     c                   read      rltrl5                                 15
+      *
+     c                   if        *in15 = *off and
+     c                             rjrefn = rosamb
+      *
+     c                   if        rjkont <> rolevr
+     c                   goto      kltlet
+     c                   endif
+      *
+     c                   eval      rltrlu_levr = rolevr
+     c                   eval      rltrlu_bdat = robdat
+     c                   eval      rltrlu_tist = rotist
+     c     rltrlu_key    chain     rltrlu
+      *
+     c                   if        %found
+     c                   eval      rorest = *zeros
+     c                   eval      rovalr = *zeros
+     c                   eval      rorefn = rjbiln
+     c                   eval      wolevr = rolevr
+      *
+6.11 c                   time                    roedat
+6.11 c                   time                    roetim
+6.11 c                   eval      roeusr = l_user
+     c                   update    rltrlur                                      OPPDATER
+     c                   endif
+      *
+     c                   goto      kltlet
+     c                   endif
+      *
+      *  Postering inn - merk post for saldert
+      *
+     c                   eval      rjrstb = *zeros
+     c                   eval      rjrstv = *zeros
+     c                   eval      rjrefn = *zeros
+     c                   eval      rjkrys = *blank
+     c                   eval      rjopdt = 'K'
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+      *
+610  c                   update    rjoul1r
+      *
+     c                   if        rjblde = 'T'
+     c                   exsr      kurdif                                       Agio?
+     c                   endif
+      *
+     c                   goto      slutt
+      *
+     c                   endif
+      *
+      * Postering er kontantrabatt - kunder, salder ukritisk
+      *
+     c     skurab        tag
+      *
+     c                   eval      rktrlu_kund = rnkund
+     c                   eval      rktrlu_bdat = rnbdat
+     c                   eval      rktrlu_tist = rntist
+     c     rktrlu_key    chain     rktrlu
+      *
+     c                   if        %found
+     c                   add       rjneto        rnrest
+     c                   add       rjvalb        rnvalr
+      *
+     c                   eval      rnrefn = rjbiln
+      *
+6.11 c                   time                    rnedat
+6.11 c                   time                    rnetim
+6.11 c                   eval      rneusr = l_user
+     c                   update    rktrlur                                      OPPDATER
+     c                   endif
+      *
+     c                   goto      salmrk
+      *
+      * Postering er kontantrabatt - leverandør, salder ukritisk
+      *
+     c     slerab        tag
+      *
+     c                   eval      rltrlu_levr = rolevr
+     c                   eval      rltrlu_bdat = robdat
+     c                   eval      rltrlu_tist = rotist
+     c     rltrlu_key    chain     rltrlu
+      *
+     c                   if        %found
+     c                   if        rjrstb > 0
+     c                   add       rjneto        rorest
+     c                   add       rjvalb        rovalr
+     c                   else
+     c                   sub       rjneto        rorest
+     c                   sub       rjvalb        rovalr
+     c                   endif
+      *
+     c                   eval      rorefn = rjbiln
+     c                   eval      rosamb = rjbiln
+      *
+6.11 c                   time                    roedat
+6.11 c                   time                    roetim
+6.11 c                   eval      roeusr = l_user
+     c                   update    rltrlur                                      OPPDATER
+      *
+     c                   endif
+      *
+      *  Postering inn - merk post for saldert av rabattpostering
+      *
+     c     salmrk        tag
+      *
+     c                   eval      rjrstb = *zeros
+     c                   eval      rjrstv = *zeros
+     c                   eval      rjrefn = *zeros
+     c                   eval      rjkrys = *blank
+     c                   eval      rjopdt = 'K'
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+      *
+610  c                   update    rjoul1r
+      *
+     c     slutt         tag
+610  c                   read      rjoul1r                                16
+610   *
+610  c                   if        rjmemb <> w_memb
+610  c                   move      *on           *in16
+7.01 c                   if        u_logg = *on
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Slutt RF106R før LR'
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jsta
+7.01 c                   parm                    w_jmld
+7.01 c                   endif
+7.01  *
+610  c                   move      *on           *inlr
+610  c                   endif
+610   *
+610  c                   if        *in16  = '1'
+7.01 c                   if        u_logg = *on
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Slutt RF106R før LR'
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jsta
+7.01 c                   parm                    w_jmld
+7.01 c                   endif
+7.01  *
+610  c                   move      *on           *inlr
+610  c                   else
+610  c                   goto      dummy
+610  c                   endif
+      *
+7.01 c                   if        u_logg = *on
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Slutt RF106R etter LR'
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jsta
+7.01 c                   parm                    w_jmld
+7.01 c                   endif
+7.01 c                   return
+      *
+     c/eject
+      *
+     c     kurdif        begsr
+      *
+      * SUBRUTINE FOR agio/disagio - leverandør, generer agio-post
+      *
+     c                   if        rjblde <> 'T'
+     c                   goto      enddif                                       REM.POST
+     c                   endif
+      *
+     c                   if        rjreid = 'L' and
+     c                             rjvalb = *zeros
+     c                   goto      enddif
+     c                   endif
+      *
+     c                   if        wjagio <> *zeros
+      *
+      * Agio    Leverandørreskontro
+      *
+     c                   eval      rjtext = *blank
+     c                   eval      rjbilk = 88
+     c                   eval      rjvalb = *zeros
+      *
+     c                   if        wjagio > *zero
+     c                   movel     'Agio    '    rjtext
+     c                   else
+     c                   movel     'Disagio '    rjtext
+     c                   endif
+      *
+     c                   eval      rjvalk = *blank
+     c                   eval      rjneto = wjagio
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_memb
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+     c                   write     rjoulur
+      *
+      * Agio    Hovedbok   Leverandører
+      *
+     c                   if        rjrstb > 0
+     c                   z-add     wkto12        rjkont
+     c                   move      wsps12        rjspes
+     c                   move      wavd12        rjavde
+     c                   move      wolevr        rjtext
+      *
+      * Disagio Hovedbok   Leverandører
+      *
+     c                   else
+      *
+     c                   z-add     wkto13        rjkont
+     c                   move      wsps13        rjspes
+     c                   move      wavd13        rjavde
+     c                   move      wolevr        rjtext
+     c                   endif
+      *
+     c                   eval      rjreid = 'H'
+     c                   eval      rjrstb = *zeros
+     c                   eval      rjrstv = *zeros
+     c                   eval      rjrefn = *zeros
+     c                   eval      rjkrys = *blank
+     c                   eval      rjopdt = 'K'
+T5.00c                   eval      rjneto = wjagio * -1
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_memb
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+     c                   write     rjoulur
+      *
+     c                   endif
+      *
+     c     enddif        endsr
+      *
+     c/eject
+      *
+     c     *inzsr        begsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+610   * Parameterliste
+610   *
+610  c     *entry        plist
+610  c                   parm                    w_memb                         user
+      * Key for posteringer - kunder
+610  c     rjoul1_key    klist
+610  c                   kfld                    rjoul1_nivo
+610  c                   kfld                    rjoul1_memb
+610  c                   kfld                    rjoul1_firm
+610  c                   kfld                    rjoul1_raar
+610  c                   kfld                    rjoul1_rper
+610  c                   kfld                    rjoul1_bunt
+      *
+      *
+     c     rktrlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rktrlu_kund
+     c                   kfld                    rktrlu_bdat
+     c                   kfld                    rktrlu_tist
+      *
+      * Key for posteringer - kunder samlenummer
+      *
+     c     rktrl5_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rktrl5_samf
+      *
+      * Key for posteringer - leverandører
+      *
+     c     rltrlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rltrlu_levr
+     c                   kfld                    rltrlu_bdat
+     c                   kfld                    rltrlu_tist
+      *
+      * Key for posteringer - leverandør samlenummer
+      *
+     c     rltrl5_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rltrl5_samb
+      *
+      * Key for faste konti
+      *
+     c     ra04l1_key    klist
+     c                   kfld                    w_firm
+      *
+7.01  * Test om logging skal gjøres
+7.01  *
+7.01   CallP CO402R(l_flgr:w_firm:0:'RF-PROG LOGGING':
+7.01                    co402_verdi1:co402_verdi2);
+7.01   if co402_verdi1 = '1';
+7.01     u_logg = *on;
+7.01   endif;
+     c                   endsr

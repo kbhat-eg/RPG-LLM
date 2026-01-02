@@ -1,0 +1,248 @@
+             PGM
+/*                           Innbetalinger til Inkassofirma          */
+
+/* Definerer variable                                                */
+
+             DCL        VAR(&MLD1)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD2)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&WALI)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&MLD3)  TYPE(*CHAR) LEN(50)
+             DCL        VAR(&MLD4)  TYPE(*CHAR) LEN(50)
+             DCL        VAR(&SVAR)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&IN12) TYPE(*CHAR) LEN(1)
+
+/*IFS*/
+             DCL        VAR(&WPSMTP) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&WPSMTb) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&QPATH) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&WPFILE) TYPE(*CHAR) LEN(20)
+/*SFTP*/
+             DCL        VAR(&DTAQLIB) TYPE(*CHAR) LEN(10)
+
+             DCL        VAR(&dat)  TYPE(*CHAR)  LEN(6)
+             DCL        VAR(&sdd)  TYPE(*CHAR)  LEN(2)
+             DCL        VAR(&stt)  TYPE(*CHAR)  LEN(2)
+             DCL        VAR(&ttn)  TYPE(*DEC)   LEN(2 0)
+             DCL        VAR(&mbrsz) TYPE(*dec)  LEN(10 0)
+             DCL        VAR(&selsk) TYPE(*char) LEN(10)
+             DCL        VAR(&dtaar) TYPE(*char) LEN(10)
+/*  NX   */
+             DCL        VAR(&CO402_KEY) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&CO402_V1)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&CO402_V2)  TYPE(*CHAR) LEN(2048)
+             DCL        VAR(&ccsid)     TYPE(*CHAR) LEN(10)
+             dcl        var(&fgr)       type(*char) len(3)
+             dcl        var(&fix)       type(*char) len(3)
+             dcl        var(&fir)       type(*dec)  len(3 0) value(0)
+             dcl        var(&lag)       type(*dec)  len(3 0) value(0)
+             dcl        var(&bryt)      type(*char) len(1)
+
+/*  Sjekk om firmaet kjører inkasso   */
+             CHGVAR   VAR(&CO402_KEY) VALUE('INKASSO')
+             rtvdtaara dtaara(*lda (944 3)) rtnvar(&fix)
+             rtvdtaara dtaara(*lda (931 3)) rtnvar(&fgr)
+             chgvar    var(&fir)   value(&fix)
+             CALL     PGM(CO402R) PARM(&FGR &FIR &LAG &CO402_KEY +
+                          &CO402_V1 &CO402_V2)
+             IF       COND(&CO402_V1 *ne '1') THEN(do)
+              CHGVAR     VAR(&WALI) VALUE(8)
+              CHGVAR     VAR(&WAPO) VALUE(5)
+              CHGVAR     VAR(&MLD3) VALUE('Dette firmaet er ikke satt opp +
+                                             med inkasso.      ')
+              CHGVAR     VAR(&MLD4) VALUE('Kontakt EG dersom du ønsker +
+                                            inkasso-rutine')
+              CALL       PGM(AA007R)  PARM(&mld3 &mld4 &svar &in12)
+              goto       cmdlbl(end)
+             enddo
+/*   Sjekk om melding om hvilke byrå som kjøres mot skal gis   */
+             call       pgm(rcinkf_kvi)  parm(&bryt)
+             if         cond(&bryt *eq 'J') then(goto cmdlbl(end))
+
+             call       pgm(rc720r)   parm(&selsk)
+             RTVJOBA    CURLIB(&DTAQLIB)
+
+/*   Sjekk om du har noen innbetalinger og overføre            */
+             rtvmbrd    file(RCNTPF) mbr(*first) nbrcurrcd(&mbrsz)
+             if         cond(&mbrsz *eq 0) then(do)
+              CHGVAR     VAR(&WALI) VALUE(4)
+              CHGVAR     VAR(&WAPO) VALUE(2)
+              CHGVAR     VAR(&MLD1) VALUE('Overføring til ' *tcat &selsk)
+              CHGVAR     VAR(&MLD2) VALUE('Du har ikke noe å overføre')
+              CALL       PGM(AA011C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+              goto       end
+             enddo
+
+/* _____________________________________________________________________ */
+/*   Sjekk om Lindorf, da kjøres RC322C                                */
+/*           if       cond(%sst(&selsk 1 7) *eq 'Lindorf') then(do)    */
+/*             call   pgm(RC322C)                                      */
+/*             goto   cmdlbl(end)                                      */
+/*           enddo                                                     */
+/* ______________________________________________________________________ */
+/* Bygger filnavn og kataloger                                       */
+
+             CHGVAR     VAR(&WPFILE) VALUE('Innb_ååmmddtt.txt')
+             RTVJOBA    DATE(&DAT)
+             chgvar     var(%sst(&wpfile 6 2)) +
+                        value(%sst(&dat 5 2))
+             chgvar     var(%sst(&wpfile 8 2)) +
+                        value(%sst(&dat 3 2))
+             chgvar     var(%sst(&wpfile 10 2)) +
+                        value(%sst(&dat 1 2))
+             chgvar     var(&dtaar)  value(&selsk *tcat 'inka')
+
+nyret:       rtvdtaara  dtaara(&dtaar (3 2)) rtnvar(&sdd)
+/*  Dtaara &dtaar mangler ev.                                */
+             monmsg     msgid(cpf1015) exec(do)
+                crtdtaara dtaara(&dtaar) type(*char) len(6) +
+                            text('Teller for fil m/Innbet til ' *tcat &selsk)
+                chgdtaara dtaara(&dtaar (1 2)) +
+                          value(%sst(&dat 3 2))
+                chgdtaara dtaara(&dtaar (3 2)) +
+                          value(%sst(&dat 1 2))
+                chgdtaara dtaara(&dtaar (5 2)) value('00')
+                goto      cmdlbl(nyret)
+             enddo
+             if         cond(%sst(&dat 1 2) *ne &sdd) then(do)
+
+                chgdtaara  dtaara(&dtaar (1 2)) value(%sst(&dat 3 2))
+                chgdtaara  dtaara(&dtaar (3 2)) value(%sst(&dat 1 2))
+                chgdtaara  dtaara(&dtaar (5 2)) value('00')
+             enddo
+             rtvdtaara  dtaara(&dtaar (5 2)) rtnvar(&stt)
+             if         cond(%sst(&dat 1 2) *eq &sdd) then(do)
+               chgvar   var(&ttn) value(&stt)
+               chgvar   var(&ttn) value(&ttn + 1)
+               chgvar   var(&stt) value(&ttn)
+             enddo
+             chgdtaara  dtaara(&dtaar (1 2)) value(%sst(&dat 3 2))
+             chgdtaara  dtaara(&dtaar (3 2)) value(%sst(&dat 1 2))
+             chgdtaara  dtaara(&dtaar (5 2)) value(&stt)
+
+             chgvar     var(%sst(&wpfile 12 2)) value(&stt)
+             CHGVAR     VAR(&WPSMTP) VALUE('/asp/' *TCAT +
+                          %sst(&dtaqlib 4 3))
+             crtdir     dir(&wpsmtp) dtaaut(*RWX) objaut(*none)
+             monmsg  msgid(cpf0000)
+
+             CHGVAR     VAR(&WPSMTP) VALUE(&wpsmtp +
+                          *tcat '/' *tcat &selsk)
+             crtdir     dir(&wpsmtp) dtaaut(*RWX) objaut(*none)
+             monmsg  msgid(cpf0000)
+
+             CHGVAR     VAR(&WPSMTP) VALUE(&wpsmtp +
+                          *tcat '/inkasso')
+             crtdir     dir(&wpsmtp) dtaaut(*RWX) objaut(*none)
+             monmsg  msgid(cpf0000)
+
+             CHGVAR     VAR(&WPSMTb) VALUE(&wpsmtp)
+             CHGVAR     VAR(&WPSMTP) VALUE(&wpsmtp +
+                          *tcat '/inn')
+             crtdir     dir(&wpsmtp) dtaaut(*RWX) objaut(*none)
+             monmsg  msgid(cpf0000)
+
+             CHGVAR     VAR(&WPSMTP) VALUE(&wpsmtp +
+                          *tcat '/Backup')
+             crtdir     dir(&wpsmtp) dtaaut(*RWX) objaut(*none)
+             monmsg  msgid(cpf0000)
+
+             CHGVAR     VAR(&WPSMTP) VALUE(&wpsmtb +
+                          *tcat '/ut')
+             crtdir     dir(&wpsmtp) dtaaut(*RWX) objaut(*none)
+             monmsg  msgid(cpf0000)
+
+             CHGVAR     VAR(&WPSMTP) VALUE(&wpsmtp +
+                          *tcat '/Backup')
+             crtdir     dir(&wpsmtp) dtaaut(*RWX) objaut(*none)
+             monmsg  msgid(cpf0000)
+
+             CHGVAR     VAR(&WPSMTP) VALUE(&wpsmtb *tcat '/ut/' +
+                          *tcat &wpfile)
+             CHGVAR     VAR(&QPATH) VALUE('/qsys.lib/' *TCAT +
+                          &DTAQLIB *TCAT +
+                          '.lib/rcntpfs.file/RCNtPFS.mbr')
+
+/*      Henter CCSID fra NX   >INKASSO_CCSID<                        */
+             CallSubr   subr(getccsid)
+
+/* Overfører til IFS                                                 */
+
+             CRTPF      FILE(*CURLIB/RCNTPFS) RCDLEN(2000)
+             MONMSG     MSGID(CPF0000)
+             CLRPFM     FILE(RCNTPFS)
+             CPYF       FROMFILE(RCNTPF) TOFILE(RCNTPFS) +
+                          MBROPT(*REPLACE) FMTOPT(*NOCHK)
+             monmsg     msgid(cpf2817) exec(do)
+               chgvar     var(&wali) value(4)
+               chgvar     var(&wapo) value(2)
+               chgvar     var(&mld1) value('Overføring til ' *tcat &selsk)
+               chgvar     var(&mld2) valuE('Ingen innbetalinger funnet')
+               call       pgm(AA011C)  parm(&WALI &WAPO &MLD1 &MLD2)
+               goto       cmdlbl(end)
+             enddo
+             CPYTOSTMF  FROMMBR(&QPATH) TOSTMF(&WPSMTP) +
+                          STMFOPT(*REPLACE) stmfccsid(&ccsid)
+
+/* Varselbilde OK                                                    */
+
+             CHGVAR     VAR(&WALI) VALUE(4)
+             CHGVAR     VAR(&WAPO) VALUE(2)
+             chgvar     var(&mld1) value('Overføring til ' *tcat &selsk)
+             CHGVAR     VAR(&MLD2) VALUE('--  Overføring utført -- ')
+             CALL       PGM(AA011c)  PARM(&WALI &WAPO &MLD1 &MLD2)
+
+/* Tømmer overføringsfile for poster etter å ha tatt backup          */
+             DLTF       FILE(RCNtPF_B5)
+             MONMSG     MSGID(CPF2105)
+
+             CPYF       FROMFILE(*LIBL/RCNtPF_b4) +
+                          TOFILE(*CURLIB/RCNtPF_B5) MBROPT(*replace) +
+                          CRTFILE(*YES) FMTOPT(*NOCHK)
+             monmsg     msgid(cpf0000)
+
+             CPYF       FROMFILE(*LIBL/RCNtPF_b3) +
+                          TOFILE(*CURLIB/RCNtPF_B4) MBROPT(*replace) +
+                          CRTFILE(*YES) FMTOPT(*NOCHK)
+             monmsg     msgid(cpf0000)
+
+             CPYF       FROMFILE(*LIBL/RCNtPF_b2) +
+                          TOFILE(*CURLIB/RCNtPF_B3) MBROPT(*replace) +
+                          CRTFILE(*YES) FMTOPT(*NOCHK)
+             monmsg     msgid(cpf0000)
+
+             CPYF       FROMFILE(*LIBL/RCNtPF_b1) +
+                          TOFILE(*CURLIB/RCNtPF_B2) MBROPT(*replace) +
+                          CRTFILE(*YES) FMTOPT(*NOCHK)
+             monmsg     msgid(cpf0000)
+
+             CPYF       FROMFILE(*LIBL/RCNtPF) +
+                          TOFILE(*CURLIB/RCNtPF_B1) MBROPT(*replace) +
+                          CRTFILE(*YES) FMTOPT(*NOCHK)
+             monmsg     msgid(cpf0000)
+
+             CPYF       FROMFILE(*LIBL/RCNTPF) +
+                          TOFILE(*CURLIB/RCNTPF_BAC) MBROPT(*ADD) +
+                          CRTFILE(*YES) FMTOPT(*NOCHK)
+
+             CLRPFM     FILE(*LIBL/RCNTPF) MBR(RCNTPF)
+
+/*___________________________________________________________________________*/
+/*  Finn hvilke CCSID filen skal sendes med               */
+Subr         Subr(GETCCSID)
+             CHGVAR   VAR(&CO402_KEY) VALUE('INKASSO_CCSID')
+             rtvdtaara dtaara(*lda (944 3)) rtnvar(&fix)
+             rtvdtaara dtaara(*lda (931 3)) rtnvar(&fgr)
+             chgvar    var(&fir)   value(&fix)
+             CALL     PGM(CO402R) PARM(&FGR &FIR &LAG &CO402_KEY +
+                          &CO402_V1 &CO402_V2)
+             IF       COND(&CO402_V1 *EQ '1') THEN(do)
+               chgvar  var(&Ccsid)  value(&co402_v2)
+             enddo
+             IF       COND(&Ccsid *EQ ' ') THEN(do)
+               chgvar  var(&Ccsid)  value('*stmf')
+             enddo
+ENDSUBR
+/*___________________________________________________________________________*/
+
+ END:        ENDPGM

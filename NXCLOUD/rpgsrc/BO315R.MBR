@@ -1,0 +1,535 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASSHOP
+      * Program . . . . : BO315R
+      * beskrivelse . . : Kasseoppgjør, Beholdning pr. kasseskuff, endre
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       060906 bø   Nytt program
+6.20  *       120912 bø   Brukerstyre hvem som får lov til bruke programmet
+7.xx  * 7.00  260516 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fbot1i1    if   e           k disk    rename(bot1st:bot1i1r)
+     fbot1ir    if   e           k disk    rename(bot1st:bot1irr)
+     fbot1iu    uf a e           k disk    rename(bot1st:bot1iur)
+6.20 fbusri1    if   e           k disk    rename(busrst:busri1r)
+      *
+     fbo315d    cf   e             workstn sfile(basfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d bot1i1_grup     s                   like(b1grup)
+     d bot1i1_kass     s                   like(b1kass)
+     d bot1i1_bruk     s                   like(b1bruk)
+     d bot1ir_grup     s                   like(b1grup)
+     d bot1ir_kass     s                   like(b1kass)
+     d bot1ir_bruk     s                   like(b1bruk)
+     d bot1iu_grup     s                   like(b1grup)
+     d bot1iu_kass     s                   like(b1kass)
+     d bot1iu_bruk     s                   like(b1bruk)
+6.20 d busri1_user     s                   like(bbuser)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+6.20 d b_sikk          s              1    inz(*off)
+      *
+     d w_firm          s                   like(b1firm)
+      *
+     d p_firm          s                   like(b1firm)
+      *
+     d s_grup          s                   like(b1grup)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-gruper
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * basfl  - B1 Subfile - record
+      * B2ctl  - bl Subfile - control record
+      * b2cmd  - bl Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meldingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * b2ctl Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  *
+6.20  * sjekker om sikkerheten er ok for bruker
+6.20  *
+6.20 c                   if        b_sikk = *on
+6.20 c                   goto      avslutt
+6.20 c                   endif
+      * Send Alt
+      *
+     c     b1taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b1tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b1tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b1tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b1tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b1taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2grup <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b1tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b1taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     basfl
+     c                   endif
+      *
+     c                   eval      bot1i1_grup = bagrup
+     c     bot1i1_key    setll     bot1i1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * gruper
+      *
+     c                   if        b2grup <> *blank
+     c                   eval      w_seqe = *blank
+     c                   eval      bot1i1_grup = b2grup
+     c     bot1i1_key    setll     bot1i1
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2grup = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sublutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     basfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Vis
+      *
+     c                   if        bavalg = 5
+     c                   eval      c1grup = bagrup
+     c                   eval      c1kass = bakass
+     c                   eval      c1bruk = babruk
+     c                   exsr      xc2bld
+     c                   eval      bavalg = 0
+     c                   update    basfl
+     c                   iter
+     c                   endif
+      *
+      * oppdaterer beholdning
+      *
+     c                   eval      bot1iu_grup = bagrup
+     c                   eval      bot1iu_kass = bakass
+     c                   eval      bot1iu_bruk = babruk
+     c     bot1iu_key    chain     bot1iu
+     c                   if        %found(bot1iu)
+     c                   eval      b1beho = babeho
+     c                   update    bot1iur
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sublutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+      *
+     c                   eval      bot1ir_grup = c1grup
+     c                   eval      bot1ir_kass = c1kass
+     c                   eval      bot1ir_bruk = c1bruk
+     c     bot1ir_key    chain     bot1ir
+      *
+     c                   if        %found
+     c                   eval      c2beho = b1beho
+     c     *dmy          move      b1odat        c2odat
+     c     *hms          move      b1otim        c2otim
+     c     *dmy          move      b1edat        c2edat
+     c     *hms          move      b1etim        c2etim
+     c                   eval      c2eusr = b1eusr
+     c                   else
+     c                   eval      c2beho = 0
+     c                   eval      c2eusr = *blank
+     c                   eval      c2odat = 0
+     c                   eval      c2otim = 0
+     c                   eval      c2edat = 0
+     c                   eval      c2etim = 0
+     c                   endif
+      *
+     c                   if        bavalg = 5
+     c                   eval      *in30 = *on
+     c                   endif
+      *
+     c     c2taga        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sublutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sublutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      bot1i1
+      *
+     c                   if        %eof or
+     c                             b1firm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      bot1i1_grup = bagrup
+      *
+     c                   eval      bavalg = 0
+     c                   eval      bagrup = b1grup
+     c                   eval      bakass = b1kass
+     c                   eval      babruk = b1bruk
+     c                   eval      babeho = b1beho
+      *
+     c                   write     basfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sublutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     bot1i1_key    setgt     bot1i1
+     c                   readp     bot1i1
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     bot1i1
+      *
+     c                   if        %eof or
+     c                             b1firm <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      bot1i1_grup = b1grup
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     bot1i1_key    setll     bot1i1
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sublutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sublutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+      * Key for posisjonering på kasseoppgjør hode
+      *
+     c     bot1i1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bot1i1_grup
+     c                   kfld                    bot1i1_kass
+     c                   kfld                    bot1i1_bruk
+      *
+      * Key for les på kasseoppgjør hode
+      *
+     c     bot1ir_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bot1ir_grup
+     c                   kfld                    bot1ir_kass
+     c                   kfld                    bot1ir_bruk
+      *
+      * Key for oppdatering av kasseoppgjør holde
+      *
+     c     bot1iu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bot1iu_grup
+     c                   kfld                    bot1iu_kass
+     c                   kfld                    bot1iu_bruk
+6.20  *
+6.20  * Key for les av bruker-register
+6.20  *
+6.20 c     busri1_key    klist
+6.20 c                   kfld                    w_firm
+6.20 c                   kfld                    busri1_user
+      *
+      *
+      * Henter verdier fr2 LDA, og initierer skjermbildet
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   eval      *in22 = *on
+6.20  *
+6.20  * sjekk om bruker har lov til å bruke programmet
+6.20  *
+6.20 c                   eval      b_sikk = *off
+6.20 c                   eval      busri1_user = l_user
+6.20 c     busri1_key    chain     busri1
+6.20 c                   if        not %found(busri1)
+6.20 c                   eval      b_sikk = *on
+6.20 c                   endif
+6.20 c                   if        bbkret < 9
+6.20 c                   eval      b_sikk = *on
+6.20 c                   endif
+6.20 c                   if        bbkopg =  0
+6.20 c                   eval      b_sikk = *on
+6.20 c                   endif
+6.20 c                   if        b_sikk = *on
+6.20 c                   leavesr
+6.20 c                   endif
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      bot1i1_grup = *blank
+     c     bot1i1_key    setll     bot1i1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

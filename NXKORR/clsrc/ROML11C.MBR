@@ -1,0 +1,112 @@
+/*                  VISMA    BUSINESS                                */
+/* 8.02 220223  mst Sett riktig autorisasjon på mappe                       */
+             PGM
+
+             DCL        VAR(&FILN)  TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FILS)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MAPX) TYPE(*CHAR) LEN(30)
+             DCL        VAR(&CLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&IFSV) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILT) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILG) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&BIBL) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&BAN1) TYPE(*CHAR) LEN(5) +
+                          VALUE('/asp/')
+             DCL        VAR(&BAN2) TYPE(*CHAR) LEN(8) VALUE('/tritex/')
+             DCL        VAR(&BAN3) TYPE(*CHAR) LEN(10) +
+                          VALUE('/qsys.lib/')
+             DCL        VAR(&BAN4) TYPE(*CHAR) LEN(31) +
+                               VALUE('.lib/trilag.file/trilag.mbr')
+ /*8.02*/    DCL        VAR(&grp)   TYPE(*CHAR) LEN(10)  value('GRP_   ')
+ /*8.02*/    DCL        VAR(&fgr)   TYPE(*CHAR) LEN(3)
+ /*8.02*/    dcl        var(&grpusr)   type(*char) len(10)  value('ASP_xxx')
+ /*8.02*/    dcl        var(&tusr)   type(*char) len(10) Value('xxxTEKNISK')
+             DCL        VAR(&nbr)      TYPE(*CHAR) LEN(6)
+             DCL        VAR(&usr)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&JOB)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&type)     TYPE(*CHAR) LEN(1)
+             DCLF       FILE(*LIBL/ROM00PF)
+/* ->       Finner hvilken rutine som kjøres                            */
+             CALL       PGM(ROM00C) PARM(&TYPE)
+/* -<       Finner hvilken rutine som kjøres                            */
+/* Henter filgruppe og firmanummer:                                  */
+
+             RTVDTAARA  DTAARA(*LDA (931 3)) RTNVAR(&FILG)
+             RTVDTAARA  DTAARA(*LDA (934 6)) RTNVAR(&BIBL)
+
+/* Lager til-katalogen på IFS hvis den ikke finnes                   */
+/*8.02*/     rtvdtaara  dtaara(*lda (931 3))  RTNVAR(&fgr)
+/*8.02*/     chgvar     var(%sst(&grp 5 03))   value(&fgr)
+/*8.02*/     chgvar     var(%sst(&grpusr 5 3))  value(&fgr)
+/*8.02*/     chgvar     var(%sst(&tusr 1 3))   value(&fgr)
+
+             CHGVAR     VAR(&MAPX)     VALUE(&BAN1 *CAT &FILG +
+                                             *CAT &BAN2)
+             CRTDIR     DIR(&MAPX)
+             MONMSG     MSGID(CPF0000)
+/*  Gi autorisasjon    */
+/*8.02*/     CHGAUT     OBJ(&MAPX) USER(&GRP) DTAAUT(*RWX) +
+/*8.02*/                  OBJAUT(*ALL) SUBTREE(*ALL)
+/*8.02*/     CHGAUT     OBJ(&MAPX) USER(&grpusr) DTAAUT(*RWX) OBJAUT(*ALL) +
+                                                        subtree(*all)
+/*8.02*/     CHGAUT     OBJ(&MAPX) USER(&tusr) DTAAUT(*RWX) OBJAUT(*ALL) +
+                                                     subtree(*all)
+
+/* Tømmer transaksjonsfil før danning av transaksjoner               */
+
+             CLRPFM     FILE(RV03PF)
+             CLRPFM     FILE(LOVIPF)
+             CLRPFM     FILE(LOVUPF)
+
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+
+             if         cond(&type *eq 'B')   then(do)
+/* Omkjøring                                                         */
+
+             CPYF       FROMFILE(LOMKPF) TOFILE(*libl/LOVIPF) +
+                          MBROPT(*REPLACE) FMTOPT(*MAP *DROP)
+             enddo
+             if         cond(&type *ne 'B')   then(do)
+
+             CPYF       FROMFILE(LOVFPF) TOFILE(*libl/LOVIPF) +
+                          MBROPT(*REPLACE) FMTOPT(*MAP *DROP)
+             enddo
+
+/* Kaller program for danning av transaksjoner                       */
+
+  /*           CALL       PGM(RB023R)          */
+  /*           CALL       PGM(RB022R)          */
+
+  /*           OVRDBF     FILE(LOVFL1) TOFILE(*LIBL/LOMKL1)     */
+             CALL       PGM(RTRL11R)
+
+/* Test om overføringsregister finnes - bygg evt.                    */
+
+             CHKOBJ     OBJ(*LIBL/TRILAG) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+                CRTPF      FILE(TRILAG) RCDLEN(800) +
+                             TEXT('Posteringer til Tripeltex') MAXMBRS(*NOMAX)
+             ENDDO
+
+/* Kopier data til overføringsfil                                    */
+
+             CPYF       FROMFILE(*libl/RV03PF) TOFILE(*libl/TRILAG) +
+                             FROMMBR(RV03PF) MBROPT(*REPLACE) FMTOPT(*NOCHK)
+
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+
+
+/* Starter kopiering til integret filsystem                          */
+
+             CALL       PGM(LO764R) PARM(&FILN)
+
+   CHGVAR VAR(&FILS) VALUE(&BAN1 *CAT &FILG *CAT &BAN2 *bcat &FILN)
+   CHGVAR VAR(&FILT) VALUE(&BAN3 *CAT &BIBL *CAT &BAN4)
+             CPYTOSTMF  +
+                          FROMMBR(&FILT) TOSTMF(&FILS) +
+                          STMFOPT(*REPLACE) STMFCODPAG(*PCASCII)
+             CHGAUT      OBJ(&FILS) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+
+
+ END:        ENDPGM

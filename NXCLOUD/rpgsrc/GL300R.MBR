@@ -1,0 +1,1316 @@
+     H decedit('0.') datedit(*dmy-) option(*nodebugio)
+     h DftActgrp(*No) BndDir('CGIDEV2/CGIDEV2')
+      /copy hspecsbnd
+
+      /TITLE  ASOKON Oversikt over filer til remittering totalt
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      * System  . . . . : NXCLOUD                                       *
+      * Program . . . . : GL300R                                        *
+      * Beskrivelse . . : Overføre DIRREM til xml-fil                   *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      * Spesialversjon. :                                               *
+      * Tilpasset for . :                                               *
+      *                                                                 *
+      * Referanse  Dato   Endringsbeskrivelse                      Sign.*
+      * --------- ------  ----------------------------------------------*
+      *           180923  Nytt program                                  *
+8.01  *  010324 mst       Endret mhp utlegg av BIC                      *
+8.02  *  070324 mst       lEGGER UT kid <Nb>                            *
+8.03  *  080324 mst       Endrer filnavn til 'XML_ååmmdd_hhmmss         *
+8.04  *  110324 mst       Endrer innhold i <MsgId>                     *
+8.05  *  210324 mst       Endret filsti                                *
+      *                                                                  *
+8.06  *  250324 mst       Endre verdi fra SEPA til NURG
+8.07  *  250324 mst       <TD> skal hente verdi GFSAFPF felt GEFDIV
+8.08  *  260324 mst       <Nb> skal være KID, hvis blank så er det lev.faktnr
+8.09  *  260403 mst       Gjør forskjell på type 'D' og type 'K'
+8.10  *  050424 mst       Sjekk på kreditnota (Instdamt = rmtdamt - cdtnoteamt)
+8.11  *  100424 mst       Summering av CTRLSUM(nxs-19175)
+8.12  *  100424 mst       Summering av NbOfTxs(nxs-19176)
+8.13  *  100424 mst       Første BETFOR21 skriver TRANS
+8.14  *  120424 mst       Før BETFOR21 skrives TRANSR, men ikke første gang
+8.15  *  150424 mst       PmtInfId endres til betalingsforslagsnummer
+8.16  *  160424 mst       ReqdExctnDt skal være betalingsdato og skrives for hver
+8.16  *                   og skrives for hver ny betalingsdato (BETFOR21)
+8.17  *                   PmtInfId og InstrId utvides
+8.18  *                   PmtInfId, InstrId og EndToEndID legges ut i streng
+8.19  *  130524 mst       Samle flere BETFOR23 i array                  *
+8.20  *  130524 mst       Fjerne referanse til filgrippe(NXS-19403)
+8.20  *  130524 mst       Linjenummer skal være 4 siffer(NXS-19405)
+8.21  *  070624 mst       Bruk av KID i SEPA format
+8.22  *  170624 mst       Fjern ledende nuller i Org.nr
+8.23  *  230924 mst       Seton 'LR' for å få 'lukket'fila
+8.24  *  160924 mst       Sjekk om dette er UTLAND
+8.25  *  021024 mst       Benytt riktig firmanummer til oppslag
+8.26  *  250624 mst       Danne mappe for utfil hvis den ikke finnes
+      *
+     fdirrem    if   e             disk
+     fafpslr    if   e           k disk     rename(afpspfr:afpslrr)
+     fafirl1    if   e           k disk     rename(afirpfr:afirl1r)
+8.07 fgfaspf    if   e           k disk
+      *
+      *
+      * Definering av parametre
+      *
+     d p_lr            s              1
+     d p_input         s            512
+     d p_outpt         s            512
+      *
+      * Definering av variabler i nøkler
+      *
+     d afpslr_ufil     s                   like(afufil)
+     d afpslr_uide     s                   like(afuide)
+     d afirl1_firm     s                   like(aafFIR)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Definering av felter                                            *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      * Datastruktur for dagens dato, på format åååå.mm.dd:
+      *
+     d                 ds
+     d dsdato                         8  0
+     d  dsuÅr                         4  0 overlay(dsdato)
+     d  dsumnd                        2  0 overlay(dsdato:5)
+     d  dsudag                        2  0 overlay(dsdato:7)
+      *
+      * Datastruktur for BETFOR00:
+      *
+     d                 ds
+     d dsb00a                       320
+     d g0rec1                        80    overlay(dsb00a:1)
+     d g0rec2                        80    overlay(dsb00a:81)
+     d g0rec3                        80    overlay(dsb00a:161)
+     d g0rec4                        80    overlay(dsb00a:241)
+     d  g0fast                 1      5                                         'AH200'         gdhd
+     d  g0ruti                 6      9                                         TBII/TBIU/TBIO  gdhr
+     d  g0dato                10     13                                         MMDD            gdhd
+     d  g0sekv                14     19  0                                      fra 1 hver dag  gdht
+     d  g0htrk                20     27                                         blank           gdhd
+     d  g0brid                28     38                                         '00000000000'
+     d  g0antb                39     40  0                                      '04'            gdhs
+     d  g0trko                41     48                                         'BETFOR00'
+     d  g0ftnr                49     59                                         Foretaksnr
+     d  gxftnr                51     59  0                                      Foretaksnr
+     d  g0divi                60     70                                         Divisjon
+     d  g0ksek                71     74                                         Sekv.kontr.
+     d  g0res1                75     80                                         Reservert
+     d  g0prda                81     84                                         Prod.dato  ÅÅMM
+     d  g0pswd                85     94                                         Passord  blank
+     d  g0rver                95    104                                         'VERSJON002'
+     d  g0npwd               105    114                                         Nytt pwd.  blank
+     d  g0opnr               115    125                                         operatørnr. blank
+     d  g0sebr               126    126                                         Nytt pwd.  blank
+     d  g0seda               127    132                                         '000000'
+     d  g0deno               133    152                                         '0000000000000000000
+     d  g0sehv               153    153                                         blank
+     d  g0res2               154    296                                         blank
+     d  g0eref               297    311                                         Egen referanse
+     d  g0res3               312    320                                         blank
+      *
+      * Datastruktur for BETFOR01     Utland
+      *
+     d                 ds
+     d dsb01a                       320
+     d u1rec1                        80    overlay(dsb01a:1)
+     d u1rec2                        80    overlay(dsb01a:81)
+     d u1rec3                        80    overlay(dsb01a:161)
+     d u1rec4                        80    overlay(dsb01a:241)
+     d  u1fast                 1      5                                         'AH200'         gdhd
+     d  u1ruti                 6      9                                         TBIU            gdhr
+     d  u1dato                10     13                                         MMDD            gdhd
+     d  u1sekv                14     19  0                                      fra 1 hver dag  gdht
+     d  u1htrk                20     27                                         blank           gdhd
+     d  u1brid                28     38                                         '00000000000'
+     d  u1antb                39     40  0                                      '04'            gdhs
+     d  u1trko                41     48                                         'BETFOR01'
+     d  u1ftnr                49     59  0                                      Foretaksnr
+     d  u1kont                60     70  0                                      Kontonummer
+     d  u1ksek                71     74  0                                      Sekv.nr. kontr.
+     d  u1refn                75     80                                         Referansenr.    blan
+     d  u1beda                81     86  0                                      Bet.dato        ÅÅMM
+     d  u1egre                87    116                                         Egenref. oppdrag
+     d  u1nr01                87     94                                         '       '
+     d  u1filg                95     97                                         Filgruppe
+     d  u1bl01                98    107                                         blank
+     d  u1firm               108    110                                         Firma
+     d  u1levn               111    116                                         Leverandørnr.
+     d  u1bval               117    119                                         Betalingsvaluta
+     d  u1fval               120    122                                         Faktura valuta
+     d  u1omut               123    125                                         Omkostning utland
+     d  u1omno               126    128                                         Omkostninger i Norge
+     d  u1vrsl               129    158                                         Varsel anvisning
+     d  u1prio               159    159                                         Prioritet
+     d  u1akur               160    167  0                                      Avtalt kurs
+     d  u1tknr               168    173                                         Terminkontraktsnr
+     d  u1tkku               174    181                                         Terminkontraktskurs
+     d  u1sjkk               182    182                                         Sjekkode
+     d  u1vamb               183    188                                         Valutering mottak ba
+     d  u1res1               189    190                                         Reservert
+     d  u1rkur               191    202  0                                      reell kurs
+     d  u1ere2               203    214                                         Effektueringsref 2
+     d  u1bbel               215    230  0                                      Belastet beløp
+     d  u1obel               231    246  0                                      Overført beløp
+     d  u1kref               247    251                                         Klient referanse
+     d  u1ere1               252    257  0                                      Effektueringsref 1
+     d  u1avtm               258    263                                         Avtalt med
+     d  u1sltk               264    264                                         Slettekode
+     d  u1clrk               265    265                                         Cearingkode
+     d  u1vald               266    271  0                                      Valuteringsdato  ÅÅM
+     d  u1prov               272    280  0                                      Provisjon
+     d  u1kmno               281    292  0                                      Kurs mot NOK
+     d  u1slta               293    293                                         Sletteårsak
+     d  u1bobe               294    309  0                                      Best. overf. beløp
+     d  u1infp               310    310                                         Info vedr prising
+     d  u1res3               311    320                                         Reservert
+      *
+      * Datastruktur for BETFOR02:
+      *
+     d                 ds
+     d dsb02a                       320
+     d u2rec1                        80    overlay(dsb02a:1)
+     d u2rec2                        80    overlay(dsb02a:81)
+     d u2rec3                        80    overlay(dsb02a:161)
+     d u2rec4                        80    overlay(dsb02a:241)
+     d  u2fast                 1      5                                         'AH200'         gdhd
+     d  u2ruti                 6      9                                         TBIU            gdhr
+     d  u2dato                10     13                                         MMDD            gdhd
+     d  u2sekv                14     19  0                                      fra 1 hver dag  gdht
+     d  u2htrk                20     27                                         blank           gdhd
+     d  u2brid                28     38                                         '00000000000'
+     d  u2antb                39     40  0                                      '04'            gdhs
+     d  u2trko                41     48                                         'BETFOR02'
+     d  u2ftnr                49     59  0                                      Foretaksnr
+     d  u2kont                60     70  0                                      Kontonummer
+     d  u2ksek                71     74  0                                      Sekv.nr. kontr.
+     d  u2refn                75     80                                         Referansenr.    blan
+     d  u2swif                81     91                                         Swift adresse
+     d  u2bnav                92    126                                         Bank navn
+     d  u2bad1               127    161                                         Bankadresse 1
+     d  u2bad2               162    196                                         Bankadresse 2
+     d  u2bad3               197    231                                         Bankadresse 3
+     d  u2swad               232    242                                         Swiftadr. remb. bank
+     d  u2mbla               243    244                                         Mottakers bank landk
+     d  u2bnkk               245    259                                         Bankkode
+     d  u2tbio               260    294                                         Kontonr ved TBIO
+     d  u2res1               295    320                                         Reservert
+      *
+      * Datastruktur for BETFOR03:
+      *
+     d                 ds
+     d dsb03a                       320
+     d u3rec1                        80    overlay(dsb03a:1)
+     d u3rec2                        80    overlay(dsb03a:81)
+     d u3rec3                        80    overlay(dsb03a:161)
+     d u3rec4                        80    overlay(dsb03a:241)
+     d  u3fast                 1      5                                         'AH200'         gdhd
+     d  u3ruti                 6      9                                         TBIU            gdhr
+     d  u3dato                10     13                                         MMDD            gdhd
+     d  u3sekv                14     19  0                                      fra 1 hver dag  gdht
+     d  u3htrk                20     27                                         blank           gdhd
+     d  u3brid                28     38                                         '00000000000'
+     d  u3antb                39     40  0                                      '04'            gdhs
+     d  u3trko                41     48                                         'BETFOR03'
+     d  u3ftnr                49     59  0                                      Foretaksnr
+     d  u3kont                60     70  0                                      Kontonummer
+     d  u3ksek                71     74  0                                      Sekv.nr. kontr.
+     d  u3refn                75     80                                         Referansenr.    blan
+     d  u3mkto                81    115                                         Mottakers kontonr
+     d  u3mnav               116    150                                         Mottakers navn
+     d  u3mad1               151    185                                         Mottakers adresse 1
+     d  u3mad2               186    220                                         Mottakers adresse 2
+     d  u3mad3               221    255                                         Mottakers adresse 3
+     d  u3mlan               256    257                                         Mottakers landkode
+     d  u3tlfx               258    258                                         Relex/Telefax kode T
+     d  u3tlxl               259    260                                         Telex-landkode
+     d  u3tlnr               261    278                                         Telex/Fax. nr,
+     d  u3atte               279    298                                         Attention
+     d  u3res1               299    320                                         Reservert
+      *
+      * Datastruktur for BETFOR04:
+      *
+     d                 ds
+     d dsb04a                       320
+     d u4rec1                        80    overlay(dsb04a:1)
+     d u4rec2                        80    overlay(dsb04a:81)
+     d u4rec3                        80    overlay(dsb04a:161)
+     d u4rec4                        80    overlay(dsb04a:241)
+     d  u4fast                 1      5                                         'AH200'         gdhd
+     d  u4ruti                 6      9                                         TBIU            gdhr
+     d  u4dato                10     13                                         MMDD            gdhd
+     d  u4sekv                14     19  0                                      fra 1 hver dag  gdht
+     d  u4htrk                20     27                                         blank           gdhd
+     d  u4brid                28     38                                         '00000000000'
+     d  u4antb                39     40  0                                      '04'            gdhs
+     d  u4trko                41     48                                         'BETFOR04'
+     d  u4ftnr                49     59  0                                      Foretaksnr
+     d  u4kont                60     70  0                                      Kontonummer
+     d  u4ksek                71     74  0                                      Sekv.nr. kontr.
+     d  u4refn                75     80                                         Referansenr.    blan
+     d  u4mref                81    115                                         Mottakers ref.fakt.
+     d  u4eref               116    150                                         Egenref faktura
+     d  u4filg               131    133                                         Filgruppe
+     d  u4firm               134    136                                         Firma
+     d  u4bfnr               137    139                                         Betalingsforslag nr.
+     d  u4bfli               140    144                                         Betalingsforslag lin
+     d  u4fbel               151    165  0                                      Faktura beløp
+     d  u4dkko               166    166                                         Debet/Kredit kode  D
+     d  u4mrko               167    172                                         Myndighets rapp. kod
+     d  u4nrtx               173    232                                         Myndighets rapp. tek
+     d  u4teko               233    233                                         Til egen konto
+     d  u4slar               234    234                                         Sletteårsak
+     d  u4res1               235    240                                         Reservert
+     d  u4res2               241    241                                         Reservert
+     d  u4res3               242    247                                         Reservert
+     d  u4res4               248    292                                         Reservert
+     d  u4kidu               293    293                                         Kid utland
+     d  u4lonr               294    296                                         Løpenr.
+     d  u4res5               297    320                                         Reservert
+      *
+      * Datastruktur for BETFOR21:
+      *
+     d                 ds
+     d dsb21a                       320
+     d g1rec1                        80    overlay(dsb21a:1)
+     d g1rec2                        80    overlay(dsb21a:81)
+     d g1rec3                        80    overlay(dsb21a:161)
+     d g1rec4                        80    overlay(dsb21a:241)
+     d  g1fast                 1      5                                         'AH200'         gdhd
+     d  g1ruti                 6      9                                         TBII/TBIU/TBIO  gdhr
+     d  g1dato                10     13                                         MMDD            gdhd
+     d  g1sekv                14     19  0                                      fra 1 hver dag  gdht
+     d  g1htrk                20     27                                         blank           gdhd
+     d  g1brid                28     38                                         '00000000000'
+     d  g1antb                39     40  0                                      '04'            gdhs
+     d  g1trko                41     48                                         'BETFOR21'
+     d  g1ftnr                49     59  0                                      Foretaksnr
+     d  g1kont                60     70  0                                      Kontonummer
+     d  g1ksek                71     74  0                                      Sekv.nr. kontr.
+     d  g1refn                75     80                                         Referansenr.    blan
+     d  g1beda                81     86  0                                      Bet.dato        ÅÅMM
+     d  g1egre                87    116                                         Egenref. oppdrag
+     d  g1nr01                87     94                                         '23     '       ????
+     d  g1filg                95     97                                         Filgruppe
+     d  g1bl01                98    107                                         blank
+     d  g1firm               108    110                                         Firma
+     d  g1levn               111    116                                         Leverandørnr.
+     d  g1res1               117    117                                         Reservert        bla
+     d  g1mkto               118    128                                         Mottakers konto
+     d  g1mnav               129    158                                         Mottakers navn
+     d  g1mad1               159    188                                         Adresse 1
+     d  g1mad2               189    218                                         Adresse 2
+     d  g1mpnr               219    222  0                                      Postrnr
+     d  g1mpst               223    248                                         Poststed
+     d  g1Belo               249    263  0                                      Beløp
+     d  g1teko               264    266                                         Tekstkode
+     d  g1trty               267    267                                         Transaksjonstype
+     d  g1slet               268    268                                         Slettekode
+     d  g1tobe               269    283                                         Totalbeløp
+     d  g1kref               284    288                                         Klientref  '00000'
+     d  g1vada               289    294                                         Val.dato
+     d  g1vaba               295    300  0                                      Valutering bank
+     d  g1slar               301    301                                         Sletteårsak
+     d  g1res2               302    310                                         Reservert
+     d  g1blnr               311    320                                         Blankettnr
+      *
+      * Datastruktur for BETFOR22:   (Masseoverførsel som f.eks. lønn)  *** Brukes ikke hos oss
+      *
+     d                 ds
+     d dsb22a                       320
+     d g2rec1                        80    overlay(dsb22a:1)
+     d g2rec2                        80    overlay(dsb22a:81)
+     d g2rec3                        80    overlay(dsb22a:161)
+     d g2rec4                        80    overlay(dsb22a:241)
+     d  g2fast                 1      5                                         'AH200'         gdhd
+     d  g2ruti                 6      9                                         TBII/TBIU/TBIO  gdhr
+     d  g2dato                10     13                                         MMDD            gdhd
+     d  g2sekv                14     19  0                                      fra 1 hver dag  gdht
+     d  g2htrk                20     27                                         blank           gdhd
+     d  g2brid                28     38                                         '00000000000'
+     d  g2antb                39     40  0                                      '04'            gdhs
+     d  g2trko                41     48                                         'BETFOR22'
+     d  g2ftnr                49     59  0                                      Foretaksnr
+     d  g2kont                60     70  0                                      Kontonummer
+     d  g2ksek                71     74  0                                      Sekv.nr. kontr.
+     d  g2refn                75     80                                         Referansenr.    blan
+     d  g2mkto                81     91                                         Mottakers konto
+     d  g2mnav                92    121                                         Mottakers navn
+     d  g2belo               122    136  0                                      Beløp
+     d  g2slet               137    137                                         Slettekode
+     d  g2egr1               138    172                                         Egenref. 1
+     d  g2res1               173    282                                         Reservert
+     d  g2egr2               283    292                                         Egenref. 2
+     d  g2lonr               293    296                                         Løpenr
+     d  g2slar               297    297                                         Slette årsak
+     d  g2res2               298    320                                         Reservert
+      *
+      * Datastruktur for BETFOR23:
+      *
+     d                 ds
+     d dsb23a                       320
+     d g3rec1                        80    overlay(dsb23a:1)
+     d g3rec2                        80    overlay(dsb23a:81)
+     d g3rec3                        80    overlay(dsb23a:161)
+     d g3rec4                        80    overlay(dsb23a:241)
+     d  g3fast                 1      5                                         'AH200'         gdhd
+     d  g3ruti                 6      9                                         TBII/TBIU/TBIO  gdhr
+     d  g3dato                10     13                                         MMDD            gdhd
+     d  g3sekv                14     19  0                                      fra 1 hver dag  gdht
+     d  g3htrk                20     27                                         blank           gdhd
+     d  g3brid                28     38                                         '00000000000'
+     d  g3antb                39     40  0                                      '04'            gdhs
+     d  g3trko                41     48                                         'BETFOR23'
+     d  g3ftnr                49     59  0                                      Foretaksnr
+     d  g3kont                60     70  0                                      Kontonummer
+     d  g3ksek                71     74  0                                      Sekv.nr. kontr.
+     d  g3refn                75     80                                         Referansenr.
+     d  g3msg1                81    120                                         Melding til mottaker
+     d  g3msg2               121    160                                         Melding til mottaker
+     d  g3msg3               161    200                                         Melding til mottaker
+     d  g3kidf               201    227                                         Kundeid felt
+     d  g3egre               228    257                                         Egenref faktura
+     d  g3bild               237    342                                         Egenref Bilagsdato
+     d  g3filg               243    245                                         Egenref Filgruppe
+     d  g3firm               246    248                                         Egenref Firma
+     d  g3BetF               249    251                                         Egenref Bet.forsl.nr
+     d  g3BetL               252    256                                         Egenref Bet.forsl-li
+     d  g3fbel               258    272  2                                      Fakturabeløp
+     d  g3dkko               273    273                                         Debet/Kredit  D/K
+     d* g3sltk               274    ???
+     d  g3fakn               274    293                                         Fakturanr
+     d  g3lopn               294    296  0                                      Løpenr.
+     d  g3slar               297    297                                         Sletteårsak
+     d  g3kund               298    312                                         Kundenr
+     d  g3fada               313    320                                         Fakt.dato ÅÅÅÅMMDD
+      *
+      * Datastruktur for BETFOR99:
+      *
+     d                 ds
+     d dsb99a                       320
+     d g9rec1                        80    overlay(dsb99a:1)
+     d g9rec2                        80    overlay(dsb99a:81)
+     d g9rec3                        80    overlay(dsb99a:161)
+     d g9rec4                        80    overlay(dsb99a:241)
+     d  g9fast                 1      5                                         'AH200'         gdhd
+     d  g9ruti                 6      9                                         TBII/TBIU/TBIO  gdhr
+     d  g9dato                10     13                                         MMDD            gdhd
+     d  g9sekv                14     19  0                                      fra 1 hver dag  gdht
+     d  g9htrk                20     27                                         blank           gdhd
+     d  g9brid                28     38                                         '00000000000'
+     d  g9antb                39     40  0                                      '04'            gdhs
+     d  g9trko                41     48                                         'BETFOR99'
+     d  g9ftnr                49     59  0                                      Foretaksnr
+     d  g9res1                60     70                                         Reservert
+     d  g9ksek                71     74  0                                      Sekv.nr. kontr.
+     d  g9res2                75     80                                         Reservert
+     d  g9prda                81     84  0                                      Prod.dato   MMDD
+     d  g9anto                85     88  0                                      Ant. oppdrag
+     d  g9totf                89    103  0                                      Totalsum i fil
+     d  g9antr               104    108  0                                      Ant. records
+     d  g9res3               109    271                                         Reservert
+     d  g9ssec               272    275                                         Sigill Security
+     d  g9slan               276    276                                         Sigill Language
+     d  g9sver               277    277                                         Sigill Versjon
+     d  g9sint               278    278                                         Sigill Interface
+     d  g9skof               279    296                                         Sigill Kontrollfelt
+     d  g9vers               297    312                                         Versjon Software
+     d  g9verb               313    320                                         Versjon Bank
+      *
+      * Datastruktur for klokkeslett:
+      *
+     d                 ds
+     d dsklok                         6  0
+     d  dstime                        2  0 overlay(dsklok)
+     d  dsminu                        2  0 overlay(dsklok:3)
+     d  dsseku                        2  0 overlay(dsklok:5)
+      *
+      * Henter firmanavn.
+      *
+     d                uds
+     d dsfgrp                931    933
+     d dsfirm                944    946  0
+     d dsfnav                951    980
+      *---------------------------------------------------------------------
+      * Stand Alone Fields - TOP
+      *---------------------------------------------------------------------
+     d rectyp          s              8
+     d runde           s              1    inz('1')
+     d w_totifil       s             13  2
+     d w_antifil       s             13  0
+     d w_ExctDt        s             10
+     d w_crDtTm        s             20
+     d w_iso           s               d   datfmt(*iso)
+     d w_fnav          s             50
+     d w_mnav          s             50
+     d w_mpst          s             50
+     d w_mad1          s             50
+     d w_mad2          s             50
+     d w_mad3          s             50
+     d w_fval          s              3
+     d w_type          s              4                                         Fakt./kr.nota
+     d w_NmAgt         s             30                                         Fakt./kr.nota
+      *---------------------------------------------------------------------
+     d w_mld1          s             50
+     d w_mld2          s             50
+     d w_mld3          s             50
+      *---------------------------------------------------------------------
+     d P_Date          s              6
+     d P_CDat          s              7
+     d P_DaTi          s             20
+     d P_DofW          s              4
+      *---------------------------------------------------------------------
+      *
+     d XML_Output      s            256a   Varying
+     d XML_path        s            256a
+     d Out_path        s            256a
+     d w_path          s             50
+     d w_xmlp          s             50
+8.01 d*w_swif          s                   like(aaswif)
+8.01 d w_swif          s             50
+8.02 d w_nb            s             50
+8.04 d w_msgid         s             50
+8.05 d w_filgr         s             50
+8.07 d w_gefdiv        s                   like(gefdiv)
+8.07 d w_g3dkko        s                   like(g3dkko)
+8.10 d w_instdamt      s                   like(g3fbel)
+8.10 d w_g1ksek        s                   like(g1ksek)
+8.13 d w_forst         s              1
+8.14 d w_forst21       s              1
+8.16 d ww_g1beda       s             10
+8.16 d w_g1beda        s                   like(g1beda)
+8.16 d w_g3betf        s                   like(g3betf)
+8.16 d w_g3betl        s                   like(g3betl)
+     d w_g3bet2        s                   like(g3betl)
+     d w_g3bet3        s                   like(g3betl)
+     d w_strengP       s             50                                         PmtInfId
+     d w_strengI       s             50                                         InstrId
+     d w_strengE       s             50                                         EndToEndId
+8.19 d wbet            s              5    dim(99)
+8.19 d x               s              2  0                                      løkketeller
+8.20 d w4bfli          s              4
+8.20 d w3betl          s              4
+8.21 d w_cd            s              4
+8.21 d w_ref           s                   like(g3kidf)
+8.24 d w_utl           s              1
+8.26 d cmd             s             50
+8.26  ** Prototype definition for QCMDEXC
+8.26 D Runcmd          PR                  EXTPGM('QCMDEXC')
+8.26 D  Cmdstr                     3000A   CONST OPTIONS(*VARSIZE)
+8.26 D  Cmdlen                       15P 5 CONST
+8.26 D  Cmddbcs                       3A   CONST OPTIONS(*NOPASS)
+      *
+      /copy prototypeb
+      /copy usec
+      *
+      *---------------------------------------------------------------------
+      * Hvis vi ikke har path til xml eller IFS avslutter vi uten videre
+     c                   if        XML_path = *blanks or
+     c                             OUT_path = *blanks
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Hent inn totalt antal records og totalbeløp
+      *
+8.24 c                   eval      w_utl = ' '
+     c                   exsr      lesdir
+     c                   dow       not %eof(dirrem)
+     c                   select
+8.24 c                   when      rectyp = 'BETFOR01'
+8.24 c                   eval      w_utl = 'U'
+8.24 c*
+     c                   when      rectyp = 'BETFOR04'
+     c                   if        u4dkko = 'D'
+     c                   eval      w_totifil = w_totifil + u4fbel
+     c                   else
+     c                   eval      w_totifil = w_totifil - u4fbel
+     c                   endif
+     c                   eval      w_antifil = w_antifil + 1
+      *
+     c                   when      rectyp = 'BETFOR23'
+8.11 c                   if        g3dkko = 'D'
+     c                   eval      w_totifil = w_totifil + g3fbel
+8.11 c                   else
+8.11 c                   eval      w_totifil = w_totifil - g3fbel
+8.11 c                   endif
+      *
+8.12 c                   when      rectyp = 'BETFOR21'
+     c                   eval      w_antifil = w_antifil + 1
+     c                   endsl
+     c                   exsr      lesdir
+     c                   enddo
+      *   Antall records i G9ANTR,  tot.beløp i G9TOTF
+     c                   close     dirrem
+8.24  *   Hvis utland kall program for utand og gå ut
+8.24 c                   if        w_utl    = 'U'
+8.24 c                   call      'GL300U'
+8.24 c                   goto      avslutt
+8.24 c                   endif
+8.24  *
+     c                   open      dirrem
+     c                   eval      runde = '2'
+8.14 c                   eval      w_forst21 = ' '
+      *
+      * Hent inn mal
+     c                   exsr      xml_env
+      *
+     c                   call      'GETDATTIM'
+     c                   parm                    P_Date
+     c                   parm                    P_CDat
+     c                   parm                    P_DaTi
+     c                   parm                    P_DofW
+      *
+     c                   eval      w_crDtTm = %subst(p_DaTi:1:4) + '-' +
+     c                                        %subst(p_DaTi:5:2) + '-' +
+     c                                        %subst(p_DaTi:7:2) + 'T' +
+     c                                        %subst(p_DaTi:9:2) + ':' +
+     c                                        %subst(p_DaTi:11:2) + ':' +
+     c                                        %subst(p_DaTi:13:2)
+     c                   eval      w_ExctDt = %subst(p_DaTi:1:4) + '-' +
+     c                                        %subst(p_DaTi:5:2) + '-' +
+     c                                        %subst(p_DaTi:7:2)
+8.16 c*
+8.16 c                   if        w_g1beda <> 0
+8.16 c                   eval      ww_g1beda = '20' +
+8.16 c                                   %subst(%char(w_g1beda):1:2) + '-' +
+8.16 c                                   %subst(%char(w_g1beda):3:2) + '-' +
+8.16 c                                   %subst(%char(w_g1beda):5:2)
+8.16 c                   endif
+8.16 c*
+     c                   eval      w_nmagt = %subst(%char(g1mkto): 1: 4)
+      *  Hent firma opplysninger
+8.25 c*                  eval      afirl1_firm = *zero
+8.25 c                   eval      afirl1_firm = dsfirm
+     c     afirl1_key    chain     afirl1
+      *
+      *  Konvertere ev spesialtegn
+      *
+     c                   eval      p_input = *blank
+8.25 c*                  movel     aafnav        p_input
+8.25 c                   movel     dsfnav        p_input
+     c                   call      'AP613R'
+     c                   parm                    p_input
+     c                   parm                    p_outpt
+     c                   parm                    p_lr
+     c                   movel     p_outpt       w_fnav
+      *
+ 8.04 * Nytt innhold i 'MsgId'   (InstrId + CredDttim)
+ 8.20c                   move      g3betl        w3betl
+ 8.04c*                  eval      w_msgid  = 'A' +
+ 8.04c                   eval      w_msgid  = dsfgrp + %char(dsfirm) +
+ 8.04c                                        g3betf + w3betl +
+      *
+ 8.04c                                        %subst(p_DaTi:1:4) +
+ 8.04c                                        %subst(p_DaTi:5:2) +
+ 8.04c                                        %subst(p_DaTi:7:2) +
+ 8.04c                                        %subst(p_DaTi:9:2) +
+ 8.04c                                        %subst(p_DaTi:11:2) +
+ 8.04c                                        %subst(p_DaTi:13:2)
+      *
+      *    UpdHTMLVar('MsgId':            %trim(P_DaTi));
+      /Free
+           //  Klargjøre for heading
+           UpdHTMLVar('MsgId':            %trim(w_msgid));
+           UpdHTMLVar('CreDtTm':          %trim(w_CrDtTm));
+           UpdHTMLVar('NbOfTxs':          %char(w_antifil));
+           UpdHTMLVar('CtrlSum':          %char(w_totifil));
+           UpdHTMLVar('Nm':               %trim(w_fnav));
+     /*    UpdHTMLVar('IdOrg1':           %trim(%char(g0ftnr)));
+           UpdHTMLVar('IdOrg1':           %char(gxftnr));
+           UpdHTMLVar('CdOrg1':           'CUST');
+           UpdHTMLVar('IdOrg2':           %trim(w_gefdiv));
+           UpdHTMLVar('CdOrg2':           'BANK');
+     /*    UpdHTMLVar('PmtInfId':         %trim(%char(g0ksek)));
+           UpdHTMLVar('PmtInfId':         %trim(%char(g3betf + '/' + w3betl)));
+
+           UpdHTMLVar('PmtMtd':           'TRF');
+           UpdHTMLVar('InstrPrty':        'NORM');
+           UpdHTMLVar('CdPmtInf':         'NURG');
+     /*    UpdHTMLVar('ReqdExctnDt':      %trim(w_ExctDt));
+           UpdHTMLVar('ReqdExctnDt':      %trim(ww_g1beda));
+           UpdHTMLVar('NmDbtr':           %trim(w_fnav));
+           UpdHTMLVar('CtryDbtr':         'NO');
+           UpdHTMLVar('IBAN':             %trim(aaiban));
+           UpdHTMLVar('Ccy':              'NOK');
+           UpdHTMLVar('BIC':              %trim(aaswif));
+           UpdHTMLVar('CtryDbtrAgt':      'NO');
+
+
+           wrtSection('Topp');
+
+      /End-free
+      *
+      * Les første record(4)
+      *
+     c                   exsr      lesdir                                       Leser 4 records
+     c                   dow       not %eof(dirrem)
+     c                   select
+     c                   when      rectyp = 'BETFOR00'
+     c                   exsr      BET00
+     c                   when      rectyp = 'BETFOR01'
+     c                   exsr      BET01
+     c                   when      rectyp = 'BETFOR02'
+     c                   exsr      BET02
+     c                   when      rectyp = 'BETFOR03'
+     c                   exsr      BET03
+     c                   when      rectyp = 'BETFOR04'
+     c                   exsr      BET04
+     c                   when      rectyp = 'BETFOR21'
+     c                   exsr      BET21
+     c                   when      rectyp = 'BETFOR22'
+     c                   exsr      BET22
+     c                   when      rectyp = 'BETFOR23'
+     c                   exsr      BET23
+     c                   when      rectyp = 'BETFOR99'
+     c                   exsr      BET99
+     c                   endsl
+     c                   exsr      lesdir
+     c                   enddo
+      *
+     c     Avslutt       tag
+8.23 c                   seton                                        LR
+     c                   return
+      *
+      * ______________________________________________________________________
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Leser 4 records fra DIRREM                                      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     lesdir        begsr
+     c                   read      dirrem
+     c                   if        not %eof(dirrem)
+     c                   eval      rectyp = %subst(gdqrem:41:8)
+      *
+     c*                  if        runde <> '1'
+      *
+     c                   select
+     c                   when      rectyp = 'BETFOR00'
+     c                   eval      g0rec1 = gdqrem
+     c                   read      dirrem
+     c                   eval      g0rec2 = gdqrem
+     c                   read      dirrem
+     c                   eval      g0rec3 = gdqrem
+     c                   read      dirrem
+     c                   eval      g0rec4 = gdqrem
+      *
+     c                   when      rectyp = 'BETFOR01'
+     c                   eval      u1rec1 = gdqrem
+     c                   read      dirrem
+     c                   eval      u1rec2 = gdqrem
+     c                   read      dirrem
+     c                   eval      u1rec3 = gdqrem
+     c                   read      dirrem
+     c                   eval      u1rec4 = gdqrem
+      *
+     c                   when      rectyp = 'BETFOR02'
+     c                   eval      u2rec1 = gdqrem
+     c                   read      dirrem
+     c                   eval      u2rec2 = gdqrem
+     c                   read      dirrem
+     c                   eval      u2rec3 = gdqrem
+     c                   read      dirrem
+     c                   eval      u2rec4 = gdqrem
+      *
+     c                   when      rectyp = 'BETFOR03'
+     c                   eval      u3rec1 = gdqrem
+     c                   read      dirrem
+     c                   eval      u3rec2 = gdqrem
+     c                   read      dirrem
+     c                   eval      u3rec3 = gdqrem
+     c                   read      dirrem
+     c                   eval      u3rec4 = gdqrem
+      *
+     c                   when      rectyp = 'BETFOR04'
+     c                   eval      u4rec1 = gdqrem
+     c                   read      dirrem
+     c                   eval      u4rec2 = gdqrem
+     c                   read      dirrem
+     c                   eval      u4rec3 = gdqrem
+     c                   read      dirrem
+     c                   eval      u4rec4 = gdqrem
+      *
+     c                   when      rectyp = 'BETFOR21'
+     c                   eval      g1rec1 = gdqrem
+     c                   read      dirrem
+     c                   eval      g1rec2 = gdqrem
+     c                   read      dirrem
+     c                   eval      g1rec3 = gdqrem
+     c                   read      dirrem
+     c                   eval      g1rec4 = gdqrem
+      *
+     c                   when      rectyp = 'BETFOR22'
+     c                   eval      g2rec1 = gdqrem
+     c                   read      dirrem
+     c                   eval      g2rec2 = gdqrem
+     c                   read      dirrem
+     c                   eval      g2rec3 = gdqrem
+     c                   read      dirrem
+     c                   eval      g2rec4 = gdqrem
+      *
+     c                   when      rectyp = 'BETFOR23'
+     c                   eval      g3rec1 = gdqrem
+     c                   read      dirrem
+     c                   eval      g3rec2 = gdqrem
+     c                   read      dirrem
+     c                   eval      g3rec3 = gdqrem
+     c                   read      dirrem
+     c                   eval      g3rec4 = gdqrem
+      *
+     c                   when      rectyp = 'BETFOR99'
+     c                   eval      g9rec1 = gdqrem
+     c                   read      dirrem
+     c                   eval      g9rec2 = gdqrem
+     c                   read      dirrem
+     c                   eval      g9rec3 = gdqrem
+     c                   read      dirrem
+     c                   eval      g9rec4 = gdqrem
+      *
+     c                   endsl
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+      *
+      * ______________________________________________________________________
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Behandler BETFOR00                                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     Bet00         begsr
+      *
+     c                   endsr
+      *
+      * ______________________________________________________________________
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Behandler BETFOR01                                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     Bet01         begsr
+      *
+     c                   endsr
+      *
+      * ______________________________________________________________________
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Behandler BETFOR02                                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     Bet02         begsr
+      *
+     c                   endsr
+      *
+      * ______________________________________________________________________
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Behandler BETFOR03                                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     Bet03         begsr
+      *
+     c                   endsr
+      *
+      * ______________________________________________________________________
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Behandler BETFOR04   Utenlandsk betaling                        *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     Bet04         begsr
+     c     *ymd          move      u1beda        w_iso
+      *
+      *  Spesialtegn konverteres
+      *
+     c                   eval      p_input = *blank
+     c                   movel     u3mnav        p_input
+     c                   call      'AP613R'
+     c                   parm                    p_input
+     c                   parm                    p_outpt
+     c                   parm                    p_lr
+     c                   movel     p_outpt       w_mnav
+
+     c                   eval      p_input = *blank
+     c                   movel     u3mad1        p_input
+     c                   call      'AP613R'
+     c                   parm                    p_input
+     c                   parm                    p_outpt
+     c                   parm                    p_lr
+     c                   movel     p_outpt       w_mad1
+
+     c                   eval      p_input = *blank
+     c                   movel     u3mad2        p_input
+     c                   call      'AP613R'
+     c                   parm                    p_input
+     c                   parm                    p_outpt
+     c                   parm                    p_lr
+     c                   movel     p_outpt       w_mad2
+
+     c                   eval      p_input = *blank
+     c                   movel     u3mad3        p_input
+     c                   call      'AP613R'
+     c                   parm                    p_input
+     c                   parm                    p_outpt
+     c                   parm                    p_lr
+     c                   movel     p_outpt       w_mad3
+      *
+     c                   if        w_mad1 = *blank
+     c                   eval      w_mad1 = %trim(w_mad2)
+     c                   endif
+     c                   if        w_mad1 = *blank
+     c                   eval      w_mad1 = 'Her'
+     c                   endif
+      *
+     c                   eval      w_fval = u1fval
+     c                   if        u4dkko = 'D'
+     c                   eval      w_type = 'CINV'
+     c                   else
+     c                   eval      w_type = 'CREN'
+     c                   endif
+ 8.18c*
+ 8.20c                   move      u4bfli        w4bfli
+ 8.20c*                  eval      w_strengI = u4filg + '/' + u4firm +
+ 8.20c                   eval      w_strengI = u4firm +
+     c                                         u4bfnr + '/' + u4bfli
+ 8.20c*                  eval      w_strengE = u4filg + '/' + u4firm +
+ 8.20c                   eval      w_strengE = u4firm +
+     c                                         u4bfnr + '/' + u4bfli
+ 8.18c*
+      *
+      /Free
+     /*    UpdHTMLVar('InstrId':          u4filg + '/' + u4firm + '/' +
+     /*                                   u4bfnr + '/' + u4bfli);
+           UpdHTMLVar('InstrId':          %trim(w_strengI));
+
+     /*    UpdHTMLVar('EndToEndId':       u4filg + '/' + u4firm + '/' +
+     /*                                   u4bfnr + '/' + u4bfli);
+           UpdHTMLVar('EndToEndId':       %trim(w_strengE));
+
+           UpdHTMLVar('InstdAmt':         %trim(%char(u4fbel)));
+           UpdHTMLVar('ChrgBr':           'SLEV');
+           UpdHTMLVar('BICTrans2':        %trim(w_swif));
+           UpdHTMLVar('CtryTrans':        %trim(u3mlan));
+           UpdHTMLVar('NmTrans':          %char(u1levn) + ' ' + %trim(w_mnav));
+     /*    UpdHTMLVar('PstCd':            %char(g1mpnr));
+     /*    UpdHTMLVar('TwnNm':            %trim(w_mpst));
+           UpdHTMLVar('CtryPstlAdr':      %trim(u3mlan));
+           UpdHTMLVar('AdrLine1':         %trim(w_mad1));
+           UpdHTMLVar('AdrLine2':         %trim(w_mad2));
+      *
+           UpdHTMLVar('IdCdtrAcct':       '16443104376');
+           UpdHTMLVar('CdCdtrAcct':       'BBAN');
+      *
+           UpdHTMLVar('CdOrPrtry':        w_type);
+           UpdHTMLVar('Nb':               '115200093744');
+           UpdHTMLVar('RltdDt':           %char(w_iso));
+           UpdHTMLVar('RmtdAmt':          %trim(%char(u4fbel)));
+           UpdHTMLVar('fval':             %trim(w_fval));
+
+           wrtSection('Trans');
+      /End-free
+      *
+      **   wrtSection('Tranb_BIC');
+      **   wrtSection('Tranc_2');
+     c                   endsr
+      *
+      * ______________________________________________________________________
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Behandler BETFOR21                                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     Bet21         begsr
+      *
+8.14  * Sjekk om det er første BETFOR21 som behandles
+     c                   if        w_forst21 <> ' '
+      /Free
+           wrtSection('TransR');
+      /End-free
+8.14 c                   endif
+8.13 c                   eval      w_forst = ' '
+8.10  * Sjekk om denne BETFOR21 har flere BETFOR23
+8.10 c                   clear                   w_instdamt
+8.10 c                   clear                   w_g1beda
+8.10 c                   clear                   w_g3bet2
+8.10 c                   clear                   w_g3bet3
+8.10 c                   eval      w_g1ksek = g1ksek
+8.10 c                   call      'GL300S'
+8.10 c                   parm                    w_instdamt
+8.10 c                   parm                    w_g1ksek
+     c                   parm                    w_g3betf
+     c                   parm                    w_g3betl
+     c                   parm                    w_g1beda
+     c                   parm                    w_g3bet2
+     c                   parm                    w_g3bet3
+8.19 c                   parm                    wbet
+8.10  *
+8.13 c                   eval      w_forst = '1'
+8.14 c                   eval      w_forst21 = '1'
+8.16 c*
+8.16 c                   eval      ww_g1beda = '20' +
+8.16 c                               %subst(%char(w_g1beda):1:2) + '-' +
+8.16 c                               %subst(%char(w_g1beda):3:2) + '-' +
+8.16 c                               %subst(%char(w_g1beda):5:2)
+8.16 c*
+8.16 c*
+8.18 c*
+     c                   move      w_g3betl      w3betl
+8.18 c                   eval      w_strengP = w_g3betf
+8.18 c                   if        w_g3betl <> *blanks
+8.18 c                   eval      w_strengP = %trim(w_strengP) + '/' + w3betl
+8.18 c                   endif
+      * Dette er byttet ut med array WBET
+8.18 c*                  if        w_g3bet2 <> *blanks
+8.18 c*                  eval      w_strengP = %trim(w_strengP) + '/' + w_g3bet2
+8.18 c*                  endif
+8.18 c*                  if        w_g3bet3 <> *blanks
+8.18 c*                  eval      w_strengP = %trim(w_strengP) + '/' + w_g3bet3
+8.18 c*                  endif
+8.18 c                   z-add     1             x
+     c                   dow       x         < 99
+8.18 c                   if        wbet(x)  <> *blanks
+     c                   move      wbet(x)       w3betl
+8.18 c                   eval      w_strengP = %trim(w_strengP) + '/' + w3betl
+8.18 c                   endif
+8.18 c                   add       1             x
+     c                   enddo
+      /Free
+     /*    UpdHTMLVar('PmtInfId':         %trim(w_g3betf + '/' + w_g3betl +
+     /*     UpdHTMLVar('PmtInfId':         %trim(w_g3betf + '/' + w_g3betl +
+     /*                                    '/' + w_g3bet2 + '/' + w_g3bet3));
+            UpdHTMLVar('PmtInfId':         %trim(w_strengP));
+
+           UpdHTMLVar('ReqdExctnDt':      %trim(ww_g1beda));
+           wrtSection('Betalinger');
+      /End-free
+     c                   endsr
+      *
+      * _____________________________________________________________________
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Behandler BETFOR22                                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     Bet22         begsr
+      *
+     c                   endsr
+      *                               >
+      * ______________________________________________________________________
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Behandler BETFOR23                                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     Bet23         begsr
+      *
+      * Sjekk på debetpost og at neste er en kreditpost
+     c                   if        w_g3dkko = 'D'
+     c                   if        g3dkko   = 'D'
+      /Free
+           wrtSection('TransR');
+      /End-free
+     c                   endif
+     c                   endif
+      *
+     c     *ymd          move      g1beda        w_iso
+8.01 c                   eval      w_swif  = aaswif
+8.02 c                   eval      w_nb    = g3kidf
+8.08 c* hvis blank, skal være lev.faktnr
+8.08 c                   if        w_NB   = *blank
+8.08 c                   eval      w_nb    = g3fakn
+8.08 c                   endif
+      *
+      *  Spesialtegn konverteres
+      *
+     c                   eval      p_input = *blank
+     c                   movel     g1mnav        p_input
+     c                   call      'AP613R'
+     c                   parm                    p_input
+     c                   parm                    p_outpt
+     c                   parm                    p_lr
+     c                   movel     p_outpt       w_mnav
+
+     c                   eval      p_input = *blank
+     c                   movel     g1mpst        p_input
+     c                   call      'AP613R'
+     c                   parm                    p_input
+     c                   parm                    p_outpt
+     c                   parm                    p_lr
+     c                   movel     p_outpt       w_mpst
+
+     c                   eval      p_input = *blank
+     c                   movel     g1mad1        p_input
+     c                   call      'AP613R'
+     c                   parm                    p_input
+     c                   parm                    p_outpt
+     c                   parm                    p_lr
+     c                   movel     p_outpt       w_mad1
+
+     c                   eval      p_input = *blank
+     c                   movel     g1mad2        p_input
+     c                   call      'AP613R'
+     c                   parm                    p_input
+     c                   parm                    p_outpt
+     c                   parm                    p_lr
+     c                   movel     p_outpt       w_mad2
+     c                   if        w_mad2 = *blank
+     c                   eval      w_mad2 = %trim(w_mpst)
+     c                   endif
+      *
+     c                   if        w_mad1 = *blank
+     c                   eval      w_mad1 = w_mad2
+     c                   endif
+     c                   if        w_mad1 = *blank
+     c                   eval      w_mad1 = 'Her'
+     c                   endif
+      *
+     c                   eval      w_fval = 'NOK'
+     c                   if        g3dkko = 'D'
+     c                   eval      w_type = 'CINV'
+     c                   else
+     c                   eval      w_type = 'CREN'
+     c                   endif
+     c                   eval      w_nmagt = %subst(%char(g1mkto): 1: 4)
+8.18 c*
+8.20 c*                  eval      w_strengI = g3filg + '/' + g3firm + '/' +
+8.20 c*                                         g3betf
+8.20 c                   eval      w_strengI =  g3firm + '/' +
+8.20 c                                          g3betf
+8.18 c*                  if        g3betl <> *blanks
+     c*                  move      g3betl        w3betl
+8.18 c*                  eval      w_strengI = %trim(w_strengI) + '/' + w3betl
+8.18 c*                  endif
+8.18 c*                  if        w_g3bet2 <> *blanks
+     c*                  move      w_g3bet2      w3betl
+8.18 c*                  eval      w_strengI = %trim(w_strengI) + '/' + w3betl
+8.18 c*                  endif
+8.18 c*                  if        w_g3bet3 <> *blanks
+     c*                  move      w_g3bet3      w3betl
+8.18 c*                  eval      w_strengI = %trim(w_strengI) + '/' + w3betl
+8.18 c*                  endif
+      * Byttes ut med array WBET + den første
+     c                   move      g3betl        w3betl
+8.18 c                   eval      w_strengI = %trim(w_strengI) + '/' + w3betl
+
+8.18 c                   z-add     1             x
+     c                   dow       x         < 99
+8.18 c                   if        wbet(x)  <> *blanks
+     c                   move      wbet(x)       w3betl
+8.18 c                   eval      w_strengI = %trim(w_strengI) + '/' + w3betl
+8.18 c                   endif
+8.18 c                   add       1             x
+     c                   enddo
+
+8.18 c                   eval      w_strengE = w_strengI
+8.18 c*
+      **   UpdHTMLVar('BICTrans':         %trim(g1mkto));
+      *
+      /Free
+     /*      UpdHTMLVar('InstrId':          g3filg + '/' + g3firm + '/' +
+     /*                                     g3betf + '/' + g3betl);
+     /*      UpdHTMLVar('EndToEndId':       g3filg + '/' + g3firm + '/' +
+     /*                                     g3betf + '/' + g3betl);
+     /*      UpdHTMLVar('InstrId':          g3filg + '/' + g3firm + '/' +
+     /*                                     g3betf + '/' + g3betl + '/' +
+     /*                                     w_g3bet2 + '/' + w_g3bet3);
+           UpdHTMLVar('InstrId':          %trim(w_strengI));
+
+
+     /*      UpdHTMLVar('EndToEndId':       g3filg + '/' + g3firm + '/' +
+     /*                                     g3betf + '/' + g3betl + '/' +
+     /*                                     w_g3bet2 + '/' + w_g3bet3);
+           UpdHTMLVar('EndToEndId':       %trim(w_strengE));
+
+           UpdHTMLVar('fval':             %trim(w_fval));
+     /*    UpdHTMLVar('InstdAmt':         %trim(%char(g3fbel)));
+           UpdHTMLVar('InstdAmt':         %trim(%char(w_instdamt)));
+           UpdHTMLVar('ChrgBr':           'SLEV');
+           UpdHTMLVar('BICTrans':         '');
+           UpdHTMLVar('NmTransAgt':       %trim(w_NmAgt));
+           UpdHTMLVar('CtryTrans':        'NO');
+           UpdHTMLVar('NmTrans':          %char(g1levn) + ' ' + %trim(w_mnav));
+           UpdHTMLVar('BICTrans2':        %trim(w_swif));
+           UpdHTMLVar('StrtNm':           %trim(w_mad1));
+           UpdHTMLVar('PstCd':            %char(g1mpnr));
+           UpdHTMLVar('TwnNm':            %trim(w_mpst));
+           UpdHTMLVar('CtryPstlAdr':      'NO');
+           UpdHTMLVar('AdrLine1':         %trim(w_mad1));
+           UpdHTMLVar('AdrLine2':         %trim(w_mad2));
+      *
+           UpdHTMLVar('IdCdtrAcct':       %trim(g1mkto));
+           UpdHTMLVar('CdCdtrAcct':       'BBAN');
+      *
+           UpdHTMLVar('CdOrPrtry':        w_type);
+           UpdHTMLVar('RltdDt':           %char(w_iso));
+           UpdHTMLVar('Nb    ':           %trim(w_nb));
+      /End-free
+      *
+8.13 c*                  if        g3dkko = 'D'
+8.13 c*                  eval      w_g3dkko = g3dkko
+8.13 c*
+8.13 c                   if        w_forst = '1'
+8.13 c*
+      /Free
+           wrtSection('Trans');
+      /End-free
+8.13 c                   eval      w_forst = ' '
+     c                   endif
+      /End-free
+      *
+      *
+8.21 c                   clear                   w_cd
+8.21 c                   clear                   w_ref
+8.21 c                   if        g3kidf <> ' '
+8.21 c                   eval      w_cd     = 'SCOR'
+8.21 c                   eval      w_ref    = g3kidf
+8.21 c                   endif
+     c                   if        g3dkko = 'D'
+      /Free
+           UpdHTMLVar('RmtdAmt':          %trim(%char(g3fbel)));
+           UpdHTMLVar('fval':             %trim(w_fval));
+
+           wrtSection('TransF');
+
+      /End-free
+8.21 c                   if        g3kidf <> ' '
+      /Free
+           UpdHTMLVar('Cd  ':             %trim(w_cd));
+           UpdHTMLVar('Ref ':             %trim(w_ref));
+           wrtSection('TransF1');
+      /End-free
+8.21 c                   endif
+      /Free
+
+           wrtSection('TransF2');
+      /End-free
+      *
+     c                   else
+     c                   eval      w_g3dkko = g3dkko
+      /Free
+           UpdHTMLVar('RmtcAmt':          %trim(%char(g3fbel)));
+           UpdHTMLVar('fval':             %trim(w_fval));
+
+           wrtSection('TransK');
+
+      /End-free
+8.21 c                   if        g3kidf <> ' '
+      /Free
+           UpdHTMLVar('Cd  ':             %trim(w_cd));
+           UpdHTMLVar('Ref ':             %trim(w_ref));
+
+           wrtSection('TransK1');
+      /End-free
+8.21 c                   endif
+      /Free
+           wrtSection('TransK2');
+     /*    wrtSection('TransR');
+      /End-free
+      *
+     c                   endif
+      *
+      **   UpdHTMLVar('Nb':               '');  Foreløpig fjernet på norske
+      *
+      /Free
+      **   wrtSection('TransR');
+      /End-free
+     c                   endsr
+      *
+      * ______________________________________________________________________
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Behandler BETFOR99                                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     Bet99         begsr
+      *
+      /Free
+          wrtSection('TransR');
+      /End-free
+      /Free
+               wrtSection('End');
+      /End-free
+     c                   eval      w_path = %trim(Out_path)
+     c*                  eval      %subst(w_path:10:3) = dsfgrp
+     c                   eval      %subst(w_path:11:3) = dsfgrp
+8.26  *
+8.26  * Sjekk om mappe finnes på denne filgruppe
+
+      /Free
+         cmd = 'crtdir  +
+                dir(w_path) +
+                dtaaut(*rwx) objaut(*all)';
+         callp(e) Runcmd(Cmd:%Len(Cmd));
+      /End-free
+8.26  *
+     c                   eval      XML_Output = %trim(w_path)+ '/'+
+     c*                             'Tele_' + %trim(%subst(p_date:5:2)) +
+     c*                                       %trim(%subst(p_date:3:2)) +
+     c*                                       %trim(%subst(p_date:1:2)) + '.xml'
+8.03 c                             'XML_' + %trim(%subst(p_date:5:2)) +
+8.03 c                                       %trim(%subst(p_date:3:2)) +
+8.03 c                                       %trim(%subst(p_date:1:2)) +
+8.03 c                                       %trim(%subst(p_dati:9:6)) + '.xml'
+      *
+     c                   callp     WrtHtmlToStmf(XML_Output: 819)
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for henting av mal
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xml_env       begsr
+      *
+      * Hent inn xml templaten
+      *
+     c                   eval      w_xmlp = %trim(XML_path)
+      *
+     c                   callp     GetHTMLIFS(w_xmlp :'<AS400>')
+     c                   callp     ClrHtmlBuffer
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     c     *inzsr        begsr
+      *
+     c*    *entry        plist
+     c*                  parm                    wpfgrp
+      *
+      * Key for file AFPS
+      *
+     c     afpslr_key    klist
+     c                   kfld                    afpslr_ufil
+     c                   kfld                    afpslr_uide
+      *
+      * Key for file AFIR
+      *
+     c     afirl1_key    klist
+     c                   kfld                    afirl1_firm
+      *
+     c                   eval      XML_path = *blanks
+     c                   eval      afpslr_ufil = dsfgrp
+     c                   eval      afpslr_uide = 'TELEPAY   '
+     c     afpslr_key    chain     afpslrr
+     c                   if        %found
+     c                   movel     afudss        XML_path
+     c                   else
+     c                   eval      w_mld1 = 'Path for xml_mal Telepay mangler'
+     c                   eval      w_mld2 = 'Denne opprettes under AM00,9,2,9,1'
+     c                   eval      w_mld3 = *blank
+     c                   call      'AA031R'
+     c                   parm                    w_mld1
+     c                   parm                    w_mld2
+     c                   parm                    w_mld3
+     c                   endif
+      *
+     c                   eval      OUT_path = *blanks
+8.05 c*                  eval      out_path = '/home/ADBEGT/Telepay/Fraasp'
+8.05 c                   eval      out_path = '/home/ASP_EGT/ASP/Bankfiler/SEPA'
+      *                  Filgruppe settes inn senere i dette programmet
+8.07  * Henter faste opplysninger.
+8.07  *
+8.07 c                   clear                   w_gefdiv
+8.07 c                   movel     'REM'         w_gefdiv
+8.07 c     dsfirm        chain     gfaspf                             60
+8.07 c                   if        %found
+8.07 c                   if        gefdiv    <> *blanks
+8.07 c                   movel     gefdiv        w_gefdiv
+8.07 c                   endif
+8.07 c                   endif
+      *
+     c                   endsr

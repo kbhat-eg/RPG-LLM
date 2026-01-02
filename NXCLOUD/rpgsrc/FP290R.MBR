@@ -1,0 +1,1339 @@
+      /TITLE       ---  FP290R  ----       ASP a.s
+     h*dftname(fp610) datedit(*dmy) option(*nodebugio)
+     h datedit(*dmy) option(*nodebugio)
+      * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FP290R
+      * Beskrivelse . . : Varemottaksprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- ------------------------------------------------- --*
+      *       051003 KOB  Korrigert utskrift av priskode og lagerplass
+      *       151103 KOB  Lagt in lager i etikettregister
+      *       290404 KOB  Rettet feil vedr avrunding
+      * V5.30 021204 KOB  Lagt inn nye parameter i call til VP716R
+      * V5.50 120107 KOB  Endret slik at etiketter skrives i registreringsrekkef
+      * V5.50 030507 KOB  Utvidet lagerplass til 8 poisjoner
+      * V5.50 211107 KOB  Legger ut programnavn i parameter i stedet for i lda
+5.70  * PRGR  231008 sst  Prisgruppe
+      * 6.10  260609 BSA  Oppdatert med sporingsinformasjon
+      * 6.11  080909 BSA  Legger ut default etikett ved utskrift av hylleetikett
+6.12  * 6.10  251109 bof  Sjekker mot subrutine i stf.veanpf - fjerne mulighet
+6.12  *                   for å legge inn ean her.
+6.13  * 6.10  051109 bof  Fjernet oppslag på lagerparametere fra vare
+6.14  * 6.10  150110 BSA  Oppdaterer sist utskrevet dato og pris på etikettregister
+6.15  * 6.10  051110 BSA  Lagt tilbake funksjon for generering av GTIN nummer.
+6.16  * 6.10  260613 BSA  Tar hensyn til mva kode på varen
+6.21  * 6.20  190511 bof  Utvidet vl710r med utg.dato og lev.nr
+6.22  * 6.20  080312 bof  Utvidet parm. til vp716r
+6.23  * 6.10  010703 BSA  Legg inn klokkeslett på kjøretidspunkt
+6.30  * 6.30  280514 BKV  LVAR økt fra 15 til 20
+6.31  * 6.30  170918 bkv  Utvidet med trelast sortiment
+7.xx  * 7.00  090316 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+8.01  *PRG2   090622 BOF  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+      *
+     ffp290d    cf   e             workstn
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvlagl1    if   e           k disk    rename(vlagpfr:vlagl1r)
+     fvvarl4    if   e           k disk    rename(vvarpfr:vvarl4r)
+     fvfaspf    if   e           k disk    rename(vfaspfr:vfasl1r)
+     fvetil1    if   e           k disk    rename(vetipfr:vetil1r)
+6.14 fvetilu    uf a e           k disk    rename(vetipfr:vetilur)
+     fvpkol1    if   e           k disk    rename(vpkopfr:vpkol1r)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevlur)
+6.15 fveanlu    uf a e           k disk    rename(veanpfr:veanlur)
+6.31 fvvlel1    if   e           k disk    rename(vvlepfr:vvlel1r)
+     fvaw1pf    o    f  512        disk
+      *
+      * Definering av konstanter
+      *
+     d sp              c                   '"&\'
+     d bl              c                   '   '
+      *
+      * Definering av array
+      *
+     d mld             s             70    dim(6) ctdata perrcd(1)
+      *
+      * Definering av LDA
+      *
+     d                uds
+     d l_skty                110    110  0
+     d l_etyp                111    111  0
+     d l_etpr                112    112  0
+     d l_hyll                122    122  0
+      *
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+     d l_lage               1001   1002  0
+      *
+      * Definering av variable i nøkler
+      *
+     d vlagl1_vare     s                   like(vlvare)
+     d vlagl1_lage     s                   like(vllage)
+     d rlevl1_levr     s                   like(rllevr)
+     d vpkol1_pkod     s                   like(vapkod)
+      *
+      * Definering av variable
+      *
+     d wwvar8          s              8  0
+     d wpbel1          s             11  2
+     d w_in03          s              1
+     d wpkode          s              1  0
+      *
+     d w_firm          s                   like(vvfirm)
+     d w_vare          s                   like(vvvare)
+     d w_vare_s        s                   like(vvvare)
+6.12 d w_eann          s             14  0
+6.11 d w_eanx          s             14
+6.11 d w_eava          s                   like(vvvare)
+6.11 d w_eaen          s                   like(vvenhe)
+6.11 d w_east          s              1
+     d w_lvar          s                   like(vvlvar)
+     d w_nobb          s                   like(vvnobb)
+     d w_tek1          s                   like(vvtek1)
+     d w_tek2          s                   like(vvtek2)
+     d w_plas          s                   like(vlplas)
+     d w_plas_s        s                   like(vlplas)
+     d w_kpri          s                   like(vvkpri)
+     d w_vtyp          s                   like(vvvtyp)
+      *
+     d w_hyle          s                   like(rlhyle)
+     d w_lvko          s                   like(rllvko)
+      *
+     d w_pkod          s                   like(vapkod)
+     d w_ptxt          s                   like(vaptxt)
+      *
+     d w_sort          s                   like(vnsort)
+     d w_etyp          s                   like(vnetyp)
+     d w_vtxt          s                   like(vnvtxt)
+      *
+     d w_fen1          s                   like(vmfen1)
+     d w_fen2          s                   like(vmfen2)
+     d w_lage          s                   like(vmlage)
+     *
+     d w_edat          s               d   datfmt(*iso)
+     d w_pdat          s               d   datfmt(*iso)
+      *
+     d w_valg          s                   like(a1valg)
+     d w_lety          s              1  0
+     d w_enh1          s              3
+     d w_sap1          s              9  2
+     d w_kop1          s              9  2
+     d w_inp1          s              9  2
+     d w_bup1          s              9  2
+     d w_pda1          s               d   datfmt(*iso)
+     d w_enh2          s              3
+     d w_sap2          s              9  2
+     d w_bup2          s              9  2
+     d w_omr2          s             12  6
+     d w_pda2          s               d   datfmt(*iso)
+     d w_enh3          s              3
+     d w_sap3          s              9  2
+     d w_bup3          s              9  2
+     d w_omr3          s             12  6
+     d w_pda3          s               d   datfmt(*iso)
+     d w_fdat          s               d   datfmt(*iso)
+     d w_ftid          s               t   timfmt(*iso)
+     d w_tdat          s               d   datfmt(*iso)
+     d w_ttid          s               t   timfmt(*iso)
+     d w_kamp          s              5
+     d w_tip1          s              9  2
+     d w_tip2          s              9  2
+     d w_tip3          s              9  2
+     d w_tkp1          s              9  2
+     *
+     d w_sae1          s              3
+     d w_sad1          s               d   datfmt(*iso)
+     d w_sae2          s              3
+     d w_sad2          s               d   datfmt(*iso)
+     d w_sae3          s              3
+     d w_sad3          s               d   datfmt(*iso)
+     *
+     d w_mini          s              3  0
+     d w_maks          s              3  0
+     d w_anta          s              4  0
+     d w_tlbn          s              1  0
+     d w_tlbg          s              1  0
+     d wantdg          s              5  0
+     d w_hnte          s              1  0
+     d k               s              2  0
+      *
+     d w_bmen          s              3  0
+     d w_bpun          s              3  0
+     d w_pri1          s              9  2
+     d w_pri2          s              9  2
+      *
+     d w_pri1_u        s              7  2
+     d w_pri2_u        s              7  2
+     d w_tvar          s              6
+     d w_tpri          s              7
+     *
+     d w_enin          s              3
+     d w_enps          s              3
+     d w_pspr          s              9  2
+     d w_pspr_u        s              7  2
+      *
+     d w_mvap          s              6  2
+     d w_mvat          s              5  4
+     d w_mvaf          s             10  9
+      *
+     d w_dato          s               d   datfmt(*iso)
+     d w_time          s               t   timfmt(*iso)
+6.23 d w_time2         s               t   timfmt(*iso)
+     d w_prog          s             10
+     *
+5.70 d p_vtyp          s                   like(vvvtyp)
+6.15 d p_gtin          s             14
+6.15 d p_nobb          s              8
+6.15 d p_type          s              8
+     *
+8.01 d w_prgr          s              2
+6.12 d w_stat          s              1
+6.21 d w_bldo          s                   like(vvldor)
+6.21 d w_udat          s               d   datfmt(*iso)
+6.21 d b_inlr          s              1    inz(*off)
+6.31 d w_lv_nobb       s                   like(vvlnob)
+6.31 d w_lv_modn       s                   like(vvlmod)
+6.31 d w_lv_lldo       s                   like(vvlnle)
+6.31 d w_lv_llva       s                   like(vvllva)
+6.31 d w_lv_vare       s                   like(vvvare)
+      *
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *          C   A   L   C   U   L   A   T   I   O   N               +
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *
+6.31 C/Exec SQL
+6.31 C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR
+6.31 C/End-Exec
+      *
+      *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *  A1BLD, Rutinen behandler varemottak                            +
+      *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *
+      *
+     c     a1tag         tag
+      *
+     c                   eval      *in98 = *on
+     c                   exfmt     a1bld
+      *
+     c                   eval      *in71 = *off
+     c                   eval      *in72 = *off
+     c                   eval      *in96 = *off
+     c                   eval      *in32 = *off
+     c                   eval      *in34 = *off
+     c                   eval      meld = *blank
+     c                   eval      w_valg = a1valg
+      *
+     c                   if        *inkc = *on
+     c                   move      '1'           w_in03
+     c                   goto      slutt
+     c                   endif
+      *
+      * Spørring på eget varenummer
+      *
+     c   kd              if        w_afld = 'A1EVNR'
+     c                             or w_afld = 'A1EANN'
+     c                   eval      l_hyll = 0
+      *
+     c                   call      'VV500R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    w_tek1
+      *
+     c                   movel     w_vare        a1evnr
+     c                   goto      a1tag3
+     c                   endif
+      *
+      * Ugyldig bruk av F4
+      *
+     c   kd              do
+     c                   eval      l_hyll = 0
+     c                   eval      *in96 = *on
+     c                   movel     mld(04)       meld
+     c                   goto      a1tag
+     c                   enddo
+      *
+      * Skriv prisetikett
+      *
+     c   kg              do
+     c                   eval      l_hyll = 0
+     c                   eval      w_etyp = 1
+     c                   goto      a1tag0
+     c                   enddo
+6.15  *
+6.15  * Lag GTIN nummer basert på varenummer
+6.15  *
+6.15 c   kh              do
+6.15 c                   eval      l_hyll = 0
+6.15  *
+6.15  * Eget varenummer må være utfylt .......
+6.15  *
+6.15 c                   if        a1evnr = *zeros
+6.15 c                   eval      *in32 = *on
+6.15 c                   eval      *in96 = *on
+6.15 c                   movel     mld(05)       meld
+6.15 c                   goto      a1tag
+6.15 c                   endif
+6.15  * .......... og gyldig
+6.15 c                   movel     a1evnr        w_vare
+6.15 c     vvarl1_key    chain     vvarl1                             91
+6.15 c                   if        *in91 = *on
+6.15 c                   eval      *in32 = *on
+6.15 c                   eval      *in96 = *on
+6.15 c                   movel     mld(02)       meld
+6.15 c                   goto      a1tag
+6.15 c                   endif
+6.15  * Lag GTIN nummer
+6.15 c                   exsr      crt_gtin
+6.15 c                   eval      a1eann = w_eann
+6.15 c                   goto      a1tag
+6.15  *
+6.15 c                   enddo
+      *
+      * Skriv hylleetikett
+      *
+     c   ki              do
+     c                   eval      l_hyll = 1
+     c                   goto      a1tag6
+     c                   enddo
+      *
+      * Avslutt
+      *
+     c                   if        *inke = *on
+     c                             or *inkl = *on
+     c                   goto      a1tag5
+     c                   endif
+      *
+      *  Hovedrutine for varenummer-testing
+      *
+      *  Sjekk om EAN-nummer er utfylt
+      *
+     c                   if        a1eann <> *zeros
+      *
+      *  Sjekk om EAN-kode finnes
+      *
+6.12 c                   eval      w_eann = a1eann
+6.12 c                   call      'VE710R  '
+6.12 c                   parm                    w_firm
+6.12 c                   parm                    w_eann
+6.12 c                   parm                    w_eava
+6.12 c                   parm                    w_eaen
+6.12 c                   parm                    w_east
+6.12 c                   if        w_east = '1'
+6.12 c                   movel     w_eava        w_vare
+6.12 c                   eval      w_eann = a1eann
+     c                   goto      a1tag6
+     c                   else
+     c                   eval      *in96 = *on
+     c                   movel     mld(01)       meld
+     c                   endif
+      *                                                                 .
+     c                   endif
+      *
+      *  Sjekk om leverandørens varenummer
+      *
+     c                   if        a1lvar <> *blank
+      *                                                                 .
+6.31  * sjekker om logistikk-vare
+6.31 c                   eval      w_lv_vare = *blank
+6.31 c/exec sql
+6.31 c+ select vvlvnr
+6.31 c+ into   :w_lv_vare
+6.31 c+ from   vvlepf
+6.31 c+ where  vvllva = :a1lvar
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+6.31 c                   if        w_lv_vare <> *blank
+6.31 c                   eval      w_vare =  w_lv_vare
+6.31 c                   else
+     c                   movel     a1lvar        w_lvar
+     c     vvarl4_key    chain     vvarl4                             52
+      *                                                                 .
+     c                   if        *in52 = *off
+     c                   movel     vvvare        w_vare
+      *                                                               . .
+     c                   else
+      *                                                               . .
+     c                   eval      *in96 = *on
+     c                   movel     mld(02)       meld
+     c                   endif
+6.31 c                   endif
+      *                                                                 .
+     c                   endif
+      *
+      *  Sjekk om eget varenummer utfylt
+      *
+     c     a1tag3        tag
+      *
+     c                   if        a1evnr <> *zeros
+      *                                                                 .
+     c                   movel     a1evnr        w_vare
+     c     vvarl1_key    chain     vvarl1                             91
+      *                                                                 .
+     c                   if        *in91 = *on
+     c                   eval      *in32 = *on
+     c                   eval      *in96 = *on
+     c                   movel     mld(02)       meld
+     c                   goto      a1tag
+     c                   endif
+      *
+      * Henter EAN-kode fra EAN-register
+      *
+     c                   exsr      hent_ean
+      *
+      *  Legg ut vareinformasjon
+      *
+     c                   eval      a2vare = vvvare
+     c                   eval      a2enh1 = w_enh1
+     c                   eval      a2tek1 = vvtek1
+6.12 c                   eval      a2eann = w_eann
+6.31 c                   if        w_lv_nobb > 0
+6.31 c                   eval      a2lvar = w_lv_llva
+6.31 c                   else
+     c                   eval      a2lvar = vvlvar
+6.31 c                   endif
+     c**                 eval      w_eann = a1eann
+      *
+     c                   if        a1eann = *zeros
+6.12 c                   eval      a1eann = w_eann
+     c                   endif
+      *
+      * Hvis ikke EAN-nr finnes,
+      * send feilmelding
+      *
+     c                   if        w_eann = *zeros
+     c                   eval      *in96 = *on
+     c                   movel     mld(01)       meld
+     c                   goto      a1tag
+     c                   endif
+      *
+     c                   endif
+      *
+     c     a1tag6        tag
+      *
+      * Hent vareinformasjon
+      *
+     c     vvarl1_key    chain     vvarl1                             91
+      *
+     c                   eval      w_kpri = vvkpri
+      *
+      *  Henter opplysninger fra hjelperegister
+      *
+     c     vetil1_key    chain     vetil1                             56
+      *
+     c                   if        *in56 = *off
+     c                   eval      l_etyp = vmetyp
+     c                   eval      w_etyp = vmetyp
+     c                   eval      w_fen1 = vmfen1
+     c                   eval      w_fen2 = vmfen2
+     c                   else
+     c                   eval      l_etyp = vnetyp
+     c                   eval      w_etyp = vnetyp
+     c                   eval      w_fen1 = 1
+     c                   eval      w_fen2 = 2
+     c                   endif
+      *
+      *  Hent prisinformasjon
+      *
+     c                   eval      w_lety = 0
+     c                   time                    w_dato
+     c                   time                    w_time
+      *
+     c                   exsr      hent_pris
+      *
+     c                   exsr      klar_pris
+      *
+     c                   exsr      klar_rest
+      *
+      * Legg ut vareinformasjon
+      *
+     c                   eval      a2vare = w_vare
+     c                   eval      a2enh1 = w_enh1
+     c                   eval      a2sapr = w_sap1
+     c                   eval      a2smva = wpbel1
+     c                   eval      a2tek1 = vvtek1
+     c                   eval      a2eann = w_eann
+6.31 c                   if        w_lv_nobb > 0
+6.31 c                   eval      a2lvar = w_lv_llva
+6.31 c                   else
+     c                   eval      a2lvar = vvlvar
+6.31 c                   endif
+6.15  *
+6.15  * Returner hvis benyttet F4 fra varesøk
+6.15  *
+6.15 c                   if        *inkd  = *on
+6.15 c                   goto      a1tag
+6.15 c                   endif
+6.15  *
+6.15  * Returner hvis ikke utskrift ønskes via F7 eller F9
+6.15  *
+6.15 c                   if        *inkf  = *off and
+6.15 c                             *inki  = *off
+6.15 c                   goto      a1tag
+6.15 c                   endif
+      *
+      * Skriv ut hylleetikett
+      *
+     c                   if        l_hyll = 1 or
+     c                             w_etyp = 1
+     c                   goto      a1tag0
+     c                   endif
+      *
+     c                   goto      a1tag
+      *
+      *  Avslutter denne etikett
+      *
+     c     a1tag0        tag
+      *
+     c                   eval      w_tek1 = vvtek1
+     c                   eval      w_tek2 = vvtek2
+6.11  *
+6.11  * Legg inn default hylleetikett hvis ikke funnet
+6.11 c                   if        l_hyll = 1
+6.15 c**                           w_etyp = 0
+6.11 c                   eval      w_etyp = 2
+6.11 c                   endif
+      *
+      * Styrer type etikett
+      *
+     c                   select
+     *
+     * Prisetikett
+     *
+     c                   when      w_etyp = 1
+     c                   eval      w_prog = 'FP213R'
+      *
+     * Hylle-etikett   75x28 mm
+     *
+     c                   when      w_etyp = 2
+     c                   eval      w_prog = 'FP214R'
+      *
+     *  Hylle-etikett  100x28 mM
+     *
+     c                   when      w_etyp = 3
+     c                   eval      w_prog = 'FP215R'
+      *
+     * Reol-etikett  202x60 mm
+     *
+     c                   when      w_etyp = 4
+     c                   eval      w_prog = 'FP216R'
+      *
+     * Hylle-etikett   76x39 mm
+     *
+     c                   when      w_etyp = 5
+     c                   eval      w_prog = 'FP217R'
+      *
+     * Hylle-etikett   48x38 mm
+     *
+     c                   when      w_etyp = 6
+     c                   eval      w_prog = 'FP218R'
+      *
+     * Hylle-etikett  100x38 mm
+     *
+     c                   when      w_etyp = 7
+     c                   eval      w_prog = 'FP219R'
+      *
+     * Reol-etikett   210x60 mm
+     *
+     c                   when      w_etyp = 8
+     c                   eval      w_prog = 'FP220R'
+      *
+     * Hylle-etikett   76x39 mm  Laser/Interform
+     *
+     c                   when      w_etyp = 9
+     c                   eval      w_prog = 'FP221R'
+      *
+     c                   endsl
+     *
+     * Hvis hylleetiketter, skriv pris
+     *
+B001 c                   if        l_hyll = 1
+ 001 c                   eval      w_valg = 1
+E001 c                   endif
+     *
+     * Hvis pris1 er null
+     *
+B001 c                   if        w_valg = 1 and
+B001 c                             w_pri1 <> *zeros
+ 001 c                   eval      *in71  = *on
+E001 c                   endif
+     *
+     * Hvis pris2 er null
+     *
+B001 c                   if        w_valg = 1 and
+B001 c                             w_pri2 <> *zeros
+ 001 c                   eval      *in72  = *on
+E001 c                   endif
+      *
+     c                   except    skriv
+      *
+     c                   eval      w_in03 = ' '
+     c                   goto      slutt
+      *
+      *  Nullstiller før neste etikett
+      *
+     c     a1tag5        tag
+      *
+     c                   eval      a1anta = *zero
+     c                   eval      a1eann = *zeros
+     c                   eval      a1evnr = *zeros
+     c                   eval      a1lvar = *blank
+     c                   eval      a1valg = *zero
+      *
+     c                   eval      a2vare = *blank
+     c                   eval      a2eann = *zeros
+     c                   eval      a2lvar = *blank
+     c                   eval      a2tek1 = *blank
+     c                   eval      a2enh1 = *blank
+     c                   eval      a2sapr = *zeros
+     c                   eval      a2smva = *zeros
+     c                   eval      a2meld = *blank
+      *
+     c                   eval      w_vare = *blank
+      *
+     c                   goto      a1tag
+      *
+      *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *  END OF JOB                                                     +
+      *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *
+     c     slutt         tag
+      *
+     c                   eval      *inlr = *on
+      *
+6.15  *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+6.15  *   Lag GTIN nummer basert på varenummer
+6.15  *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+6.15  *
+6.15 c     crt_gtin      begsr
+6.15  * Type 1=GTIN 13(sjekksiffer ber) , 2=GTIN 14(sjekksiffer ber)
+6.15 c                   eval      p_gtin = *zero
+6.15 c                   move      a1evnr        p_nobb
+6.15 c                   eval      p_type = '1'
+6.15  *
+6.15 c                   call      'FÅ901R'
+6.15 c                   parm                    p_nobb
+6.15 c                   parm                    p_gtin
+6.15 c                   parm                    p_type
+6.15  * Opprettes hvis den ikke finnes fra før.
+6.15 c                   eval      w_eann = %int(p_gtin)
+6.15 c     veanlu_key    chain     veanlu
+6.15 c                   if        not %found
+6.15 c                   eval      vxeann = w_eann
+6.15 c                   movel     a1evnr        vxvare
+6.15 c                   eval      vxfirm = w_firm
+6.15 c                   eval      vxeusr = l_user
+6.15 c                   time                    vxtime
+6.15 c                   time                    vxetim
+6.15 c                   time                    vxedat
+6.15 c                   write     veanlur
+6.15 c                   endif
+6.15  *
+6.15 c                   endsr
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *   Henter ean-nr
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *
+     c     hent_ean      begsr
+6.12  *
+6.12 c                   call      'VE716R'
+6.12 c**                 call      'VE711R'
+6.12 c                   parm                    w_firm
+6.12 c                   parm                    w_vare
+6.12 c**                 parm                    w_enh1
+6.12 c                   parm                    w_eann
+6.12 c                   parm                    w_east
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for henting av prisinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_pris     begsr
+      *
+      * Kaller program for henting av pris-informasjon på tre enheter
+      *
+     c                   call      'VP716R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+5.70 c                   parm                    w_prgr
+6.22 c                   parm                    w_lage
+     c                   parm                    w_lety
+     c                   parm                    w_dato
+     c                   parm                    w_time
+     c                   parm                    w_sae1
+     c                   parm                    w_sap1
+     c                   parm                    w_bup1
+     c                   parm                    w_kop1
+     c                   parm                    w_inp1
+     c                   parm                    w_pda1
+     c                   parm                    w_sae2
+     c                   parm                    w_sap2
+     c                   parm                    w_bup2
+     c                   parm                    w_omr2
+     c                   parm                    w_pda2
+     c                   parm                    w_sae3
+     c                   parm                    w_sap3
+     c                   parm                    w_bup3
+     c                   parm                    w_omr3
+     c                   parm                    w_pda3
+     c                   parm                    w_fdat
+     c                   parm                    w_ftid
+     c                   parm                    w_tdat
+     c                   parm                    w_ttid
+     c                   parm                    w_kamp
+     c                   parm                    w_tip1
+     c                   parm                    w_tkp1
+     c                   parm                    w_tip2
+     c                   parm                    w_tip3
+     c                   parm                    w_enin
+     c                   parm                    w_enps
+     c                   parm                    w_pspr
+      *
+     c                   eval      w_tlbn = 0
+     c                   eval      w_tlbg = 0
+      *
+     c                   eval      wantdg = *zeros
+6.23  * Sjekk tidspunkt opp mot kjøretidspunkt
+6.23 c                   time                    w_time2
+      *
+     c                   if        w_dato >= w_fdat and
+     c                             w_dato <= w_tdat
+     c                   if        w_dato <> w_fdat or
+     c                             w_dato =  w_fdat and
+6.23 c**                           w_time >= w_ftid
+6.23 c                             w_time2 >= w_ftid
+     c                   if        w_dato <> w_tdat or
+     c                             w_dato =  w_tdat and
+6.23 c**                           w_time <= w_ttid
+6.23 c                             w_time2 <= w_ttid
+      *
+     c                   eval      w_tlbn = 1
+      *
+     c                   endif
+     c                   endif
+E001 c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     * Klargjør priser for etikett
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     *
+     c     klar_pris     begsr
+     *
+     *  Legger inn riktig pris avhengig av enhet
+     *
+     C                   eval      w_pri1 = *zero
+     C                   eval      w_enh1 = *blank
+     C                   eval      w_pri2 = *zero
+     C                   eval      w_enh2 = *blank
+     *
+     C                   select
+     *
+B001 C                   when      w_fen1 = 3
+B002 c                   if        w_bup3 > 0
+ 001 C                   eval      w_pri1 = w_bup3
+E002 c                   else
+ 001 C                   eval      w_pri1 = w_sap3
+E002 c                   endif
+ 001 C                   eval      w_enh1 = w_sae3
+ 001 C                   eval      w_edat = w_sad3
+B002 c                   if        w_tlbn = 1 and
+B002 c                             w_tip3 > 0
+ 004 c                   eval      w_kpri = 'T'
+ 004 c                   eval      w_pri1 = w_tip3
+E002 c                   endif
+     *
+B001 C                   when      w_fen1 = 2
+B002 c                   if        w_bup2 > 0
+ 001 C                   eval      w_pri1 = w_bup2
+E002 c                   else
+ 001 C                   eval      w_pri1 = w_sap2
+E002 c                   endif
+ 001 C                   eval      w_enh1 = w_sae2
+ 001 C                   eval      w_edat = w_sad2
+B002 c                   if        w_tlbn = 1 and
+B002 c                             w_tip2 > 0
+ 004 c                   eval      w_kpri = 'T'
+ 004 c                   eval      w_pri1 = w_tip2
+E002 c                   endif
+     *
+B001 C                   when      w_fen1 = 1
+B002 c                   if        w_bup1 > 0
+ 001 C                   eval      w_pri1 = w_bup1
+E002 c                   else
+ 001 C                   eval      w_pri1 = w_sap1
+E002 c                   endif
+ 001 C                   eval      w_enh1 = w_sae1
+ 001 C                   eval      w_edat = w_sad1
+B002 c                   if        w_tlbn = 1 and
+B002 c                             w_tip1 > 0
+ 004 c                   eval      w_kpri = 'T'
+ 004 c                   eval      w_pri1 = w_tip1
+E002 c                   endif
+     *
+B001 C                   endsl
+     *
+B001 C                   select
+     *
+B001 C                   when      w_fen2 = 3
+B002 c                   if        w_bup3 > 0
+ 001 C                   eval      w_pri2 = w_bup3
+E002 c                   else
+ 001 C                   eval      w_pri2 = w_sap3
+E002 c                   endif
+ 001 C                   eval      w_enh2 = w_sae3
+B002 c                   if        w_tlbn = 1 and
+B002 c                             w_tip3 > 0
+ 004 c                   eval      w_pri2 = w_tip3
+E002 c                   endif
+     *
+B001 C                   when      w_fen2 = 2
+B002 c                   if        w_bup2 > 0
+ 001 C                   eval      w_pri2 = w_bup2
+E002 c                   else
+ 001 C                   eval      w_pri2 = w_sap2
+E002 c                   endif
+ 001 C                   eval      w_enh2 = w_sae2
+B002 c                   if        w_tlbn = 1 and
+B002 c                             w_tip2 > 0
+ 004 c                   eval      w_pri2 = w_tip2
+E002 c                   endif
+     *
+B001 C                   when      w_fen2 = 1
+B002 c                   if        w_bup1 > 0
+ 001 C                   eval      w_pri2 = w_bup1
+E002 c                   else
+ 001 C                   eval      w_pri2 = w_sap1
+E002 c                   endif
+ 001 C                   eval      w_enh2 = w_sae1
+B002 c                   if        w_tlbn = 1 and
+B002 c                             w_tip1 > 0
+ 004 c                   eval      w_pri2 = w_tip1
+E002 c                   endif
+     *
+B001 C                   endsl
+6.16  *
+6.16  * Hent mva-sats
+6.16  *
+6.16  * Ordinær sats
+6.16  *
+6.16 c                   if        vvkmva = 0
+6.16  *
+6.16 c                   call      'FÅ705R'
+6.16 c                   parm                    w_firm
+6.16 c                   parm                    w_dato
+6.16 c                   parm                    w_mvap
+6.16 c                   parm                    w_mvat
+6.16 c                   parm                    w_mvaf
+6.16 *
+6.16 c                   endif
+6.16  *
+6.16  * Avgiftsfritt
+6.16  *
+6.16 c                   if        vvkmva = 1
+6.16 C                   eval      w_mvat = 1
+6.16 c                   endif
+6.16  *
+6.16  * Halv mva
+6.16  *
+6.16 c                   if        vvkmva = 2
+6.16  *
+6.16 c                   call      'FÅ706R'
+6.16 c                   parm                    w_firm
+6.16 c                   parm                    w_dato
+6.16 c                   parm                    w_mvap
+6.16 c                   parm                    w_mvat
+6.16 c                   parm                    w_mvaf
+6.16 *
+6.16 c                   endif
+     *
+     *  Beregner pris med MVA
+     *
+     C                   eval(h)   w_pri1 = w_pri1 * w_mvat
+     C                   eval(h)   w_pri2 = w_pri2 * w_mvat
+     C                   eval(h)   w_pspr = w_pspr * w_mvat
+     *
+     *  Øreavrunding  pris 1
+     *
+     c                   move      4             wpkode
+     c                   eval      wpbel1 = w_pri1
+     c                   call      'FA910R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    wpkode
+     c                   parm                    wpbel1
+     *
+B001 c                   if        wpbel1 > 99999
+     c                   eval      w_pri1_u = 99999
+E001 c                   else
+     c                   eval      w_pri1_u = wpbel1
+E001 c                   endif
+     *
+     *  Øreavrunding  pris 2
+     *
+     c                   eval      wpbel1 = w_pri2
+     c                   call      'FA910R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    wpkode
+     c                   parm                    wpbel1
+     *
+B001 c                   if        wpbel1 > 99999
+     c                   eval      w_pri2_u = 99999
+E001 c                   else
+     c                   eval      w_pri2_u = wpbel1
+E001 c                   endif
+     *
+     *  Øreavrunding  sammenligningspris
+     *
+     c                   eval      wpbel1 = w_pspr
+     c                   call      'FA910R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    wpkode
+     c                   parm                    wpbel1
+     *
+     c                   if        wpbel1 > 99999
+     c                   eval      w_pspr_u = 99999
+     c                   else
+     c                   eval      w_pspr_u = wpbel1
+     c                   endif
+     *
+     * Hvis pris1 er null
+     *
+ 001 c                   eval      *in71  = *off
+B001 c                   if        w_pri1_u <> *zeros
+ 001 c                   eval      *in71  = *on
+E001 c                   endif
+     *
+     * Hvis pris2 er null
+     *
+ 001 c                   eval      *in72  = *off
+B001 c                   if        w_pri2_u <> *zeros
+ 001 c                   eval      *in72  = *on
+E001 c                   endif
+     *
+     * Hvis sammenligningspris er null
+     *
+     c                   eval      *in73  = *off
+     c                   if        w_pspr_u <> *zeros
+     c                   eval      *in73  = *on
+     c                   endif
+      *
+     c                   endsr
+     *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     * Klargjør felter for etikett
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     *
+     c     klar_rest     begsr
+     *
+     * Henter EAN-kode fra EAN-register
+     *
+     c                   exsr      hntean
+     *
+     * Legger eget varenummer i EAN-kode
+     * dersom EAN-kode ikke utfylt
+     *
+6.12 c*                  if        w_eann = *zero
+6.12 c*                  movel     vvvare        wwvar8
+6.12 c*                  eval      weannr = wwvar8
+6.12 c*                  exsr      eansjk
+6.12 c*                  movel     weannr        w_eann
+6.12 c*                  move      weansf        w_eann
+6.12 c*                  endif
+     *
+     *   Henter leverandøropplysninger
+     *
+     c                   eval      w_lvko = *zeros
+B003 c                   eval      w_hyle = *zeros
+ 003 c                   eval      w_lvar = *blank
+     *
+B001 c                   if        vvldor <> *zero
+ 001 *
+ 001 c                   move      vvldor        rlevl1_levr
+ 001 c     rlevl1_key    chain     rlevl1                             86
+ 001 *
+B002 c                   if        *in86 = *off
+     c                   eval      w_lvko = rllvko
+B003 c                   eval      w_hyle = rlhyle
+6.31 c                   if        w_lv_nobb > 0
+6.31 c                   move      w_lv_llva     w_lvar
+6.31 c                   else
+ 003 c                   move      vvlvar        w_lvar
+6.31 c                   endif
+E001 c                   endif
+ 001 *
+E001 c                   endif
+     *
+     *  Legger inn bestillingspunkt
+     *
+B001 c                   if        vlbpun <> *zero
+B001 c                   if        vlbpun <= 999
+     c                   eval      w_bpun = vlbpun
+     c                   else
+     c                   eval      w_bpun = 999
+     c                   endif
+     *
+6.13 c                   endif
+     *
+     *
+     *  Legger inn bestillingsmengde
+     *
+B001 c                   if        vlbmen <> *zero
+B001 c                   if        vlbmen <= 999
+     c                   eval      w_bmen = vlbmen
+     c                   else
+     c                   eval      w_bmen = 999
+     c                   endif
+     *
+6.13 c                   endif
+     *
+     *
+     *  Legger inn minimumsbeholdning
+     *
+B001 c                   if        vlmini <> *zero
+B001 c                   if        vlmini <= 999
+     c                   eval      w_mini = vlmini
+     c                   else
+     c                   eval      w_mini = 999
+     c                   endif
+     *
+6.13 c                   endif
+     *
+     *
+     *  Legger inn maksimumsbeholdning
+     *
+B001 c                   if        vlmaks <> *zero
+B001 c                   if        vlmaks <= 999
+     c                   eval      w_maks = vlmaks
+     c                   else
+     c                   eval      w_maks = 999
+     c                   endif
+     *
+6.13 c                   endif
+     *
+     *
+     *  Hent tekst for priskode
+     *
+ 001 c                   move      *blanks       w_ptxt
+     *
+B001 c                   if        w_kpri <> ' '
+     c                   eval      vpkol1_pkod = w_kpri
+ 001 c     vpkol1_key    chain     vpkol1r
+B002 c                   if        %found
+ 002 c                   move      vaptxt        w_ptxt
+E002 c                   endif
+E001 c                   endif
+     *
+     * Kontroller tekstfelt for ugyldige karakterer
+     *
+B001 c                   if        vvtek1 <> *blank
+     c     sp:bl         xlate     vvtek1        w_tek1
+E001 c                   endif
+     *
+     c                   eval      w_tek2 = *blank
+B001 c                   if        vvtek2 <> *blank
+     c     sp:bl         xlate     vvtek2        w_tek2
+E001 c                   endif
+     *
+     * Hent lagerplass fra lagerregister
+     *
+     c                   move      vvvare        vlagl1_vare
+     c                   eval      vlagl1_lage = l_lage
+     c     vlagl1_key    chain     vlagl1                             91
+     *
+ 001 c                   eval      w_plas = vlplas
+     *
+     * Sortering på varenummer/lagerplass
+     *
+B001 c                   if        w_sort = *zero
+ 001 c                   eval      w_plas_s = w_plas
+ 001 c                   eval      w_vare_s = w_vare
+ 001 c                   else
+ 001 c                   eval      w_plas_s = *blank
+ 001 c                   eval      w_vare_s = *blank
+E001 c                   endif
+     *
+6.31 c                   if        w_lv_nobb > 0
+6.31 c                   move      w_lv_nobb     w_nobb
+6.31 c                   else
+ 003 c                   move      vvnobb        w_nobb
+6.31 c                   endif
+     *
+     * Antall min=1, max=500
+     *
+B001 c                   if        a1anta = 0
+ 001 c                             or a1anta > 500
+ 001 c                   eval      w_anta = 1
+E001 c                   else
+ 001 c                   eval      w_anta = a1anta
+E001 c                   endif
+     *
+     *  Legg ut etikettype
+     *
+     c                   eval      w_etyp = l_etyp
+     *
+     *  Legg ut varetype
+5.70 *
+5.70 * Kaller program for henting av varetype
+5.70 *
+5.70 c                   call      'VL710R'
+5.70 c                   parm                    w_firm
+5.70 c                   parm                    vvvare
+5.70 c                   parm                    w_lage
+5.70 c                   parm                    p_vtyp
+6.21 c                   parm                    w_udat
+6.21 c                   parm                    w_bldo
+6.21 c                   parm                    b_inlr
+6.31 c                   parm                    w_lv_nobb
+6.31 c                   parm                    w_lv_modn
+6.31 c                   parm                    w_lv_lldo
+6.31 c                   parm                    w_lv_llva
+     *
+     c                   eval      w_vtyp = p_vtyp
+6.14 *
+6.14 *  Oppdater sist utskrevet på VETIPF
+6.14 *
+6.14 c     vetilu_key    chain     vetilu
+6.14 *
+6.14 c                   time                    vmetim
+6.14 c                   time                    vmedat
+6.14 c                   eval      vmeusr = l_user
+6.14 *
+6.14 c                   if        %found                                                .....
+6.14 *
+6.14 c                   eval      vmsdat = w_dato
+6.14 c                   eval      vmetyp = w_etyp
+6.14 c                   eval      vmsapr = w_pri1_u
+6.14 c                   eval      vmgtin = w_eann
+6.14 c                   if        w_tlbn = 1                                            .....
+6.14 c                   eval      vmtdat = w_fdat
+6.14 c                   endif                                                           .....
+6.14 *
+6.14 c                   update    vetilur
+6.14 *
+6.14 c                   else                                                            .....
+6.14 *
+6.14 c                   eval      vmfirm = w_firm
+6.14 c                   eval      vmlage = l_lage
+6.14 c                   eval      vmvare = w_vare
+6.14 c                   eval      vmenhe = w_enh1
+6.14 c                   eval      vmetyp = w_etyp
+6.14 c                   eval      vmetpr = l_etpr
+6.14 c                   eval      vmfen1 = w_fen1
+6.14 c                   eval      vmfen2 = w_fen2
+6.14 c                   eval      vmsdat = w_dato
+6.14 c                   eval      vmtdat = w_tdat
+6.14 c                   eval      vmsapr = w_pri1_u
+6.14 c                   eval      vmgtin = w_eann
+6.14 *
+6.14 c                   time                    vmotim
+6.14 c                   time                    vmodat
+6.14 c                   eval      vmousr = l_user
+6.14 *
+6.14 c                   write     vetilur
+6.14 *
+6.14 c                   endif                                                           .....
+     *
+     c                   endsr
+      *
+     *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *   Henter ean-nr
+     *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     *
+     c     hntean        begsr
+      *
+6.12  *
+6.12 c**                 call      'VE711R'
+6.12 c                   call      'VE716R'
+6.12 c                   parm                    w_firm
+6.12 c                   parm                    w_vare
+6.12 c**                 parm                    w_enh1
+6.12 c                   parm                    w_eann
+6.12 c                   parm                    w_east
+     *
+     c                   endsr
+     c/eject
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     *inzsr        begsr
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+     c                   parm                    w_in03
+     c                   parm                    w_prog
+      *
+      *  Nullstiller felt som benyttes
+      *
+     c                   eval      w_in03 = ' '
+     c                   eval      w_pri1_u = *zero
+     c                   eval      w_pri2_u = *zero
+      *
+      * Hent skriverinformasjon
+      *
+     c     vfaspf_key    chain     vfaspf                             60
+      *
+     c                   if        *in60 = *on
+     c                   eval      l_skty = *zero
+     c                   eval      w_vtxt = *blank
+     c                   else
+     c                   move      vnskty        l_skty
+     c                   move      vnvtxt        w_vtxt
+     c                   endif
+      *
+      *  Legger inn program-alternativer i LDA
+      *
+     c                   eval      w_prog = *blank
+     c                   eval      l_etpr = 0
+6.16  * Mva sats hentes på nytt igjen i subrutine "klar_pris"
+      * Hent mva-sats
+      *
+     c                   call      'FÅ705R'
+     c                   parm                    w_firm
+     c                   parm                    w_dato
+     c                   parm                    w_mvap
+     c                   parm                    w_mvat
+     c                   parm                    w_mvaf
+      *
+     c                   move      l_firm        w_firm
+     c                   move      l_lage        w_lage
+      *
+     c                   eval      w_tvar = 'Varenr'
+     c                   eval      w_tpri = 'Pris   '
+5.70  *
+5.70  * Henter prisgruppe
+5.70  *
+5.70 c                   call      'VL711R   '
+5.70 c                   parm                    w_prgr
+      *
+      * Key for vareregister
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_vare
+      *
+      * Key for oppslag på lagerregister
+      *
+     c     vlagl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlagl1_vare
+     c                   kfld                    vlagl1_lage
+      *
+      * Key for EAN-register
+      *
+     c     veanpf_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_eann
+      *
+      * Key for EAN-register
+      *
+     c     veanlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_eann
+      *
+      * Key for vareregister via leverandørens varenummer
+      *
+     c     vvarl4_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_lvar
+      *
+      * Key for oppslag på leverandør-register
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+      *
+      * Key for fastregister
+      *
+     c     vfaspf_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på priskoder
+      *
+     c     vpkol1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vpkol1_pkod
+      *
+      * Key for etikettregister
+      *
+     c     vetil1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_vare
+     c                   kfld                    w_lage
+6.14  *
+6.14  * Key for etikettregister
+6.14  *
+6.14 c     vetilu_key    klist
+6.14 c                   kfld                    w_firm
+6.14 c                   kfld                    w_vare
+6.14 c                   kfld                    w_lage
+      *
+     c                   endsr
+      *
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *                   O   U   T   P   U   T                          +
+      *+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *
+      *
+     ovaw1pf    e            skriv
+     o                  71                       37 '     KR'
+     o                  71   udate         y     45
+      *
+     o                       w_anta               4
+     o                       w_vtxt              19
+     o                       w_tvar              25
+     o                       w_tpri              32
+     o                       w_dato              45
+     o                       w_nobb              53
+     o                       w_vare              73
+     o                       w_eann              86
+6.30 O                       w_lvar             106
+6.30 O                       w_tek1             141
+6.30 O                       w_tek2             176
+6.30 O                       w_enh1             179
+6.30 O               71      w_pri1_u           187 '   0 ,  '
+6.30 O                       w_enh2             190
+6.30 O               72      w_pri2_u           198 '   0 ,  '
+6.30 O                       w_ptxt             203
+6.30 o                       w_bpun             208
+6.30 o                       w_bmen             213
+6.30 o                       w_hyle             214
+6.30 o                       w_lvko             215
+6.30 o                       w_plas             223
+6.30 o                       w_etyp             224
+6.30 o                       w_mini             227 '   '
+6.30 o                       w_maks             230 '   '
+6.30 o                       w_vtyp             231
+6.30 o                       w_enin             234
+6.30 o                       w_enps             237
+6.30 o               73      w_pspr_u           245 '   0 ,  '
+      *
+      * Sorteringsrekkefølge
+      *
+     o                       w_plas_s           457
+     o                       w_vare_s           472
+      *
+      *++++++++++++++++++++++  T A B E L L E R  +++++++++++++++++++++++
+**     M E L D I N G E R :
+   EAN-kode finnes ikke i vareregister
+   Varenummer finnes ikke i vareregister
+   EAN-kode er feil,     Tast nytt eller endre registrert kode
+   Spørring (F4) er ugyldig for dette feltet
+   Eget varenummer må være utfylt for denne funksjon
+   Varen er registrert med EAN-kode tidligere

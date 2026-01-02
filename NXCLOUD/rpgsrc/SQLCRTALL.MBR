@@ -1,0 +1,336 @@
+      /TITLE  Spesial program
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Program . . . . :SQLCRTALL
+      *
+      *  Beskrivelse . . :Legger inn SP for trigger/indexer/views
+      *                   for alle filgrupper, LVR og Miljø
+      *                   Dette programmet legger bare inn SP.
+      *                   SP blir IKKE kjørt med dette programmet.
+      *
+      *                   Det er 2 SP for hver filg, lvr og miljø.
+      *                   En for å opprette trigger/index/views
+      *                   En for å slette trigger/index/views
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *   OBS!
+      *   OBS!
+      *   OBS!   ENDRE DENNE LINJEN i KODEN VED NYE VERSJONER
+      *                if        arvers = 630
+      *   OBS!
+      *   OBS!
+      *   OBS!   SJEKK UNNTAK, SØK ETTER:  WHERE 1=1  i koden
+      *   OBS!
+      *   OBS!
+      *
+      *
+      *  Spesialversjon. :
+      *
+      *  Referanse  Dato   Endringsbeskrivelse                     Sign.
+      * --------- ------  --------------------------------------------------
+      *           050816  Nytt program                             BKV
+6.30  *           051017  Legger bare inn SSTA og JVAR har ny data BKV
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     famill1    if   e           k disk    rename(amilpfr:amill1r)
+      *
+      *  Definering av variable
+      *
+      *
+     d fg_sql_txt      s            400
+     d lvr_sql_txt     s            400
+6.30 d ssta_sql_txt    s            400
+6.30 d jvar_sql_txt    s            400
+     d w_filgrp        s              3    inz(*blanks)
+     d w_miljo         s              3    inz(*blanks)
+     d w_lvr           s             10    inz(*blanks)
+6.30 d w_count_ssta    s             10  0 inz(*blanks)
+6.30 d w_count_jvar    s             10  0 inz(*blanks)
+     d w_blank3        s              3    inz(*blanks)
+     d w_blank10       s             10    inz(*blanks)
+     d w_hva           s              1    inz('1')
+     d
+      *
+     d command_string  s           4000A   varying
+     d quote           c                   ''''
+      ** Prototype definition for QCMDEXC
+     D Runcmd          PR                  EXTPGM('QCMDEXC')
+     D  Cmdstr                     3000A   CONST OPTIONS(*VARSIZE)
+     D  Cmdlen                       15P 5 CONST
+     D  Cmddbcs                       3A   CONST OPTIONS(*NOPASS)
+      *
+      *
+
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Lese ekstern fil for å hente neste vare for behandling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c
+      *  Lese NX miljøer
+     c                   read      amill1
+     c                   dow       not %eof
+     c
+      *  Kun 630
+     c                   if        arvers = 700
+     c
+     c                   eval      w_miljo = armilj
+     c
+      *  Lager SP for alle miljø. Både create og drop SP
+      *
+      /free
+       command_string = 'SBMJOB CMD(CALL PGM(SQLCRT) PARM('+
+           quote + w_blank3 + quote + ' ' +
+           quote + w_blank10 + quote + ' ' +
+           quote + w_miljo + quote + ' ' +
+           quote + w_blank10 + quote + ' ' +
+           quote + w_hva + quote + '))' +
+           '  JOBPTY(3) JOBQ(QGPL/EG_SQL) JOB(SQL_CRT' + w_miljo + ')  +
+             CCSID(277) ';
+       RUNCMD(command_string: %LEN(%TRIMR(command_string)));
+      *
+       command_string = 'SBMJOB CMD(CALL PGM(SQLDLT) PARM('+
+           quote + w_blank3 + quote + ' ' +
+           quote + w_blank10 + quote + ' ' +
+           quote + w_miljo + quote + ' ' +
+           quote + w_blank10 + quote + ' ' +
+           quote + w_hva + quote + '))' +
+           '  JOBPTY(3) JOBQ(QGPL/EG_SQL) JOB(SQL_DLT' + w_miljo + ') +
+               CCSID(277) ';
+       RUNCMD(command_string: %LEN(%TRIMR(command_string)));
+      /end-free
+      *  Finner alle filgrupper innenfor miljø
+     c                   eval      fg_sql_txt = 'select AGFGRP  +
+     c                               from ' + %trim(w_miljo) +'/AFILPF +
+     c                               WHERE 1=1 +
+6.30 c                               AND AGBACK=''''  +
+     c                               AND AGFGRP<>''E00''  +
+     c                               AND AGFGRP<>''F35''  +
+     c                               AND AGFGRP<>''A29''  +
+     c                               for read only+
+     c                               '
+      *  OBS !!!!
+      *  OBS !!!! sjekk hardkodet unntak i WHERE over
+      *  OBS !!!!
+     c
+     c/exec sql
+     c+ PREPARE SQL_STMT_FG FROM :fg_sql_txt
+     c/end-exec
+     c
+     c/exec sql
+     c+ DECLARE STMT_FG CURSOR FOR SQL_STMT_FG
+     c/end-exec
+     c
+     c/exec sql
+     c+ OPEN STMT_FG
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch STMT_FG
+     c+ into  :w_filgrp
+     c/end-exec
+      *
+     c                   doW       (SQLCode >= 0 and SQLCode <> 100)
+     c
+6.30 c                   exsr      sjekk_stat
+6.30 c                   if        (w_count_ssta>0)
+      *  Lager SP for alle filgr. Både create og drop SP
+      *
+      /free
+        command_string = 'SBMJOB CMD(CALL PGM(SQLCRT) PARM('+
+           quote + w_filgrp + quote + ' ' +
+           quote + w_blank10 + quote + ' ' +
+           quote + w_blank3 + quote + ' ' +
+           quote + w_blank10 + quote + ' ' +
+           quote + w_hva + quote + '))' +
+           '  JOBPTY(3) JOBQ(QGPL/EG_SQL) JOB(SQL_CRT' + w_filgrp + ')  +
+             CCSID(277) ';
+
+       RUNCMD(command_string: %LEN(%TRIMR(command_string)));
+
+
+        command_string = 'SBMJOB CMD(CALL PGM(SQLDLT) PARM('+
+           quote + w_filgrp + quote + ' ' +
+           quote + w_blank10 + quote + ' ' +
+           quote + w_blank3 + quote + ' ' +
+           quote + w_blank10 + quote + ' ' +
+           quote + w_hva + quote + '))' +
+           '  JOBPTY(3) JOBQ(QGPL/EG_SQL) JOB(SQL_DLT' + w_filgrp + ')  +
+             CCSID(277) ';
+
+       RUNCMD(command_string: %LEN(%TRIMR(command_string)));
+
+      /end-free
+6.30 c                   endif
+      *
+     c/exec sql
+     c+ fetch STMT_FG
+     c+ into  :w_filgrp
+     c/end-exec
+     c                   enddo
+
+     c/exec sql
+     c+ close STMT_FG
+     c/end-exec
+     c
+      *  Finner alle LVR innenfor miljø
+     c                   eval      lvr_sql_txt = 'select DISTINCT ALBIBL  +
+     c                               from ' + %trim(w_miljo) +'/ALIBPF +
+     c                               WHERE ALBIBL LIKE ''%LVR%'' for read only+
+     c                               '
+     c
+     c/exec sql
+     c+ PREPARE SQL_STMT_LVR FROM :lvr_sql_txt
+     c/end-exec
+     c
+     c/exec sql
+     c+ DECLARE STMT_LVR CURSOR FOR SQL_STMT_LVR
+     c/end-exec
+     c
+     c/exec sql
+     c+ OPEN STMT_LVR
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch STMT_LVR
+     c+ into  :w_lvr
+     c/end-exec
+      *
+     c                   doW       (SQLCode >= 0 and SQLCode <> 100)
+     c
+6.30 c                   exsr      sjekk_jvar
+6.30 c                   if        (w_count_jvar > 0)
+      *  Lager SP for alle LVR. Både create og drop SP
+      *
+      /free
+       command_string = 'SBMJOB CMD(CALL PGM(SQLCRT) PARM('+
+           quote + w_blank3 + quote + ' ' +
+           quote + w_lvr + quote + ' ' +
+           quote + w_blank3 + quote + ' ' +
+           quote + w_blank10 + quote + ' ' +
+           quote + w_hva + quote + '))' +
+           '  JOBPTY(3) JOBQ(QGPL/EG_SQL) JOB(SQCR' + %subst(w_lvr:1:6) + ')  +
+             CCSID(277) ';
+       RUNCMD(command_string: %LEN(%TRIMR(command_string)));
+      *
+       command_string = 'SBMJOB CMD(CALL PGM(SQLDLT) PARM('+
+           quote + w_blank3 + quote + ' ' +
+           quote + w_lvr + quote + ' ' +
+           quote + w_blank3 + quote + ' ' +
+           quote + w_blank10 + quote + ' ' +
+           quote + w_hva + quote + '))' +
+           '  JOBPTY(3) JOBQ(QGPL/EG_SQL) JOB(SQDL' + %subst(w_lvr:1:6) + ')  +
+             CCSID(277) ';
+       RUNCMD(command_string: %LEN(%TRIMR(command_string)));
+      /end-free
+      *
+6.30 c                   endif
+     c
+     c/exec sql
+     c+ fetch STMT_LVR
+     c+ into  :w_lvr
+     c/end-exec
+     c                   enddo
+     c
+     c/exec sql
+     c+ close STMT_LVR
+     c/end-exec
+     c
+     c                   endif
+     c
+     c                   read      amill1
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xslutt        tag
+      *
+     c                   eval      *inlr = *on
+
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  *  Subrutine for om det er nye rader i JVARPF
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  *
+6.30 c     sjekk_jvar    begsr
+6.30  *
+6.30 c
+6.30  *  Sjekker om det er data i SSTAPF
+6.30 c                   eval      w_count_jvar = 0
+6.30 c                   eval      jvar_sql_txt = 'SELECT COUNT(*) FROM +
+6.30 c                               ' + %trim(w_lvr) +'/JVARPF +
+6.30 c                               WHERE JVEDAT > CURRENT_DATE-30 DAYS +
+6.30 c                               for read only'
+6.30 c
+6.30 c/exec sql
+6.30 c+ PREPARE SQL_STMT_JVAR FROM :jvar_sql_txt
+6.30 c/end-exec
+6.30 c
+6.30 c/exec sql
+6.30 c+ DECLARE STMT_JVAR CURSOR FOR SQL_STMT_JVAR
+6.30 c/end-exec
+6.30 c
+6.30 c/exec sql
+6.30 c+ OPEN STMT_JVAR
+6.30 c/end-exec
+6.30  *
+6.30 c/exec sql
+6.30 c+ fetch STMT_JVAR
+6.30 c+ into  :w_count_jvar
+6.30 c/end-exec
+6.30  *
+6.30 c
+6.30 c/exec sql
+6.30 c+ close STMT_JVAR
+6.30 c/end-exec
+6.30 c
+6.30 c                   endsr
+6.30
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  *  Subrutine for om det er nye rader i SSTAPF
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  *
+6.30 c     sjekk_stat    begsr
+6.30  *
+6.30 c
+6.30  *  Sjekker om det er data i SSTAPF
+6.30 c                   eval      w_count_ssta = 0
+6.30 c                   eval      ssta_sql_txt = 'SELECT COUNT(*) FROM +
+6.30 c                               ADB' + %trim(w_filgrp) +'/SSTAPF +
+6.30 c                               WHERE SFDATE > CURRENT_DATE-30 DAYS +
+6.30 c                               for read only'
+6.30 c
+6.30 c/exec sql
+6.30 c+ PREPARE SQL_STMT_SSTA FROM :ssta_sql_txt
+6.30 c/end-exec
+6.30 c
+6.30 c/exec sql
+6.30 c+ DECLARE STMT_SSTA CURSOR FOR SQL_STMT_SSTA
+6.30 c/end-exec
+6.30 c
+6.30 c/exec sql
+6.30 c+ OPEN STMT_SSTA
+6.30 c/end-exec
+6.30  *
+6.30 c/exec sql
+6.30 c+ fetch STMT_SSTA
+6.30 c+ into  :w_count_ssta
+6.30 c/end-exec
+6.30  *
+6.30 c
+6.30 c/exec sql
+6.30 c+ close STMT_SSTA
+6.30 c/end-exec
+6.30 c
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+     c
+     c                   endsr

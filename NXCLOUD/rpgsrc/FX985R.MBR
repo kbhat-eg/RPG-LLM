@@ -1,0 +1,191 @@
+     h datedit(*dmy) option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Program . . . . : FX985R
+      * Beskrivelse . . : Trelast-sortiment
+      *                   Danne innhold i VVLEPF for alle varer i EVR
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       171018 bof  Nytt program
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.23 fvvarlr    if   e           k disk    rename(vvarpfr:vvarlrr)
+6.23 fvveplr    if   e           k disk    rename(vveppfr:vveplrr)
+6.23 fjlevl1    if   e           k disk    rename(jlevpfr:jlevl1r)
+     fvvlelu    uf a e           k disk    rename(vvlepfr:vvlelur)
+      *
+      * Definering av LDA
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+      *
+      * Definering av variable i nøkler
+      *
+     d w_firm          s                   like(vvlfir)
+     d vvlelu_lvnr     s                   like(vvlvnr)
+     d vvlelu_lldo     s                   like(vvlldo)
+     d w_nobb          s                   like(vvlnob)
+     d w_lvar          s                   like(vvllva)
+     d w_modn          s                   like(vvlmod)
+     d w_ldor          s                   like(vvlldo)
+     d w_luda          s                   like(vvluda)
+     d b_end           s              1
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.31 C/Exec SQL
+6.31 C+  Set Option DatFmt=*ISO
+6.31 C/End-Exec
+      *
+     c     vvarlr_key    setll     vvarlr
+     c     vvarlr_key    reade     vvarlr
+     c                   dow       not %eof(vvarlr)
+     c                   if        vvnobb <> 0 and
+     c                             (vvvtyp = 'L' or
+     c                              vvvtyp = 'S')
+      *
+      * Finne alle leverandører fra VVEPPF
+     c/exec sql
+     c+                  declare vvep  cursor for
+     c+                  select distinct vepfir, vepvar, vepldo
+     c+                  from   vveppf
+     c+                  where  vepfir = :w_firm and
+     c+                         vepvar = :vvvare
+     c+                  for read only
+     c/end-exec
+     c/exec sql
+     c+                  close vvep
+     c/end-exec
+     c/exec sql
+     c+                  open vvep
+     c/end-exec
+      *
+     c                   eval      b_end = *off
+      *
+     c                   dow       b_end = *off
+     c/exec sql
+     c+                  fetch next
+     c+                  from  vvep
+     c+                  into  :vepfir,
+     c+                        :vepvar,
+     c+                        :vepldo
+     c/end-exec
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c                   eval      b_end = *on
+     c                   leave
+     c                   endif
+     c                   exsr      behandle
+     c                   enddo
+      *
+     c                   endif
+     c     vvarlr_key    reade     vvarlr
+     c                   enddo
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandle      begsr
+     c                   if        vepldo = 0
+     c                   leavesr
+     c                   endif
+      * finner leverandør
+6.31 c                   eval      w_ldor = 0
+6.31 c/exec sql
+6.31 c+ select jlldor
+6.31 c+ into   :w_ldor
+6.31 c+ from   jlevpf
+6.31 c+ where  jlenum = :vepldo
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+     c                   if        w_ldor = 0
+     c                   leavesr
+     c                   endif
+      *
+      * info fra vare-leverandør
+6.31 c                   eval      w_lvar = *blank
+6.31 c                   eval      w_nobb = 0
+6.31 c                   eval      w_modn = 0
+6.31 c                   eval      w_luda = *loval
+6.31 c/exec sql
+6.31 c+ select  jvllva, IFNULL(jvluda,'0001-01-01'),
+     c+        jvnobb, jvmodn
+     c+ into   :w_lvar,
+     c+        :w_luda,
+     c+        :w_nobb,
+     c+        :w_modn
+6.31 c+ from   jvlepf
+     c+ inner join jvarpf
+     c+ on jvvare = jvlvnr
+6.31 c+ where  jvlvnr = :vvvare and
+     c+        jvlldo = :w_ldor
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+      *
+     c                   if        sqlcod <> 0
+     c                   leavesr
+     c                   endif
+     c                   if        w_nobb <> 0 and
+     c                             sqlcod = 0
+      *
+     c                   eval      vvlelu_lvnr = vvvare
+     c                   eval      vvlelu_lldo = vepldo
+     c     vvlelu_key    chain     vvlelu
+     c                   eval          vvlnob = w_nobb
+     c                   eval          vvllva = w_lvar
+     c                   eval          vvlmod = w_modn
+     c                   eval          vvlnle = w_ldor
+     c                   eval          vvluda = w_luda
+     c                   eval          vvleus = l_user
+     c                   time                    vvleda
+     c                   time                    vvleti
+     c                   if        %found(vvlelu)
+     c                   update    vvlelur
+     c                   else
+     c                   eval      vvlfir = w_firm
+     c                   eval      vvlvnr = vvvare
+     c                   eval      vvlldo = vepldo
+     c                   eval          vvlous = l_user
+     c                   time                    vvloda
+     c                   time                    vvloti
+     c                   write     vvlelur
+     c                   endif
+     c                   endif
+      *
+     c                   endsr
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+     c                   eval      w_firm  = l_firm
+      *
+     c     vvarlr_key    klist
+     c                   kfld                    w_firm
+
+      *
+     c     vvlelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvlelu_lvnr
+     c                   kfld                    vvlelu_lldo
+      *
+     c                   endsr

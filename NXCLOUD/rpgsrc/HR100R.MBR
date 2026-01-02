@@ -1,0 +1,405 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : HR100R
+      * Beskrivelse . . : Radioterminal trans, ekspedisjon - velge kunde/
+      *                   kundeprosjekt
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       250900 HKO  Nytt program
+      *       121200 HKO  Lagt inn valg av kundeprosjekt
+      *       191101 HKO  Lagt inn info om kredittsperre. Spesialavtale
+      *                   hentes istedenfor avtaleinformasjon
+5.60  * R5.60 310308 AMD  Lagt inn løsning for kontroll av grense for
+5.60  *                   almenningsrabatter
+6.11  *       050811 bof  Lagt inn test om kunde er sperret
+6.20  * V6.20 040511 AMD  Flere muligheter rundt kreditt-alternativer
+6.20  *                   (foreløpig varsles kun kunder med kreditt -
+6.20  *                    sperre i dette program, se også HR101R)
+6.21  * V6.21 140611 bsa  Memosaldo ligger på eget register
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+6.21 frkmel1    if   e           k disk    rename(rkmepfr:rkmel1r)
+     ffkprl1    if   e           k disk    rename(fkprpfr:fkprl1r)
+     frksal1    if   e           k disk    rename(rksapfr:rksal1r)
+     ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+      *
+     fhr100d    cf   e             workstn
+      *
+      * Definering av LDA (Local Data Area)
+      *
+     d                uds
+     d l_firm                944    946  0
+      *
+      * Definering av variabler i nøkler
+      *
+     d rkunl1_kund     s                   like(rkkund)
+     d fkprl1_kund     s                   like(flkund)
+     d fkprl1_kpro     s                   like(flkpro)
+     d rksal1_saku     s                   like(rksaku)
+      *
+      * Definering av variable
+      *
+     d b_feil          s              1    inz(*off)
+     d b_kprs          s              1    inz(*off)
+      *
+     d w_kode          s              1
+     d w_tims          s               z
+     d w_savt          s             60
+      *
+     d w_firm          s                   like(rkfirm)
+     d w_navn          s                   like(rknavn)
+     d w_kund_gml      s                   like(rkkund)
+     d w_kpro_gml      s                   like(flkpro)
+5.60 d w_bgrn          s                   like(rkgral)
+5.60  *
+5.60  * Definering av save-variable
+5.60  *
+5.60 d s_gral          s                   like(rkgral)
+5.60 d s_kjal          s                   like(rkkjal)
+5.60 d s_fort          s              1  0
+      *
+      * Definering av konstanter
+      *
+     d lo              c                   'abcdefghijklmnopqrstuvwxyzæøåäö'
+     d up              c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅÄÖ'
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B1BLD Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     b1taga        tag
+      *
+     c                   exfmt     b1bld
+      *
+      * Behandling av standard funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc
+     c                   goto      avslutt
+     c                   endsl
+      *
+      * F4=Spørring på kunde/kundeprosjekt
+      *
+     c                   if        *inkd
+      *
+     c                   if        wactfe = 'B1KUND' or
+     c                             b1kund = 0
+     c                   call      'RK580R'
+     c                   parm                    w_firm
+     c                   parm                    b1kund
+     c                   if        b1kund = 0
+     c                   goto      b1taga
+     c                   endif
+     c                   endif
+      *
+     c                   if        wactfe = 'B1KPRO'
+     c                   call      'FL581R'
+     c                   parm                    w_firm
+     c                   parm                    b1kund
+     c                   parm                    b1kpro
+     c                   if        b1kpro = 0
+     c                   goto      b1taga
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+      * F5=Forny
+      *
+     c                   if        *inke
+     c                   eval      b1kund = 0
+     c                   eval      b1kna1 = *blank
+     c                   eval      b1kna2 = *blank
+     c                   eval      b1kpro = 0
+     c                   eval      b1pna1 = *blank
+     c                   eval      b1pna2 = *blank
+     c                   eval      b1krsp = *blank
+     c                   eval      b1sav1 = *blank
+     c                   eval      b1sav2 = *blank
+     c                   eval      b1sav3 = *blank
+     c                   goto      b1taga
+     c                   endif
+      *
+      * Automatisk valg av kundeprosjekt
+      *
+     c                   if        b_kprs = *off and
+     c                             b1kund <> 0 and
+     c                             b1kpro =  0
+     c                   eval      fkprl1_kund = b1kund
+     c     fkprl1_key2   chain     fkprl1                             90
+     c                   if        *in90 = *off
+     c                   call      'FL581R'
+     c                   parm                    w_firm
+     c                   parm                    b1kund
+     c                   parm                    b1kpro
+     c                   eval      b_kprs = *on
+     c                   endif
+     c                   endif
+      *
+      * Validering av input
+      *
+     c                   exsr      sjekk_input
+     c                   if        b_feil = *on
+     c                   goto      b1taga
+     c                   endif
+5.60  *
+5.60  * Sjekk om grense for
+5.60  * almenningsrabatt er overskredet
+5.60  *
+5.60 c                   if        s_fort <> 1 and
+5.60 c                             s_gral <> 0 and
+5.60 c                             s_kjal > s_gral
+5.60 c                   eval      b2kund = b1kund
+5.60 c                   eval      b2kpro = b1kpro
+5.60 c                   exfmt     b2bld
+5.60  *
+5.60  * Dersom F3, avslutt
+5.60  *
+5.60 c                   select
+5.60 c                   when      *inkc
+5.60 c                   goto      avslutt
+5.60 c                   endsl
+5.60  *
+5.60  * Dersom Valg=0, avslutt
+5.60  *
+5.60 c                   if        b2fort <> 1
+5.60 c                   goto      avslutt
+5.60 c                   endif
+5.60  *
+5.60  * Dersom Valg=1, fortsett
+5.60  *
+5.60 c                   if        b2fort = 1
+5.60 c                   eval      s_fort = 1
+5.60 c                   goto      b1taga
+5.60 c                   endif
+5.60  *
+5.60 c                   endif
+      *
+      * Kvittering på skjerm
+      *
+     c                   if        b1kund <> w_kund_gml or
+     c                             b1kpro <> w_kpro_gml
+     c                   exsr      kvittering
+     c                   eval      w_kund_gml = b1kund
+     c                   eval      w_kpro_gml = b1kpro
+     c                   goto      b1taga
+     c                   endif
+      *
+      * Finner unik nøkkel
+      *
+     c                   eval      w_kode = 'E'
+     c                   time                    w_tims
+      *
+      * Kaller registeringsprogram
+      *
+     c                   call      'HR101R'
+     c                   parm                    w_firm
+     c                   parm                    w_kode
+     c                   parm                    w_tims
+     c                   parm                    b1kund
+     c                   parm                    b1kpro
+      *
+     c                   eval      b1kund = 0
+     c                   eval      b1kna1 = *blank
+     c                   eval      b1kna2 = *blank
+     c                   eval      b1kpro = 0
+     c                   eval      b1pna1 = *blank
+     c                   eval      b1pna2 = *blank
+     c                   eval      b1krsp = *blank
+     c                   eval      b1sav1 = *blank
+     c                   eval      b1sav2 = *blank
+     c                   eval      b1sav3 = *blank
+      *
+     c                   eval      w_kund_gml = 0
+     c                   eval      w_kpro_gml = 0
+      *
+     c                   eval      b_kprs = *off
+     c                   eval      *in70 = *off
+     c                   eval      *in71 = *off
+      *
+     c                   goto      b1taga
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for sjekking av input-felter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_input   begsr
+      *
+     c                   eval      b_feil = *off
+      *
+     c                   if        b1kund <> 0
+     c                   eval      rkunl1_kund = b1kund
+     c     rkunl1_key    chain     rkunl1                             32
+     c                   if        *in32 = *on
+     c                   eval      b_feil = *on
+     c                   goto      end_sjekk
+     c                   endif
+     c                   endif
+      *
+6.11  * test om kunden er sperret
+6.11  *
+6.11 c                   if        rksprk = 'J'
+6.11 c                   eval      *in34  = *on
+6.11 c                   eval      b_feil = *on
+6.11 c                   goto      end_sjekk
+6.11 c                   endif
+      *
+     c                   if        b1kpro <> 0
+     c                   eval      fkprl1_kund = b1kund
+     c                   eval      fkprl1_kpro = b1kpro
+     c     fkprl1_key    chain     fkprl1                             33
+     c                   if        *in33 = *on
+     c                   eval      b_feil = *on
+     c                   goto      end_sjekk
+     c                   endif
+     c                   endif
+5.60  *
+5.60  * Videre kontroll på almenningsrabatt og grenser
+5.60  * Benytt beløpsgrense almenning fra kunde dersom utfylt
+5.60  *
+5.60 c                   if        rkgral <> 0
+5.60 c                   eval      s_gral = rkgral
+5.60  *
+5.60 c                   else
+5.60  *
+5.60  * Ellers hent beløpsgrense almenning
+5.60  *
+5.60 c                   call      'FO106R'
+5.60 c                   parm                    b1kund
+5.60 c                   parm                    w_bgrn
+5.60  *
+5.60 c                   eval      s_gral = w_bgrn
+5.60 c                   endif
+6.21  * Henter inn informasjon om memosaldo
+6.21 c     rkunl1_key    chain     rkmel1
+6.21  *
+5.60 c                   eval      s_kjal = rkkjal + rkmema
+      *
+     c     end_sjekk     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kvittering på skjerm
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     kvittering    begsr
+      *
+     c                   eval      b1kna1 = *blank
+     c                   eval      b1kna2 = *blank
+      *
+     c                   eval      b1pna1 = *blank
+     c                   eval      b1pna2 = *blank
+      *
+     c                   eval      *in70 = *off
+     c                   eval      b1krsp = *blank
+      *
+     c                   eval      *in71 = *off
+     c                   eval      b1sav1 = *blank
+     c                   eval      b1sav2 = *blank
+     c                   eval      b1sav3 = *blank
+      *
+     c                   if        b1kund <> 0
+      *
+     c                   eval      rknavn = %trim(rknavn)
+     c                   eval      b1kna1 = %subst(rknavn:1:19)
+     c                   eval      b1kna2 = %subst(rknavn:20:11)
+      *
+     c                   if        rkkres = 1
+     c                   eval      *in70  = *on
+     c                   eval      b1krsp = 'KREDITSPERRE !'
+     c                   endif
+      *
+     c                   eval      rksal1_saku = b1kund
+     c     rksal1_key    chain     rksal1                             91
+     c                   if        *in91 = *off
+     c                   eval      *in71 = *on
+     c                   eval      w_savt = %trim(rksat1) + ' ' +
+     c                                      %trim(rksat2)
+     c                   eval      b1sav1 = %subst(w_savt:1:19)
+     c                   eval      b1sav2 = %trim(%subst(w_savt:20:19))
+     c                   eval      b1sav3 = %trim(%subst(w_savt:39:19))
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   if        b1kpro <> 0
+     c                   eval      flnavn = %trim(flnavn)
+     c                   eval      b1pna1 = %subst(flnavn:1:19)
+     c                   eval      b1pna2 = %subst(flnavn:20:11)
+     c                   endif
+      *
+      * Oversetter navn til store bokstaver dersom dette er valgt
+      *
+     c                   if        faahoy = 1
+     c     lo:up         xlate     b1kna1        b1kna1
+     c     lo:up         xlate     b1kna2        b1kna2
+     c     lo:up         xlate     b1pna1        b1pna1
+     c     lo:up         xlate     b1pna2        b1pna2
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for oppslag på kundeprosjekt
+      *
+     c     fkprl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fkprl1_kund
+     c                   kfld                    fkprl1_kpro
+      *
+     c     fkprl1_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    fkprl1_kund
+      *
+      * Key for oppslag på kunde spesialavtale
+      *
+     c     rksal1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rksal1_saku
+      *
+      * Key for oppslag på status
+      *
+     c     fstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+5.60  *
+5.60  * Nullstilling variabler
+5.60  *
+5.60 c                   eval      s_fort = 0
+5.60 c                   eval      b2fort = 0
+      *
+      * Hent opplysninger fra ofak koderegister
+      *
+     c     fstsl1_key    chain     fstsl1r
+      *
+     c                   endsr

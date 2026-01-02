@@ -1,0 +1,96 @@
+      PGM        parm(&dir &valg &in03 &fil &lib &mbr &utf)
+      DCL        VAR(&dir)  TYPE(*CHAR) LEN(60)
+      DCL        VAR(&udir) TYPE(*CHAR) LEN(60)
+      DCL        VAR(&valg) TYPE(*char) LEN(1)
+      DCL        VAR(&in03) TYPE(*char) LEN(1)
+      DCL        VAR(&fil)  TYPE(*char) LEN(10)
+      DCL        VAR(&lib)  TYPE(*char) LEN(10)
+      DCL        VAR(&mbr)  TYPE(*char) LEN(10)
+      DCL        VAR(&utf)  TYPE(*CHAR) LEN(60)
+      DCL        VAR(&MLD1) TYPE(*CHAR) LEN(30)
+      DCL        VAR(&MLD2) TYPE(*CHAR) LEN(30)
+      DCL        VAR(&POSX) TYPE(*DEC) LEN(2 0) VALUE(5)
+      DCL        VAR(&POSY) TYPE(*DEC) LEN(2 0) VALUE(5)
+      dcl        var(&usr)  type(*char) len(10)
+      dcl        var(&job)  type(*char) len(10)
+      dcl        var(&msg)  type(*char) len(100)
+/*                                                                   */
+dsp:  DSPLNK     OBJ(&dir) OUTPUT(*PRINT)
+      monmsg     msgid(CPFA0A9) exec(do)
+         crtdir  dir('\asp') dtaaut(*RWX) objaut(*none)
+         monmsg  msgid(cpf0000)
+         chgvar  var(&udir)  value(%sst(&dir 1 8))
+         crtdir  dir(&udir) dtaaut(*RWX) objaut(*none)
+         monmsg  msgid(cpf0000)
+         goto    cmdlbl(dsp)
+      enddo
+logok:
+/*    wrkobjlck  HentIfsW *file     */
+      cpysplf    file(qsysprt) tofile(*curlib/HentIfsW) +
+                   splnbr(*last) jobsysname(*only)
+      monmsg     msgid(cpf9812) exec(do)
+        crtpf    file(*curlib/HentIfsw) rcdlen(132)
+        goto     cmdlbl(logok)
+      enddo
+      monmsg     msgid(cpf9845) exec(do)
+        chgvar   var(&mld1) value('En annen kjører rutina/sperrer')
+        chgvar   var(&mld2) value('Tast: wrkobjlck hentifsw *file')
+        call     pgm(aa006c) parm(&posx &posy &mld1 &mld2)
+        dlyjob   dly(5)
+        chgvar   var(&in03)   value('1')
+        goto     cmdlbl(end)
+      enddo
+
+      dltsplf    file(qsysprt) splnbr(*last)
+
+      call       pgm(hentifsr) parm(&dir &valg &in03 &fil &lib)
+
+      if         cond(&in03 *eq '1') then(do)
+        goto     cmdlbl(end)
+      enddo
+      if         cond(&valg *eq '1') then(do)
+clr:    clrpfm   file(&lib/&fil) mbr(&mbr)
+        monmsg     msgid(cpf3142) exec(do)
+          crtpf    file(&lib/&fil) rcdlen(512) maxmbrs(*nomax) +
+                          size(*nomax)
+          goto     clr
+        enddo
+        monmsg     msgid(cpf3141) exec(do)
+          addpfm   file(&lib/&fil) mbr(&mbr)
+          goto     clr
+        enddo
+
+        chgvar     var(&utf) value('/qsys.lib/' *tcat +
+                   &lib *tcat '.lib/' +
+                   *tcat &fil *tcat '.file/' +
+                   *tcat &mbr *tcat '.mbr')
+
+/*  Ta vare på ifs-område og fildefiniesjon for ev senere oppdat  */
+/*      chgdtaara  dtaara(*lda (02 60)) value(&dir)  Tas med som  */
+/*      chgdtaara  dtaara(*lda (70 60)) value(&utf)  parameter    */
+
+        cpyfrmstmf fromstmf(&dir) tombr(&utf) mbropt(*add) +
+                   stmfcodpag(*PCASCII)
+        monmsg     msgid(cpfa095) exec(do)
+          cpyfrmstmf fromstmf(&dir) tombr(&utf) mbropt(*add) +
+                     stmfcodpag(*stmf)
+          monmsg     msgid(cpfa09e cpfa095) exec(do)
+/*          Bruker står inne på regnearket og sperrer dette for bruk   */
+            chgvar   var(&mld1) value('Står du inne på regnearket?')
+            chgvar   var(&mld2) value('Gå ut av det og prøv på nytt.')
+            call     pgm(aa006c) parm(&posx &posy &mld1 &mld2)
+            dlyjob   dly(3)
+            goto     cmdlbl(end)
+          enddo
+        enddo
+
+/*  Logge til ADBxxx/NXLOPF om hva som er hentet av hvem                 */
+        rtvdtaara    dtaara(*lda (911 10)) rtnvar(&usr)
+        rtvjoba      job(&job)
+        chgvar       var(&msg)   value('Bruker ' *cat &usr *tcat +
+                                 ' har hentet ' *cat &dir *tcat +
+                                 ' til ' *cat &utf)
+        call         pgm(egd97c) parm(&job 'HENTIFSC  ' '001' &msg)
+
+      enddo     /*  if         cond(&valg *eq '1') then(do)    */
+end:  ENDPGM

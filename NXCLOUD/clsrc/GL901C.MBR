@@ -1,0 +1,279 @@
+/*                                                                   */
+/* 220324 bsa SEPA format som avregningsretur.              8.01     */
+/* 140524 bsa Tar kopi av fila                              8.02     */
+/* 110924 bsa Utvider mottaksfil og vasker tomrom i XML     8.03     */
+/*                                                                   */
+/*                                                                   */
+/*                                                                   */
+/*------------------------------------------------------------------ */
+             PGM        PARM(&FMOT &FAVR &FOCR &FKTO &FINK &FTFF &FIFS)
+
+             DCL        VAR(&FMOT) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FAVR) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FOCR) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FKTO) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FINK) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FTFF) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FIFS) TYPE(*CHAR) LEN(45)
+             DCL        VAR(&IFSV) TYPE(*CHAR) LEN(65)
+
+             DCL        VAR(&BIBL) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&PATH) TYPE(*CHAR) LEN(50)
+/*8.01*/     DCL        VAR(&PAT1) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&BANE1) TYPE(*CHAR) LEN(10) +
+                          VALUE('/qsys.lib/')
+             DCL        VAR(&BANE2) TYPE(*CHAR) LEN(27) +
+                          VALUE('.lib/gstrpf.file/gstrpf.mbr')
+/*8.01*/     DCL        VAR(&BANE3) TYPE(*CHAR) LEN(27) +
+/*8.01*/                  VALUE('.lib/gsewpf.file/gsewpf.mbr')
+
+/*8.01*/     DCL        VAR(&CO402_KEY) TYPE(*CHAR) LEN(50)
+/*8.01*/     DCL        VAR(&CO402_V1)  TYPE(*CHAR) LEN(1)
+/*8.01*/     DCL        VAR(&CO402_V2)  TYPE(*CHAR) LEN(2048)
+/*8.01*/     dcl        var(&fgr)       type(*char) len(3)
+/*8.01*/     dcl        var(&fix)       type(*char) len(3)
+/*8.01*/     dcl        var(&fir)       type(*dec)  len(3 0) value(0)
+/*8.01*/     dcl        var(&lag)       type(*dec)  len(3 0) value(0)
+/*8.02*/     dcl        var(&bdir)      type(*char) len(100)
+/*8.02*/     dcl        var(&bfil)      type(*char) len(100)
+/*8.02*/     dcl        var(&nfil)      type(*char) len(50)
+
+/* Tømmer returfilen GRETPF:                                          */
+
+             CLRPFM     FILE(*LIBL/GRETPF)
+
+/*      Tømmer hjelpefilen GSTRPF:                                    */
+             CLRPFM     FILE(*LIBL/GSTRPF)
+
+/*      Tømmer hjelpefilen GSEWPF:                                    */
+/*8.03*/     DLTF       FILE(GSEWPF)
+/*8.03*/     MONMSG     MSGID(CPF0000)
+/*8.03*/     CRTPF      FILE(*CURLIB/GSEWPF) RCDLEN(1024) +
+/*8.01*/                MAXMBRS(*NOMAX) SIZE(*NOMAX)
+/*8.01*/     MONMSG     MSGID(CPF0000)
+
+/*8.03*/     CLRPFM     FILE(*LIBL/GWSEPF)
+/*8.01*/     CLRPFM     FILE(*LIBL/GSEWPF)
+/*8.01*/     CLRPFM     FILE(*LIBL/GSEPPF)
+
+/* Henter *CURLIB:                                                    */
+
+             RTVDTAARA  DTAARA(*LDA (934 6)) RTNVAR(&BIBL)
+
+/*   Bygger path til bruk i IFS-kommandoen:                           */
+             CHGVAR     VAR(&PATH) VALUE(&BANE1 *CAT &BIBL *CAT &BANE2)
+/*8.01*/     CHGVAR     VAR(&PAT1) VALUE(&BANE1 *CAT &BIBL *CAT &BANE3)
+
+/* 8.01 Hvis SEPA retur, les inn disse til mdil tabell                */
+/*8.01*/     CHGVAR     VAR(&CO402_KEY) VALUE('AVREGNINGSRETUR_FORMAT')
+/*8.01*/     rtvdtaara  dtaara(*lda (931 3)) rtnvar(&fgr)
+/*8.01*/     rtvdtaara  dtaara(*lda (944 3)) rtnvar(&fix)
+/*8.01*/     chgvar     var(&fir)   value(&fix)
+
+/*8.01*/     CALL       PGM(CO402R) PARM(&FGR &FIR &LAG &CO402_KEY +
+/*8.01*/                  &CO402_V1 &CO402_V2)
+
+/* Henter inn og kopierer Mottaksretur                                */
+
+             CHGVAR     VAR(&IFSV) VALUE(&FIFS *TCAT &FMOT)
+/*8.01*/     IF         COND(&CO402_V1 *EQ '1') THEN(do)
+/*8.01*/     CPYFRMSTMF FROMSTMF(&IFSV) TOMBR(&PAT1) MBROPT(*ADD) +
+/*8.01*/                STMFCODPAG(*PCASCII)
+/*8.01*/     MONMSG     MSGID(CPF0000)
+
+/* Overfører GWSEPF til GSEPPF:                                       */
+/*8.03*/     CPYF       FROMFILE(*LIBL/GSEWPF) TOFILE(*LIBL/GWSEPF) +
+/*8.03*/                  MBROPT(*REPLACE) FMTOPT(*NOCHK)
+/*8.03*/     MONMSG     MSGID(CPF0000)
+
+/*8.03*/     call       pgm(gs108r)
+
+/*8.03  Dette skjer nå  GS108R                                        */
+/*8.03       CPYF       FROMFILE(*LIBL/GSEWPF) TOFILE(*LIBL/GSEPPF) + */
+/*8.03                    MBROPT(*REPLACE) FMTOPT(*NOCHK)             */
+/*8.03       MONMSG     MSGID(CPF0000)                                */
+
+/*8.01 Kjør overføring til GATRPF                                     */
+/*8.01*/     CALL       PGM(GS109R)
+
+/*8.01*/     enddo
+/*8.01*/     else       cmd(do)
+             CPYFRMSTMF FROMSTMF(&IFSV) TOMBR(&PATH) MBROPT(*ADD) +
+                          STMFCODPAG(*PCASCII)
+             MONMSG     MSGID(CPF0000)
+/*8.01*/     enddo
+
+/*8.02  Sjekk om det er laget backup mappe ?                          */
+/*8.02*/     chgvar     var(&bdir) value(&FIFS *TCAT ('Backup'))
+/*8.02*/     crtdir     dir(&bdir) dtaaut(*rwx) objaut(*all)
+/*8.02*/     monmsg     msgid(cpfa0a0)
+/*8.02*/
+/*8.02  Lag unikt navn på backup file                                 */
+/*8.02*/     call       pgm(gl910r) parm(&fmot &nfil)
+/*8.02*/
+/*8.02  Ta kopi av fila til denne mappen                              */
+/*8.02*/     chgvar     var(&bfil)  value(&bdir *tcat '/' +
+/*8.02*/                *tcat &nfil)
+/*8.02*/     cpy        obj(&ifsv)  toobj(&bfil)
+/*8.02*/     monmsg     msgid(cpf0000)
+
+             RMVLNK     OBJLNK(&IFSv)
+             MONMSG     MSGID(CPF0000)
+
+/* Henter inn og kopierer Avregningsretur                             */
+
+             CHGVAR     VAR(&IFSV) VALUE(&FIFS *TCAT &FAVR)
+
+/*8.01*/     IF         COND(&CO402_V1 *EQ '1') THEN(do)
+/*8.01*/     CLRPFM     FILE(*LIBL/GSEWPF)
+/*8.01*/     MONMSG     MSGID(CPF0000)
+/*8.01*/     CLRPFM     FILE(*LIBL/GSEPPF)
+/*8.01*/     MONMSG     MSGID(CPF0000)
+/*8.01*/     CPYFRMSTMF FROMSTMF(&IFSV) TOMBR(&PAT1) MBROPT(*ADD) +
+/*8.01*/                STMFCODPAG(*PCASCII)
+/*8.01*/     MONMSG     MSGID(CPF0000)
+
+/* Overfører GWSEPF til GSEPPF:                                       */
+/*8.03*/     CPYF       FROMFILE(*LIBL/GSEWPF) TOFILE(*LIBL/GWSEPF) +
+/*8.03*/                  MBROPT(*REPLACE) FMTOPT(*NOCHK)
+/*8.03*/     MONMSG     MSGID(CPF0000)
+
+/*8.03*/     call       pgm(gs108r)
+
+/* Overfører GSEWPF til GSEPPF:                                       */
+/*8.03 Dette skjer nå i gs108r                                        */
+/*8.03       CPYF       FROMFILE(*LIBL/GSEWPF) TOFILE(*LIBL/GSEPPF) + */
+/*8.03                    MBROPT(*REPLACE) FMTOPT(*NOCHK)             */
+/*8.03       MONMSG     MSGID(CPF0000)                                */
+/*8.01 Kjør overføring til GATRPF                                     */
+/*8.01*/        CALL       PGM(GS110R)
+/*8.01*/     enddo
+/*8.01*/     else       cmd(do)
+             CPYFRMSTMF FROMSTMF(&IFSV) TOMBR(&PATH) MBROPT(*ADD) +
+                        STMFCODPAG(*PCASCII)
+             MONMSG     MSGID(CPF0000)
+/*8.01*/     enddo
+
+/*8.02  Sjekk om det er laget backup mappe ?                          */
+/*8.02*/     chgvar     var(&bdir) value(&FIFS *TCAT ('Backup'))
+/*8.02*/     crtdir     dir(&bdir) dtaaut(*rwx) objaut(*all)
+/*8.02*/     monmsg     msgid(cpfa0a0)
+/*8.02*/
+/*8.02  Lag unikt navn på backup file                                 */
+/*8.02*/     call       pgm(gl910r) parm(&favr &nfil)
+/*8.02*/
+/*8.02  Ta kopi av fila til denne mappen                              */
+/*8.02*/     chgvar     var(&bfil)  value(&bdir *tcat '/' +
+/*8.02*/                *tcat &nfil)
+/*8.02*/     cpy        obj(&ifsv)  toobj(&bfil)
+/*8.02*/     monmsg     msgid(cpf0000)
+
+             RMVLNK     OBJLNK(&IFSV)
+             MONMSG     MSGID(CPF0000)
+
+/* Henter inn og kopierer OCR-retur                                   */
+
+             CHGVAR     VAR(&IFSV) VALUE(&FIFS *TCAT &FOCR)
+             CPYFRMSTMF FROMSTMF(&IFSV) TOMBR(&PATH) MBROPT(*ADD) +
+                          STMFCODPAG(*PCASCII)
+             MONMSG     MSGID(CPF0000)
+
+/*8.02  Sjekk om det er laget backup mappe ?                          */
+/*8.02*/     chgvar     var(&bdir) value(&FIFS *TCAT ('Backup'))
+/*8.02*/     crtdir     dir(&bdir) dtaaut(*rwx) objaut(*all)
+/*8.02*/     monmsg     msgid(cpfa0a0)
+/*8.02*/
+/*8.02  Lag unikt navn på backup file                                 */
+/*8.02*/     call       pgm(gl910r) parm(&focr &nfil)
+/*8.02*/
+/*8.02  Ta kopi av fila til denne mappen                              */
+/*8.02*/     chgvar     var(&bfil)  value(&bdir *tcat '/' +
+/*8.02*/                *tcat &nfil)
+/*8.02*/     cpy        obj(&ifsv)  toobj(&bfil)
+/*8.02*/     monmsg     msgid(cpf0000)
+
+             RMVLNK     OBJLNK(&IFSV)
+             MONMSG     MSGID(CPF0000)
+
+/* Henter inn og kopierer Kontoinformasjon                            */
+
+             CHGVAR     VAR(&IFSV) VALUE(&FIFS *TCAT &FKTO)
+             CPYFRMSTMF FROMSTMF(&IFSV) TOMBR(&PATH) MBROPT(*ADD) +
+                          STMFCODPAG(*PCASCII)
+             MONMSG     MSGID(CPF0000)
+
+/*8.02  Sjekk om det er laget backup mappe ?                          */
+/*8.02*/     chgvar     var(&bdir) value(&FIFS *TCAT ('Backup'))
+/*8.02*/     crtdir     dir(&bdir) dtaaut(*rwx) objaut(*all)
+/*8.02*/     monmsg     msgid(cpfa0a0)
+/*8.02*/
+/*8.02  Lag unikt navn på backup file                                 */
+/*8.02*/     call       pgm(gl910r) parm(&fkto &nfil)
+/*8.02*/
+/*8.02  Ta kopi av fila til denne mappen                              */
+/*8.02*/     chgvar     var(&bfil)  value(&bdir *tcat '/' +
+/*8.02*/                *tcat &nfil)
+/*8.02*/     cpy        obj(&ifsv)  toobj(&bfil)
+/*8.02*/     monmsg     msgid(cpf0000)
+
+             RMVLNK     OBJLNK(&IFSV)
+             MONMSG     MSGID(CPF0000)
+
+/* Henter inn og kopierer Inkassoretur                                */
+
+             CHGVAR     VAR(&IFSV) VALUE(&FIFS *TCAT &FINK)
+             CPYFRMSTMF FROMSTMF(&IFSV) TOMBR(&PATH) MBROPT(*ADD) +
+                          STMFCODPAG(*PCASCII)
+             MONMSG     MSGID(CPF0000)
+
+/*8.02  Sjekk om det er laget backup mappe ?                          */
+/*8.02*/     chgvar     var(&bdir) value(&FIFS *TCAT ('Backup'))
+/*8.02*/     crtdir     dir(&bdir) dtaaut(*rwx) objaut(*all)
+/*8.02*/     monmsg     msgid(cpfa0a0)
+/*8.02*/
+/*8.02  Lag unikt navn på backup file                                 */
+/*8.02*/     call       pgm(gl910r) parm(&fink &nfil)
+/*8.02*/
+/*8.02  Ta kopi av fila til denne mappen                              */
+/*8.02*/     chgvar     var(&bfil)  value(&bdir *tcat '/' +
+/*8.02*/                *tcat &nfil)
+/*8.02*/     cpy        obj(&ifsv)  toobj(&bfil)
+/*8.02*/     monmsg     msgid(cpf0000)
+
+             RMVLNK     OBJLNK(&IFSV)
+             MONMSG     MSGID(CPF0000)
+
+
+/* Henter inn og kopierer Feilretur                                   */
+
+             CHGVAR     VAR(&IFSV) VALUE(&FIFS *TCAT &FTFF)
+             CPYFRMSTMF FROMSTMF(&IFSV) TOMBR(&PATH) MBROPT(*ADD) +
+                          STMFCODPAG(*PCASCII)
+             MONMSG     MSGID(CPF0000)
+
+/*8.02  Sjekk om det er laget backup mappe ?                          */
+/*8.02*/     chgvar     var(&bdir) value(&FIFS *TCAT ('Backup'))
+/*8.02*/     crtdir     dir(&bdir) dtaaut(*rwx) objaut(*all)
+/*8.02*/     monmsg     msgid(cpfa0a0)
+/*8.02*/
+/*8.02  Lag unikt navn på backup file                                 */
+/*8.02*/     call       pgm(gl910r) parm(&ftff &nfil)
+/*8.02*/
+/*8.02  Ta kopi av fila til denne mappen                              */
+/*8.02*/     chgvar     var(&bfil)  value(&bdir *tcat '/' +
+/*8.02*/                *tcat &nfil)
+/*8.02*/     cpy        obj(&ifsv)  toobj(&bfil)
+/*8.02*/     monmsg     msgid(cpf0000)
+
+             RMVLNK     OBJLNK(&IFSV)
+             MONMSG     MSGID(CPF0000)
+
+
+/* Overfører GSTRPF til GRETPF:                                       */
+
+             CPYF       FROMFILE(*LIBL/GSTRPF) TOFILE(*LIBL/GRETPF) +
+                          MBROPT(*REPLACE) FMTOPT(*NOCHK)
+             MONMSG     MSGID(CPF0000)
+
+
+             ENDPGM

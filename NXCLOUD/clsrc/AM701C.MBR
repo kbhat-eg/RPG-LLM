@@ -1,0 +1,143 @@
+/*                                                                   */
+/*-------------------------------------------------------------------*/
+/* 140303 MHA: Sender spoolfil over E-mail i PDF format              */
+/* 070715 ASK: Utvidet feltlengde &NUMM og &CNUMM etter utv.         */
+/*                                                                   */
+/* Beskrivelse av parametre:                                         */
+/* SPOOLNAME=Navnet på spoolfilen som skal sendes                    */
+/* SENDNAME=Navnet som filen skal få i mailen (uten .pdf etternavn)  */
+/* TIL=E-mail adressen til mottakeren                                */
+/* FRA=E-mail adressen til avsenderen                                */
+/* SUBJ=Emnet som skal brukes i mailen                               */
+/* STATUS=Statuskoder. 1=Kunne ikke hente info om spoolfile          */
+/*                     2=Kunne ikke kopiere spool til temp DB        */
+/*                     3=Kunne ikke sende AM702C til batch           */
+/*                     *blank=OK så langt                            */
+/* SETUPF=Bane og navn på ini-fil som skal brukes (på IFS).          */
+/* FOTNOTE=Kommentar som kommer nederst på sidene i PDF dokumentet   */
+/* KONTAKT=Kontaktperson / vår referanse                             */
+
+             PGM        PARM(&SPOOLNAME &SENDNAME +
+                         &TIL &FRA &SUBJ &STATUS +
+                         &TXT1 &TXT2 &TXT3 &TXT4 &SETUPF +
+                         &FOTNOTE &KONTAKT &KUND &NUMM)
+/* Parametre                                                         */
+             DCL        VAR(&SPOOLNAME) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&SENDNAME)  TYPE(*CHAR) LEN(10)
+             DCL        VAR(&TIL)       TYPE(*CHAR) LEN(50)
+             DCL        VAR(&FRA)       TYPE(*CHAR) LEN(50)
+             DCL        VAR(&SUBJ)      TYPE(*CHAR) LEN(250)
+             DCL        VAR(&STATUS)    TYPE(*CHAR) LEN(1)
+             DCL        VAR(&TXT1)      TYPE(*CHAR) LEN(50)
+             DCL        VAR(&TXT2)      TYPE(*CHAR) LEN(50)
+             DCL        VAR(&TXT3)      TYPE(*CHAR) LEN(50)
+             DCL        VAR(&TXT4)      TYPE(*CHAR) LEN(50)
+             DCL        VAR(&SETUPF)    TYPE(*CHAR) LEN(100)
+             DCL        VAR(&FOTNOTE)   TYPE(*CHAR) LEN(50)
+             DCL        VAR(&KONTAKT)   TYPE(*CHAR) LEN(50)
+             DCL        VAR(&KUND)      TYPE(*DEC) LEN(6 0)
+             DCL        VAR(&NUMM)      TYPE(*DEC) LEN(8 0)
+
+/* Diverse variabler....                                             */
+             DCL        VAR(&JOBNAME)   TYPE(*CHAR) LEN(10)
+             DCL        VAR(&USRNAME)   TYPE(*CHAR) LEN(10)
+             DCL        VAR(&JOBNUMBER) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&MEMBER)    TYPE(*CHAR) LEN(10)
+             DCL        VAR(&COUNTDEC)  TYPE(*DEC)  LEN(9)
+             DCL        VAR(&COUNTCHAR) TYPE(*CHAR) LEN(9)
+             DCL        VAR(&RCVLEN)    TYPE(*CHAR) LEN(4)
+             DCL        VAR(&RECEIVER)  TYPE(*CHAR) LEN(840)
+             DCL        VAR(&JOB)       TYPE(*CHAR) LEN(26)
+             DCL        VAR(&LENGTH)    TYPE(*CHAR) LEN(4)
+             DCL        VAR(&WIDTH)     TYPE(*CHAR) LEN(4)
+             DCL        VAR(&BINNBR)    TYPE(*CHAR) LEN(4)
+             DCL        VAR(&SPLNBR)    TYPE(*DEC)  LEN(6)
+             DCL        VAR(&FILENBR)   TYPE(*CHAR) LEN(6)
+             DCL        VAR(&FILE)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&CKUND)     TYPE(*CHAR) LEN(6)
+             DCL        VAR(&CNUMM)     TYPE(*CHAR) LEN(8)
+
+             DCL        VAR(&DUMMY)     TYPE(*CHAR) LEN(10) +
+                          VALUE('**********')
+             DCL        VAR(&PARM)      TYPE(*CHAR) LEN(1000)
+
+             MONMSG     MSGID(CPF0000)  EXEC(GOTO CMDLBL(END))
+
+/* Henter ut jobb attributter som brukes for å hente ut riktig spool */
+             RTVJOBA    JOB(&JOBNAME) USER(&USRNAME) NBR(&JOBNUMBER)
+
+             CHGVAR     VAR(&STATUS) VALUE('1')
+
+/* Henter ut info om spoolfile                                       */
+             CHGVAR     VAR(&SPLNBR)    VALUE(-1)
+             CHGVAR     VAR(&FILENBR)   VALUE(&SPLNBR)
+             CHGVAR     VAR(&JOB)       VALUE('*')
+
+             CHGVAR     VAR(%BIN(&BINNBR)) VALUE(&FILENBR)
+             CHGVAR     VAR(%BIN(&RCVLEN)) VALUE(840)
+             CALL       PGM(QUSRSPLA) PARM(&RECEIVER &RCVLEN +
+                          'SPLA0100' &JOB ' ' ' ' &SPOOLNAME &BINNBR)
+             CHGVAR     VAR(&LENGTH ) VALUE(%BIN(&RECEIVER 425 4))
+             CHGVAR     VAR(&WIDTH  ) VALUE(%BIN(&RECEIVER 429 4))
+
+             CHGVAR     VAR(&STATUS) VALUE('2')
+
+/* Generer temporær DB i QGPL                                        */
+             CHKOBJ     OBJ(QGPL/TMPSPOOL) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(CRTPF +
+                          FILE(QGPL/TMPSPOOL) RCDLEN(199) +
+                          MBR(M000000000) MAXMBRS(*NOMAX) SIZE(*NOMAX))
+
+/* Legger til nytt member i midlertidig base                         */
+             RTVMBRD    FILE(QGPL/TMPSPOOL) MBR(*LAST) RTNMBR(&MEMBER)
+             CHGVAR     VAR(&COUNTCHAR) VALUE(%SST(&MEMBER 2 9) )
+             CHGVAR     VAR(&COUNTDEC)  VALUE(&COUNTCHAR)
+             CHGVAR     VAR(&COUNTDEC)  VALUE(&COUNTDEC+1)
+             CHGVAR     VAR(&COUNTCHAR) VALUE(&COUNTDEC)
+             CHGVAR     VAR(&MEMBER)    VALUE('M' *CAT &COUNTCHAR)
+             ADDPFM     FILE(QGPL/TMPSPOOL) MBR(&MEMBER)
+
+/* Kopierer spoolfile til midlertidig DB                             */
+             CPYSPLF    FILE(&SPOOLNAME) TOFILE(QGPL/TMPSPOOL) +
+                          JOB(&JOBNUMBER/&USRNAME/&JOBNAME) +
+                          SPLNBR(*LAST) TOMBR(&MEMBER) +
+                          MBROPT(*REPLACE) CTLCHAR(*FCFC)
+
+             CHGVAR     VAR(&STATUS) VALUE('3')
+
+/* Sletter spoolfilen igjen                                          */
+
+             DLTSPLF    FILE(&SPOOLNAME) +
+                          JOB(&JOBNUMBER/&USRNAME/&JOBNAME) +
+                          SPLNBR(*LAST)
+
+
+/* Lager PDF og sender den med mail                                  */
+
+             CHGVAR     VAR(&CKUND) VALUE(&KUND)
+             CHGVAR     VAR(&CNUMM) VALUE(&NUMM)
+             CHGVAR     VAR(&PARM) VALUE(&MEMBER *CAT &WIDTH *CAT +
+                          &LENGTH *CAT &TIL *CAT &FRA *CAT &SUBJ +
+                          *CAT &FOTNOTE *CAT &KONTAKT *CAT &SETUPF +
+                          *CAT &SENDNAME *CAT &CKUND *CAT &CNUMM +
+                          *CAT &TXT1 *CAT &TXT2 *CAT &TXT3 *CAT +
+                          &TXT4 *CAT &DUMMY)
+
+             SBMJOB     CMD(CALL PGM(AM702C) PARM(&PARM)) +
+                          JOB(PDFSND) JOBPTY(7) USER(ASP) MSGQ(*NONE)
+/*           CALL       PGM(AM702C) PARM(&PARM)                      */
+
+             CHGVAR     VAR(&STATUS) VALUE(' ')
+
+/*                                                                   */
+ END:
+             IF         COND(&STATUS *EQ '1') THEN(SNDBRKMSG +
+                          MSG('Kunne ikke finne info om spoolfile') +
+                          TOMSGQ(&JOBNAME))
+             IF         COND(&STATUS *EQ '2') THEN(SNDBRKMSG +
+                          MSG('Kunne ikke kopiere spool til temp +
+                          DB') TOMSGQ(&JOBNAME))
+             IF         COND(&STATUS *EQ '3') THEN(SNDBRKMSG +
+                          MSG('Kunne ikke sende AM702C til batch') +
+                          TOMSGQ(&JOBNAME))
+             ENDPGM

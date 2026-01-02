@@ -1,0 +1,499 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : LM500R
+      * Beskrivelse . . : Logg-fil, spørring
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       160307 ASK  Nytt program
+6.nu  *       110614 bof  Sjekket mtp. nummerutvidelse
+7.xx  * 7.00  220316 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+7.00  * K00   220420 bsa  Utvidet skjermbile                           *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fllogl3    if   e           k disk    rename(llogpfr:llogl3r)
+     flloglr    if   e           k disk    rename(llogpfr:lloglrr)
+     fllokl1    if   e           k disk    rename(llokpfr:llokl1r)
+     flm500d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(lmfirm)
+     d p_numm          s                   like(lmnumm)
+     d p_suff          s                   like(lmsuff)
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d llogl3_numm     s                   like(lmnumm)
+     d llogl3_date     s                   like(lmdate)
+     d llogl3_time     s                   like(lmtime)
+     d lloglr_numm     s                   like(lmnumm)
+     d lloglr_suff     s                   like(lmsuff)
+     d lloglr_kode     s                   like(lmkode)
+     d lloglr_date     s                   like(lmdate)
+     d lloglr_time     s                   like(lmtime)
+     d llokl1_type     s                   like(lntype)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d b_valg_ok       s              1    inz(*off)
+      *
+     d w_firm          s                   like(lmfirm)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(8)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   eval      b2numm = p_numm
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2date <> 0
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+     c                   if        b_valg_ok = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for vising av loggdetaljer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     vis_logg      begsr
+      *
+     c                   eval      c2numm = 0
+     c                   eval      c2suff = 0
+     c                   eval      c2date = 0
+     c                   eval      c2time = 0
+     c                   eval      c2kode = *blank
+     c                   eval      c2user = *blank
+     c                   eval      c2wsid = *blank
+     c                   eval      c2jtxt = *blank
+      *
+     c                   eval      lloglr_numm = p_numm
+     c                   eval      lloglr_suff = b1suff
+     c                   eval      lloglr_kode = b1kode
+     c     *dmy          move      b1date        lloglr_date
+     c     *hms          move      b1time        lloglr_time
+     c     lloglr_key    chain     lloglrr
+      *
+     c                   if        %found
+     c                   eval      c2numm = lmnumm
+     c                   eval      c2suff = lmsuff
+     c                   eval      c2kode = lmkode
+     c                   eval      c2user = lmuser
+     c                   eval      c2wsid = lmwsid
+     c     *dmy          move      lmdate        c2date
+     c     *hms          move      lmtime        c2time
+      *
+      * Hent inn tekst
+      *
+     c                   eval      llokl1_type = lmkode
+     c     llokl1_key    chain     llokl1r
+     c                   if        %found
+     c                   eval      c2jtxt = lntext
+     c                   endif
+     c                   endif
+      *
+     c                   exfmt     c2win
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c     *dmy          test(d)                 b1date                 33
+     c                   if        *in33 = *on
+     c                   eval      llogl3_date = *loval
+     c                   else
+     c     *dmy          move      b1date        llogl3_date
+     c                   endif
+     c                   eval      llogl3_time = *loval
+     c     llogl3_key    setll     llogl3
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Dato
+      *
+     c                   if        b2date <> 0
+     c     *dmy          test(d)                 b2date                 33
+     c                   if        *in33 = *on
+     c                   eval      llogl3_date = *loval
+     c                   else
+     c     *dmy          move      b2date        llogl3_date
+     c                   endif
+     c                   eval      llogl3_time = *loval
+     c     llogl3_key    setll     llogl3
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2date = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+     c                   if        b1valg = 5
+     c                   exsr      vis_logg
+     c**                 eval      b_forn = *on
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      llogl3
+      *
+     c                   if        %eof or
+     c                             lmfirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   if        lmnumm <> p_numm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      llogl3_date = lmdate
+     c                   eval      llogl3_time = lmtime
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1kode = lmkode
+     c                   eval      b1suff = lmsuff
+     c     *dmy          move      lmdate        b1date
+     c     *hms          move      lmtime        b1time
+      *
+      * Hent inn tekst
+      *
+     c                   eval      b1jtxt = *blank
+     c                   eval      llokl1_type = lmkode
+     c     llokl1_key    chain     llokl1r
+     c                   if        %found
+     c                   eval      b1jtxt = lntext
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     llogl3_key    setgt     llogl3
+     c                   readp     llogl3
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     llogl3
+      *
+     c                   if        %eof or
+     c                             lmfirm <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   if        lmnumm <> p_numm
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      llogl3_date = lmdate
+     c                   eval      llogl3_time = lmtime
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     llogl3_key    setll     llogl3
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+      *
+      * Key for posisjonering på dato
+      *
+     c     llogl3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    llogl3_numm
+     c                   kfld                    llogl3_date
+     c                   kfld                    llogl3_time
+      *
+      * Key for lesing av logg-detaljer
+      *
+     c     lloglr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lloglr_numm
+     c                   kfld                    lloglr_suff
+     c                   kfld                    lloglr_kode
+     c                   kfld                    lloglr_date
+     c                   kfld                    lloglr_time
+      *
+      * Key for lesing av kodefil
+      *
+     c     llokl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    llokl1_type
+      *
+      * Henter parametre, og initierer skjermbildet
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      llogl3_numm = p_numm
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      llogl3_date = *loval
+     c                   eval      llogl3_time = *loval
+     c     llogl3_key    setll     llogl3
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

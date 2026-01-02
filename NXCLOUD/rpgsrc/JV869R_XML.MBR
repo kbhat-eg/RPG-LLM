@@ -1,0 +1,299 @@
+     H DFTACTGRP(*NO)
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASVADM
+      * Program . . . . : JV869R_XML
+      * Beskrivelse . . : Leser NOBB produsent  XML 8.0. Legger data i produsent variable.
+      *                   Kaller standard rpg program, som gjør sjekk av data
+      *                   og oppdatere basen
+      *
+      *                   Dette programmet er skrevet i free format RPG
+      *
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       040414 BKV  Nytt program
+6.30  * R6.30 300614 BKV  Korrigering av parameter def
+6.31  * R6.30 300614 BKV  Angi xpath i basen
+6.32  * R6.30 061014 BKV  Ok hvis ingen moduler, dvs retur dagens dato
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.31 fafpslr    if   e           k disk    rename(afpspfr:afpslrr)
+
+      * Definering av Local Data Area
+      *
+6.31 d                uds
+6.31 d l_user                911    920
+6.31 d l_firm                944    946  0
+6.31 d l_filg                931    933
+      *
+      * Definering av variabler i nøkler
+      *
+6.31 d afpslr_ufil     s                   like(l_filg)
+6.31 d afpslr_uide     s                   like(afuide)
+
+     d p_stat          s              1
+      * Brukes som parametre til jobblogging
+     d p_jnav          s             15
+     d p_jbid          s             41
+     d p_jtxt          s             35
+     d p_jsts          s              2  0
+     d p_jmld          s            200
+
+     d p_sistDato      s             10a
+     d p_sistProNr     s             20a
+6.32 d w_lest          s              1  0 Inz(0)
+
+      * Definering av tabell med meldinger
+     d a_meld          s            100    dim(1) ctdata perrcd(1)
+
+      *
+      * START NOBB 8.0 XML definisjon
+      *
+      * Path til produsent  taggen
+     D produsent_path...
+     D                 s             56a   Inz(
+     d                                     'PartnerProdusentRegisterResult/+
+     d                                     ProdusentListe/+
+     d                                     Produsent')
+
+      * taggen <Produsent>
+     d Produsent_t     ds                  Qualified
+     d   Navn...
+     d                              100a   varying
+     d   ProdusentNr...
+     d                                4a   varying
+
+      *
+      * stopp nobb 8.0 xml definisjon
+      *
+
+      *
+      *  Dataelementer produsent
+      *
+     d                 ds
+     d d_prec                       150
+     d  d_prnr                        4    overlay(d_prec:1)
+     d    d_prnr_num                  4  0 overlay(d_prnr:1)
+     d  d_navn                      100    overlay(d_prec:5)
+
+     d d_job_log                     50
+     d  w_aprot                       5    overlay(d_job_log:2)
+     d  w_apro                        5  0 overlay(w_aprot:1)
+
+     d b_inlr          s              1
+
+      * info og commarea må være likt def. de brukes ikke i programmet, men må
+      * være definert
+     d info            s             10a
+     d options         s            200a   varying
+
+      * prototype for externt program sjekker deltager og lagrer i basen
+      *  overfører vara datastruktur som parameter
+     d P_BehProd       pr                  extpgm('JV869R')
+     d  d_prec                      150
+     d  d_job_log                    50
+     d  b_inlr                        1
+
+     d p_ab705r        pr                  extpgm('AB705R')
+     d  p_jbid                       41
+     d  p_jsts                        2  0
+     d  p_jmld                      200
+
+     d p_ab710r        pr                  extpgm('AB710R')
+     d  p_jnav                       15
+     d  p_jbid                       41
+
+
+     d p_ab700r        pr                  extpgm('AB700R')
+     d  p_jnav                       15
+     d  p_jbid                       41
+     d  p_jtxt                       35
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       // ------------------------------------- prototypes
+     d JV869R_XML      pr                  extpgm('JV869R_XML')
+     d   filnavn                    255a   options(*varsize)
+6.30 d   lengde                       3p 0 const
+     d   sistedato                   10a
+       // ----------------------- main procedure interface
+     d JV869R_XML      pi
+     d   filnavn                    255    options(*varsize)
+6.30 d   lengde                       3p 0 const
+     d   sistedato                   10a
+
+     d   navnet        s            255a   varying
+6.30 d   len           s              3i 0
+
+6.31  *
+6.31  * Key for propertiesfil
+6.31  *
+6.31 c     afpslr_key    klist
+6.31 c                   kfld                    afpslr_ufil
+6.31 c                   kfld                    afpslr_uide
+
+      /free
+6.32   w_lest = 0;
+
+       len = lengde;
+       navnet = %trim(%subst(filnavn:1:len));
+
+       // vi starter jobblogging
+       p_jnav = 'PRODUSENTXML';
+       p_jtxt = *blank;
+       callp p_ab700r (p_jnav : p_jbid : p_jtxt);
+
+       w_apro = *zeros;
+
+6.31   //  Hent inn NOBB 80 XML path som skal brukes
+6.31   afpslr_ufil = l_filg;
+6.31   afpslr_uide = 'NOBB80PRO';
+6.31   chain afpslr_key afpslrr;
+6.31   if %found;
+6.31     produsent_path = *blanks;
+6.31     produsent_path = %trim(afudss);
+6.31   else;
+6.31     p_stat = '1';
+6.31   endif;
+
+6.31   if (p_stat <> '1');
+
+         b_inlr = *on;
+
+         options = 'doc=file +
+                    case=any +
+                    countprefix=count +
+                    datasubf=text +
+                    ns=remove +
+                    path='+produsent_path+' '+
+                   'allowmissing=yes +
+                    allowextra=yes';
+
+          // Bruker RPG xml-info til å lese xml filen.
+          // Behandling av innleste vgrupper gjøres av LesVgrupp
+          xml-into %handler(LesProdus : info) %xml(navnet: options);
+
+
+         b_inlr = *off;
+         CallP P_BehProd (d_prec : d_job_log : b_inlr);
+6.31   endif;
+
+       sisteDato = p_sistDato;
+6.32   // hvis w_lest er 0, så var det ingen elementer i XML, dvs tom liste, men det er ok
+6.32   if (sisteDato = '' and w_lest = 0);
+6.32     sisteDato = %char(%date(): *iso);
+6.32   endif;
+
+       // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       // Avslutt program
+       // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       // Vi oppsummerer
+
+       if (p_stat = '1');
+         p_jsts = 50;
+         p_jmld = 'Alvorlig feil oppstod i JV867R_XML';
+
+         CallP P_AB705R (p_jbid : p_jsts : p_jmld);
+
+       else;
+
+         p_jsts = 10;
+         p_jmld = *blanks;
+         p_jmld = %trim(a_meld(1)) + ' ' + %Char(w_apro);
+         CallP P_AB705R (p_jbid : p_jsts : p_jmld);
+
+       endif;
+
+       CallP P_AB710R (p_jnav : p_jbid );
+
+       *inlr = *on;
+
+       /end-free
+
+      *
+      * Denne proseduren mottar 5 og 5 Grupper fra XML filen
+      *
+      *
+     P LesProdus       B
+     D LesProdus       pi            10i 0
+     D   commArea                    10a
+     D   Produs                            likeds(Produsent_t)
+     D                                     dim(5) const
+     D   count                       10u 0 value
+
+     D t               s             10u 0
+     D d               s              5i 0
+     D e               s              5i 0
+     D
+      /free
+
+         for t = 1 to count;
+
+           BehProdus(Produs(t));
+6.32       w_lest = 1;
+
+
+         endfor;
+         return 0;
+
+      /end-free
+     P LesProdus       E
+
+
+
+      *
+      * Behandler 1 overgruppe. Overføre overgruppe data til data struktur
+      * og kaller programmet P_BehDelt
+     P BehProdus       B
+     D BehProdus       pi            10i 0
+     D   Produs                            likeds(Produsent_t) const
+     D
+     D t_teller        s              5i 0
+     D t_teller2       s              5i 0
+     c
+     c
+      /free
+
+       ProdusInit();
+       d_prnr_num   = %Int(Produs.ProdusentNr) ;
+       d_navn       = Produs.Navn ;
+
+       CallP P_BehProd (d_prec : d_job_log : b_inlr);
+
+       p_sistDato = %Char( %date()) ;
+       p_sistProNr = Produs.ProdusentNr;
+
+       return 0;
+
+      /end-free
+
+     P BehProdus       E
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av deltager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     P ProdusInit      B
+     D
+     D t_teller        s              5i 0
+      /free
+
+       d_prec = *blank;
+       d_prnr_num = *zero;
+       d_navn = *blank;
+
+
+      /end-free
+     P ProdusInit      E
+
+**
+Antall nye produsenter er:

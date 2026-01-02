@@ -1,0 +1,946 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : HR141R
+      * Beskrivelse . . : Radioterminal trans, lagerlokasjoner
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       171005 ASK  Nytt program
+      *       011107 bø   Hvis vare ikke finnes ved scanning - legg i JVSCAPF
+5.61  *       080109 bø   Kaller mot cl ved scanne-sjekk
+5.62  *       080109 bø   Lagt inn test av vare mot lagerregister
+      * 6.10  260609 BSA  Oppdatert med sporingsinformasjon
+6.11  * 6.10  130709 bof  Utivdet eannr til 14 og brukt std. oppslag
+6.12  * R6.10 090512 AMD  Det er lagt inn mulighet for å kunne legge
+6.12  *                   inn lokasjon på alternativ 1 og 2
+6.20  * 6.20  310812 bof  Nytt felt, endringsdato for faste data som vises
+6.31  * 6.30  151018 bof  Utvidet med nytt trelast-sortiment
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       16 = Readc 16 on, no more records
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fhrtrl2    if   e           k disk    rename(hrtrpfr:hrtrl2r)
+     fhrtrlr    if   e           k disk    rename(hrtrpfr:hrtrlrr)
+     fhrtrlu    uf a e           k disk    rename(hrtrpfr:hrtrlur)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvarl4    if   e           k disk    rename(vvarpfr:vvarl4r)
+     fvvenl2    if   e           k disk    rename(vvenpfr:vvenl2r)
+     flstsl1    if   e           k disk    rename(lstspfr:lstsl1r)
+     fvlaglr    if   e           k disk    rename(vlagpfr:vlaglrr)
+     fvlaglu    uf   e           k disk    rename(vlagpfr:vlaglur)
+      *
+     fhr141d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(vlfirm)
+     d p_kode          s                   like(hrkode)
+     d p_tims          s                   like(hrtims)
+     d p_lage          s                   like(vllage)
+     d p_loka          s                   like(vlplas)
+6.12 d p_pla1          s                   like(vlplas)
+6.12 d p_pla2          s                   like(vlplas)
+     d p_vars          s              1
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+      *
+      * Datastruktur - EAN128
+      *
+     d                 ds
+     d d_e128                        26
+6.11 d  d_fast                        2  0 overlay(d_e128)
+6.11 d  d_eann                       14  0 overlay(d_e128:3)
+     d  d_kode                        4  0 overlay(d_e128:17)
+     d  d_anta                        6  2 overlay(d_e128:21)
+      *
+      * Definering av variabler i nøkler
+      *
+     d hrtrlr_vare     s                   like(hrvare)
+     d hrtrlr_enhe     s                   like(hrenhe)
+     d hrtrlu_vare     s                   like(hrvare)
+     d hrtrlu_enhe     s                   like(hrenhe)
+     d vvarl1_vare     s                   like(vvvare)
+     d vvarl4_lvar     s                   like(vvlvar)
+     d vvenl2_vare     s                   like(vevare)
+     d vvenl2_saen     s                   like(vesaen)
+     d vlaglr_lage     s                   like(vllage)
+     d vlaglr_vare     s                   like(vlvare)
+     d vlaglu_lage     s                   like(vllage)
+     d vlaglu_vare     s                   like(vlvare)
+      *
+      * Definering av variable
+      *
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_scan          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+     d b_oppd          s              1    inz(*off)
+     d b_bunt          s              1    inz(*off)
+      *
+     d w_udat          s               d   datfmt(*iso)
+     d w_scan          s             26
+5.61 d w_sctx          s             30
+     d w_leng          s              2  0
+     d w_posi          s              2  0
+     d w_vare          s             15
+     d w_varn          s              8  0
+6.11 d w_eanx          s             14
+     d w_kod2          s              1
+     d w_fell          s              6
+     d w_type          s              2
+     d w_fast          s             10
+     d w_stek          s             35
+     d x               s              1  0
+      *
+     d w_firm          s                   like(hrfirm)
+     d w_kode          s                   like(hrkode)
+     d w_tims          s                   like(hrtims)
+     d w_enhe          s                   like(hrenhe)
+     d w_anta          s                   like(hranta)
+     d w_dato          s                   like(hrdato)
+     d w_time          s                   like(hrtime)
+     d w_anta_kalk     s                   like(hranta)
+6.11 d w_eava          s                   like(vvvare)
+6.11 d w_eaen          s                   like(vvenhe)
+6.11 d w_eann          s             14  0
+6.11 d w_east          s              1
+6.31 d w_lv_vare       s                   like(vvlvar)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(6)
+     d c_digi          c                   '0123456789 '
+     d c_null          c                   '0000000000000'
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_srrn - Relativt recordnummer i subfile
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * wvisrn - Vis den side som inneholder denne record.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * E1BLD  - E1 Skjermbilde for avslutning av registreringsbunt
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.31 C/Exec SQL
+6.31 C+  Set Option DatFmt=*ISO
+6.31 C/End-Exec
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   eval      *in22 = *on
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   eval      *in22 = *on
+     c                   goto      b2tagb
+     c                   endsl
+      *
+      * F4=Spørring på vare
+      *
+     c                   if        *inkd
+     c                   eval      b2sca1 = *blank
+     c                   eval      b2sca2 = *blank
+     c                   call      'VV580R'
+     c                   parm                    w_firm
+     c                   parm                    b2sca1
+     c                   parm                    w_stek
+     c                   eval      *in22 = *on
+     c                   if        b2sca1 = *blank
+     c                   goto      b2tagb
+     c                   endif
+     c                   endif
+      *
+      * Behandling av scanning
+      *
+     c                   if        b2sca1 <> *blank or
+     c                             b2sca2 <> *blank
+     c                   exsr      scanning
+     c                   eval      *in22 = *on
+     c                   if        b_feil = *on
+     c                   goto      b2tagb
+     c                   else
+     c                   goto      b2taga
+     c                   endif
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+      * Oppdaterer lagerregister
+      *
+     c                   exsr      oppdater
+     c                   if        b_oppd = *off
+     c                   goto      b2taga
+     c                   endif
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av scanning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     scanning      begsr
+      *
+      * Identifisering av vare foregår etter følgende rekkefølge, hvor
+      * lengden på varenummeret, og om varenummer er alfa eller numerisk
+      * er avgjørende:
+      *
+      * 1) alfa:
+      *      - Lev. varenummer (første 15 pos.)
+      * 2) num + lengde = 26:
+      *      - EAN-128
+      * 3) num + lengde <= 8:
+      *      - Varenr
+6.11  * 4) num + lengde <= 14:
+      *      - EAN-nummer
+      * 5) num + lengde < 26:
+      *      - Lev. varenummer (første 15 pos.)
+      *
+     c                   eval      b_feil = *off
+     c                   eval      b_scan = *on
+      *
+     c                   eval      w_anta = 0
+      *
+     c                   eval      w_scan = %trim(b2sca1) + %trim(b2sca2)
+      *
+     c                   eval      w_leng = %len(%trim(w_scan))
+      *
+      * Sjekker om scannefelt inneholder alfa-verdi
+      *
+     c     c_digi        check     w_scan        w_posi
+      *
+      * Behandling dersom alfa
+      *
+     c                   if        w_posi > 0
+6.31  * sjekker om logistikk-vare
+6.31 c                   eval      w_lv_vare = *blank
+6.31 c/exec sql
+6.31 c+ select vvlvnr
+6.31 c+ into   :w_lv_vare
+6.31 c+ from   vvlepf
+6.31 c+ where  vvllva = :w_scan
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+6.31 c                   if        w_lv_vare <> *blank
+6.31 c                   movel     w_lv_vare     w_varn
+6.31 c                   exsr      xc2bld
+6.31 c                   goto      end_scan
+6.31 c                   endif
+      *
+     c                   eval      vvarl4_lvar = w_scan
+     c     vvarl4_key    chain     vvarl4
+     c                   if        %found
+     c***                eval      w_vare = vvvare
+     c                   movel     vvvare        w_varn
+     c                   exsr      xc2bld
+     c                   goto      end_scan
+     c                   endif
+      *
+5.61 c**                 call      'JV871R '
+5.61 c                   call      'LL871C '
+     c                   parm                    w_scan
+5.61 c                   parm                    w_sctx
+      *
+     c                   eval      b_feil = *on
+     c                   eval      *in31 = *on
+     c                   goto      end_scan
+      *
+     c                   endif
+      *
+      * Behandling dersom lengde = 26
+      *
+     c                   if        w_leng = 26
+      *
+     c                   eval      d_e128 = w_scan
+6.11 c                   eval      w_eann = d_eann
+6.11 c                   call      'VE710R  '
+6.11 c                   parm                    w_firm
+6.11 c                   parm                    w_eann
+6.11 c                   parm                    w_eava
+6.11 c                   parm                    w_eaen
+6.11 c                   parm                    w_east
+6.11 c                   if        w_east = '1'
+6.11 c                   eval      vvarl1_vare = w_eava
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+     c***                eval      w_vare = vvvare
+     c                   movel     vvvare        w_varn
+     c                   eval      w_anta = d_anta
+     c                   exsr      xc2bld
+     c                   goto      end_scan
+     c                   endif
+     c                   endif
+      *
+5.61 c**                 call      'JV871R '
+5.61 c                   call      'LL871C '
+     c                   parm                    w_scan
+5.61 c                   parm                    w_sctx
+      *
+     c                   eval      b_feil = *on
+     c                   eval      *in31 = *on
+     c                   goto      end_scan
+      *
+     c                   endif
+      *
+      * Behandling dersom lengde <= 8
+      *
+     c                   if        w_leng <= 8
+      *
+     c                   eval      w_vare = %subst(c_null:1:8-w_leng) +
+     c                                      w_scan
+      *
+     c                   eval      vvarl1_vare = w_vare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+     c***                eval      w_vare = vvvare
+     c                   movel     vvvare        w_varn
+     c                   exsr      xc2bld
+     c                   goto      end_scan
+     c                   endif
+      *
+     c                   endif
+      *
+6.11  * Behandling dersom lengde <= 14
+      *
+6.11 c                   if        w_leng <= 14
+      *
+6.11 c                   eval      w_eanx = %subst(c_null:1:14-w_leng) +
+     c                                      w_scan
+      *
+6.11 c                   movel     w_eanx        w_eann
+6.11 c                   call      'VE710R  '
+6.11 c                   parm                    w_firm
+6.11 c                   parm                    w_eann
+6.11 c                   parm                    w_eava
+6.11 c                   parm                    w_eaen
+6.11 c                   parm                    w_east
+6.11 c                   if        w_east = '1'
+     c                   eval      vvarl1_vare = w_eava
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+     c***                eval      w_vare = vvvare
+     c                   movel     vvvare        w_varn
+     c                   exsr      xc2bld
+     c                   goto      end_scan
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+      * Behandling dersom lengde < 26 (samlepost)
+      *
+6.31  * sjekker om logistikk-vare
+6.31 c                   eval      w_lv_vare = *blank
+6.31 c/exec sql
+6.31 c+ select vvlvnr
+6.31 c+ into   :w_lv_vare
+6.31 c+ from   vvlepf
+6.31 c+ where  vvllva = :w_scan
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+6.31 c                   if        w_lv_vare <> *blank
+6.31 c                   movel     w_lv_vare     w_varn
+6.31 c                   exsr      xc2bld
+6.31 c                   goto      end_scan
+6.31 c                   endif
+      *
+     c                   eval      vvarl4_lvar = w_scan
+     c     vvarl4_key    chain     vvarl4
+     c                   if        %found
+     c***                eval      w_vare = vvvare
+     c                   movel     vvvare        w_varn
+     c                   exsr      xc2bld
+     c                   goto      end_scan
+     c                   endif
+      *
+      * Setter feil-indikator dersom vare ikke ble funnet
+      *
+5.61 c**                 call      'JV871R '
+5.61 c                   call      'LL871C '
+     c                   parm                    w_scan
+5.61 c                   parm                    w_sctx
+      *
+     c                   eval      b_feil = *on
+     c                   eval      *in31 = *on
+     c                   goto      end_scan
+      *
+     c     end_scan      tag
+      *
+     c                   eval      b_scan = *off
+      *
+     c                   if        b_feil = *off
+     c                   eval      b2sca1 = *blank
+     c                   eval      b2sca2 = *blank
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   eval      b2sca1 = *blank
+     c                   eval      b2sca2 = *blank
+      *
+     c     hrtrl2_key    setll     hrtrl2
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+      * Beholder eksisterende posisjonering i subfilen
+      *
+     c                   if        wcurrn > 0
+     c                   eval      wvisrn = wcurrn
+     c                   endif
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl                                  16
+      *
+     c                   if        *in16
+     c                   leave
+     c                   endif
+      *
+     c                   eval      wvisrn = w_srrn
+     c                   eval      *in22 = *off
+      *
+      * Slette post
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1vare = b1vare
+     c                   exsr      xd1bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+      * Henter vareinformasjon
+      *
+     c***                eval      vvarl1_vare = w_vare
+     c                   eval      vvarl1_vare = *blank
+     c                   movel     w_varn        vvarl1_vare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        not %found
+     c                   goto      end_c2bld
+     c                   endif
+      *
+     c                   eval      vvtek1 = %trim(vvtek1)
+      *
+      * Sjekk lagerinformasjon
+      *
+5.62 c                   movel     w_varn        vlaglr_vare
+5.62 c                   eval      vlaglr_lage = p_lage
+5.62 c     vlaglr_key    chain     vlaglr
+5.62 c                   if        not %found(vlaglr)
+5.62 c                   exsr      xg1bld
+5.62 c                   goto      end_c2bld
+5.62 c                   else
+6.12  *
+     c                   if        p_vars = 'J'
+     c                   if        vlplas <> *blank and
+6.12 c                             p_loka <> *blank and
+     c                             vlplas <> p_loka
+     c                   exsr      avvk_loka
+     c                   if        b_feil = *on
+     c                   goto      end_c2bld
+     c                   endif
+     c                   endif
+     c                   endif
+6.12  *
+6.12 c                   if        p_vars = 'J'
+6.12 c                   if        vlpla1 <> *blank and
+6.12 c                             p_pla1 <> *blank and
+6.12 c                             vlpla1 <> p_pla1
+6.12 c                   exsr      avvk_loka
+6.12 c                   if        b_feil = *on
+6.12 c                   goto      end_c2bld
+6.12 c                   endif
+6.12 c                   endif
+6.12 c                   endif
+6.12  *
+6.12 c                   if        p_vars = 'J'
+6.12 c                   if        vlpla2 <> *blank and
+6.12 c                             p_pla2 <> *blank and
+6.12 c                             vlpla2 <> p_pla2
+6.12 c                   exsr      avvk_loka
+6.12 c                   if        b_feil = *on
+6.12 c                   goto      end_c2bld
+6.12 c                   endif
+6.12 c                   endif
+6.12 c                   endif
+6.12  *
+     c                   endif
+      *
+      * Oppdatering
+      *
+     c                   clear                   hrtrlur
+      *
+     c                   eval      hrtrlu_vare = w_varn
+     c                   eval      hrtrlu_enhe = *blank
+     c     hrtrlu_key    chain     hrtrlur                            90
+      *
+     c                   eval      hrvare = w_varn
+     c                   eval      hrenhe = *blank
+      *
+     c                   time                    hrdato
+     c                   time                    hrtime
+      *
+     c                   if        *in90 = *off
+     c                   update    hrtrlur
+     c                   else
+     c                   eval      hrfirm = w_firm
+     c                   eval      hrkode = w_kode
+     c                   eval      hrtims = w_tims
+     c                   write     hrtrlur
+     c                   endif
+      *
+     c     end_c2bld     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (d1bld)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1bld        begsr
+      *
+     c                   eval      hrtrlr_vare = d1vare
+     c                   eval      hrtrlr_enhe = *blank
+     c     hrtrlr_key    chain     hrtrlr                             90
+      *
+     c                   eval      d1tek1 = *blank
+     c                   eval      d1tek2 = *blank
+      *
+     c***                eval      vvarl1_vare = hrvare
+     c                   eval      vvarl1_vare = *blank
+     c                   movel     hrvare        vvarl1_vare
+     c     vvarl1_key    chain     vvarl1                             90
+     c                   if        *in90 = *off
+     c                   eval      d1tek1 = %subst(vvtek1:1:19)
+     c                   eval      d1tek2 = %subst(vvtek1:20:16)
+     c                   endif
+      *
+     c                   exfmt     d1bld
+      *
+     c                   if        *inkc
+     c                   goto      end_d1bld
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter rad
+      *
+     c                   eval      hrtrlu_vare = d1vare
+     c                   eval      hrtrlu_enhe = *blank
+     c     hrtrlu_key    chain     hrtrlur                            90
+      *
+     c                   delete    hrtrlur
+      *
+     c     end_d1bld     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av avvik på lokasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avvk_loka     begsr
+      *
+     c                   movel     vvvare        f1vare
+     c                   eval      vvtek1 = %trim(vvtek1)
+     c                   eval      f1tek1 = %subst(vvtek1:1:19)
+     c                   eval      f1tek2 = %subst(vvtek1:20:16)
+     c                   eval      f1loka = vlplas
+6.12 c                   eval      f1pla1 = vlpla1
+6.12 c                   eval      f1pla2 = vlpla2
+     c                   eval      f1valg = 'N'
+      *
+     c     f1taga        tag
+     c                   exfmt     f1bld
+      *
+     c                   select
+     c                   when      f1valg = 'J'
+     c                   eval      b_feil = *off
+     c                   when      f1valg = 'N'
+     c                   eval      b_feil = *on
+     c                   other
+     c                   goto      f1taga
+     c                   endsl
+      *
+      *
+     c     end_avvk      endsr
+5.62  *
+5.62  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.62  * Subrutine for behandling av melding om at vare ikke finnes på lager
+5.62  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.62  *
+5.62 c     xg1bld        begsr
+5.62  *
+5 62 c                   movel     vvvare        g1vare
+5.62 c                   eval      vvtek1 = %trim(vvtek1)
+5.62 c                   eval      g1tek1 = %subst(vvtek1:1:19)
+5.62 c                   eval      g1tek2 = %subst(vvtek1:20:16)
+5.62 c                   eval      g1loka = p_loka
+5.62  *
+5.62 c     g1taga        tag
+5.62 c                   exfmt     g1bld
+5.62  *
+5.62 c                   eval      b_feil = *on
+5.62  *
+5.62  *
+5.62 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c     hrtrl2_key    reade     hrtrl2                                 15
+      *
+     c                   if        *in15
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1tek1 = *blank
+     c                   eval      b1vare = hrvare
+      *
+     c***                eval      vvarl1_vare = hrvare
+     c                   eval      vvarl1_vare = *blank
+     c                   movel     hrvare        vvarl1_vare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+     c                   eval      b1tek1 = vvtek1
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c     end_crt       tag
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      wvisrn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppdatering av lagerregister
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppdater      begsr
+      *
+     c                   eval      b_oppd = *off
+      *
+     c     hrtrl2_key    chain     hrtrl2
+     c                   if        not %found
+     c                   eval      b_oppd = *on
+     c                   goto      end_oppdater
+     c                   endif
+      *
+      * Tilleggsbilde
+      *
+     c     e1taga        tag
+      *
+     c                   exfmt     e1bld
+      *
+     c                   if        *inkc
+     c                   goto      end_oppdater
+     c                   endif
+     c                   eval      b_oppd = *on
+      *
+      * Flytter registrering fra radioterminal til lagerregister
+      *
+     c     hrtrlu_key2   setll     hrtrlu
+     c     hrtrlu_key2   reade     hrtrlur
+     c                   dow       not %eof
+      *
+     c*                  eval      vlaglu_vare = hrvare
+     c                   movel     hrvare        vlaglu_vare
+     c                   eval      vlaglu_lage = p_lage
+     c     vlaglu_key    chain     vlaglur
+      *
+     c                   if        %found
+6.12  *
+6.12 c                   if        p_loka <> *blank
+     c                   eval      vlplas = p_loka
+6.12 c                   endif
+6.12  *
+6.12 c                   if        p_pla1 <> *blank
+6.12 c                   eval      vlpla1 = p_pla1
+6.12 c                   endif
+6.12  *
+6.12 c                   if        p_pla2 <> *blank
+6.12 c                   eval      vlpla2 = p_pla2
+6.12 c                   endif
+6.12  *
+6.10 c                   time                    vledat
+6.10 c                   time                    vletim
+6.10 c                   eval      vleusr = l_user
+6.20 c                   time                    vlfeda
+6.20 c                   time                    vlfeti
+6.20 c                   eval      vlfeus = l_user
+     c                   update    vlaglur
+     c                   endif
+      *
+     c                   delete    hrtrlur
+      *
+     c     hrtrlu_key2   reade     hrtrlur
+     c                   enddo
+      *
+     c     end_oppdater  endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for les på radioterminal-trans
+      *
+     c     hrtrl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_kode
+     c                   kfld                    w_tims
+      *
+      * Key for oppslag på radioterminal-trans
+      *
+     c     hrtrlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_kode
+     c                   kfld                    w_tims
+     c                   kfld                    hrtrlr_vare
+     c                   kfld                    hrtrlr_enhe
+      *
+      * Key for oppdatering av radioterminal-trans
+      *
+     c     hrtrlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_kode
+     c                   kfld                    w_tims
+     c                   kfld                    hrtrlu_vare
+     c                   kfld                    hrtrlu_enhe
+      *
+     c     hrtrlu_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_kode
+     c                   kfld                    w_tims
+      *
+      * Key for oppslag på vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for oppslag på vare m/lev.varenummer
+      *
+     c     vvarl4_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl4_lvar
+      *
+      * Key for les på vare-enhet
+      *
+     c     vvenl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl2_vare
+     c                   kfld                    vvenl2_saen
+      *
+     c     vvenl2_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl2_vare
+      *
+      * Key for oppslag på lager status-koder
+      *
+     c     lstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      *  Key for les av lagerregister
+      *
+     c     vlaglr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlaglr_vare
+     c                   kfld                    vlaglr_lage
+      *
+      *  Key for oppdatering av lagerregister
+      *
+     c     vlaglu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlaglu_vare
+     c                   kfld                    vlaglu_lage
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_kode
+     c                   parm                    p_tims
+     c                   parm                    p_lage
+     c                   parm                    p_loka
+6.12 c                   parm                    p_pla1
+6.12 c                   parm                    p_pla2
+     c                   parm                    p_vars
+      *
+      * Henter firma og timestamp fra parameter
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      w_kode = p_kode
+     c                   eval      w_tims = p_tims
+      *
+5.61 c                   eval      w_sctx = 'HR141R Lagerlokasjoner'
+      *
+      * Hent opplysninger fra lager status-koder
+      *
+     c     lstsl1_key    chain     lstsl1r                            90
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      *in22 = *on
+      *
+     c     hrtrl2_key    setll     hrtrl2
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

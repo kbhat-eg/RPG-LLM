@@ -1,0 +1,73 @@
+/* Oppretting/oppdatering av tabeller og indekser på bakgrunn av SQL */
+             PGM        PARM(&FILE &FGRP &GRP &NULL)
+
+             DCL        VAR(&FILE) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&FGRP) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&GRP)  TYPE(*CHAR) LEN(7)
+             DCL        VAR(&NULL) TYPE(*CHAR) LEN(1)
+
+             DCL        VAR(&DLIB) TYPE(*CHAR) LEN(6) VALUE('ADB400')
+             DCL        VAR(&SFIL) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&FLST) TYPE(*CHAR) LEN(5)
+             DCL        VAR(&TBLE) TYPE(*CHAR) LEN(10)
+
+             DCL        VAR(&WCURLI) TYPE(*CHAR) LEN(10)
+
+             MONMSG     MSGID(CPF2103) /*    Bibl finnes fra før    */
+
+/*  Henter CURLIB                                                             */
+             RTVJOBA    CURLIB(&WCURLI)
+
+/* Setter databibliotek til current library                          */
+             CHGVAR     VAR(%SST(&DLIB 4 3)) VALUE(&FGRP)
+             CHGCURLIB  CURLIB(&DLIB)
+
+/*  databibliotek ADBxxx må ligge i biblisten. AG908C kan kalles med          */
+/*  FGRP blank, som betyr ADB. Derfor må current library                      */
+/*   legges     i listen                                                      */
+             ADDLIBLE   LIB(&WCURLI)
+
+             CHGVAR     VAR(&SFIL) VALUE(%SUBSTRING(&FILE 1 4) *CAT 'SQ')
+             CHGVAR     VAR(&FLST) VALUE(%SUBSTRING(&FILE 1 4) *CAT '*')
+             CHGVAR     VAR(%SST(&TBLE 1 6)) VALUE(&FILE)
+
+/* Slett triggere på tabell                                          */
+             CALL       PGM(TRGDLT) PARM(&FGRP &TBLE ' ')
+/* Slett indexer  på tabell                                          */
+             CALL       PGM(IDXDLT) PARM(&FGRP ' ' ' ' &TBLE ' ')
+/* Slett views    på tabell                                          */
+             CALL       PGM(VIEWDLT) PARM(&FGRP &TBLE ' ')
+
+/* Kjører SQL-statements for oppretting av tabell og indekser        */
+
+ SQL:        RUNSQLSTM  SRCFILE(*LIBL/QSQLSRC) SRCMBR(&SFIL) NAMING(*SYS) +
+                          DECMPT(*COMMA) SRTSEQ(*LANGIDUNQ) LANGID(NOR)
+
+/* Legg på gruppe rettigheter                                        */
+             IF         COND((&GRP *NE '*NONE') *AND (&GRP *NE ' ')) +
+                          THEN(DO)
+                GRTOBJAUT  OBJ(&DLIB/&FLST) OBJTYPE(*ALL) USER(&GRP) +
+                             AUT(*ALL) REPLACE(*YES)
+
+                GRTOBJAUT  OBJ(&DLIB/&FLST) OBJTYPE(*ALL) USER(*PUBLIC) +
+                             AUT(*EXCLUDE) REPLACE(*YES)
+             ENDDO
+
+/* Journalfør tabellen                                               */
+             STRJRNPF   FILE(&DLIB/&FILE) JRN(&DLIB/BUTIJRN) +
+                          OMTJRNE(*OPNCLO)
+             MONMSG     MSGID(CPF9801) EXEC(GOTO END) /* BUTIJRN finnes +
+                          ikke */
+             MONMSG     MSGID(CPF7030) /*  already being journaled  */
+
+/* Legg inn triggere på tabell                                       */
+             CALL       PGM(TRGCRT) PARM(&FGRP &TBLE ' ')
+/* Legg inn indexer  på tabell                                       */
+             CALL       PGM(IDXCRT) PARM(&FGRP ' ' ' ' &TBLE ' ')
+/* Legg inn views    på tabell                                       */
+             CALL       PGM(VIEWCRT) PARM(&FGRP ' ' ' ' &TBLE ' ')
+
+/*  Setter tilbake CURLIB                                                     */
+             CHGCURLIB  CURLIB(&WCURLI)
+
+ END:        ENDPGM

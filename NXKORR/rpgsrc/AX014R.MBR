@@ -1,0 +1,1212 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASPGPL
+      * Program . . . . : AX014R
+      * Beskrivelse . . : Rutineregister, vedlikehold
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       080925 bsa  Nytt program
+      *
+      *
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     faforl1    if   e           k disk    rename(aforpfr:aforl1r)
+      *forl2    if   e           k disk    rename(aforpfr:aforl2r)
+     faforlr    if   e           k disk    rename(aforpfr:aforlrr)
+     faforlu    uf a e           k disk    rename(aforpfr:aforlur)
+     fafpslu    uf   e           k disk    rename(afpspfr:afpslur)
+     fafpslr    if   e           k disk    rename(afpspfr:afpslrr)
+     fafoplr    if   e           k disk    rename(afoppfr:afoplrr)
+      *
+     fax014d    cf   e             workstn sfile(b1sfl1:w_srrn)
+     f                                     sfile(b1sfl2:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+      * Definering av array's
+      *
+     d rut             s             10    dim(9999)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_filg                931    933
+     d l_sbib                934    943
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d aforl1_ruti     s                   like(afruti)
+      *aforl2_txt1     s                   like(aftxt1)
+      *aforl2_ruti     s                   like(afruti)
+     d aforlr_ruti     s                   like(afruti)
+     d aforlu_ruti     s                   like(afruti)
+     d afpslu_ufil     s                   like(afufil)
+     d afpslr_ufil     s                   like(afufil)
+     d afpslu_uide     s                   like(afuide)
+     d afpslr_uide     s                   like(afuide)
+     d afoplr_prut     s                   like(afprut)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+     d b_swtc          s              1    inz(*off)
+      *
+     d w_modu          s             10    inz('MSA     ')
+     d w_disp          s              1    inz('1')
+     d w_tilg          s              1
+     d w_ruti          s                   like(afruti)
+     d w_edit          s              1  0
+     d w_stat          s              1
+     d w_pdfm          s             10    inz('PROA    ')
+     d w_firm          s              3  0
+     d w_ant           s              3  0
+     d w_pos           s              4  0
+      *
+     d s_ruti          s                   like(afruti)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Definering av eksterne prg
+      *
+       dcl-s co402_verdi1  char(1);
+       dcl-s co402_verdi2  char(2048);
+       DCL-PR CO402R EXTPGM('CO402R');
+         p_filgrp            char(3)     const;
+         p_firm              packed(3:0) const;
+         p_lager             packed(2:0) const;
+         p_nokkel            char(50)    const;
+         p_verdi1            char(1);
+         p_verdi2            char(2048);
+       END-PR;
+      *
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL1 - B1 Subfile - record
+      * B2CTL1 - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meldingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Alternere mellom subfiler
+      *
+     c                   if        *inkk = *on
+     c                   if        *in91 = *on
+     c                   eval      *in92 = *on
+     c                   eval      *in91 = *off
+     c                   goto      b2tagb
+     c                   endif
+     c                   endif
+      *
+     c                   if        *inkk = *on
+     c                   if        *in92 = *on
+     c                   eval      *in91 = *on
+     c                   eval      *in92 = *off
+     c                   goto      b2tagb
+     c                   endif
+     c                   endif
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   goto      b2taga
+     c                   when      *inkg
+     c                   exsr      pdf_aktiv
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2ruti <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl1
+     c     w_fcrn        chain     b1sfl2
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   other
+     c                   eval      aforl1_ruti = b1ruti
+     c     aforl1_key    setll     aforl1
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for switch av PDF print
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     pdf_aktiv     begsr
+      * Sjekk om modulen er innstallert
+     c                   eval      w_disp = '1'
+     c                   eval      w_stat = '0'
+      *
+     c                   call      'AX700R'
+     c                   parm                    w_pdfm
+     c                   parm                    w_disp
+     c                   parm                    w_stat
+      *
+     c                   if        w_stat = '1'
+     c                   goto      end_aktiv
+     c                   endif
+      *
+     c                   movel     'STATUS'      afuide
+     c     afpslu_key    chain     afpslu
+      *
+     c                   if        %found
+     c                   if        %trim(afudss) = '1'
+     c                   movel     '0'           afudss
+     c                   eval      *in35 = *on
+     c                   else
+     c                   movel     '1'           afudss
+     c                   eval      *in35 = *off
+     c                   endif
+     c                   update    afpslur
+     c                   endif
+      *
+     c     end_aktiv     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Rutine
+      *
+     c                   if        b2ruti <> *blank
+     c                   eval      w_seqe = *blank
+     c                   eval      aforl1_ruti = b2ruti
+     c     aforl1_key    setll     aforl1
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Beskrivelse
+      *
+      ***                if        b2txt1 <> *blank
+      ***                eval      w_seqe = 'B'
+      ***                eval      aforl2_txt1 = b2txt1
+      ***  aforl2_key    setll     aforl2
+      ***                goto      end_pos
+      ***                endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2ruti = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   if        *in91 = *on
+     c                   readc     b1sfl1
+     c                   endif
+     c                   if        *in92 = *on
+     c                   readc     b1sfl2
+     c                   endif
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   eval      c1ruti = b1ruti
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   if        *in91  = *on
+     c                   update    b1sfl1
+     c                   endif
+     c                   if        *in92  = *on
+     c                   update    b1sfl2
+     c                   endif
+     c                   iter
+     c                   endif
+      *
+      * Kopier
+      *
+     c                   if        b1valg = 3
+     c                   eval      k1ruti = b1ruti
+     c                   exsr      xk1win
+     c                   eval      b1valg = 0
+     c                   if        *in91  = *on
+     c                   update    b1sfl1
+     c                   endif
+     c                   if        *in92  = *on
+     c                   update    b1sfl2
+     c                   endif
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1ruti = b1ruti
+     c                   exsr      xd1win
+     c                   eval      b1valg = 0
+     c                   if        *in91  = *on
+     c                   update    b1sfl1
+     c                   endif
+     c                   if        *in92  = *on
+     c                   update    b1sfl2
+     c                   endif
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1ruti = b1ruti
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   if        *in91  = *on
+     c                   update    b1sfl1
+     c                   endif
+     c                   if        *in92  = *on
+     c                   update    b1sfl2
+     c                   endif
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      b_oppr = *on
+     c                   eval      b_forn = *off
+      *
+     c                   eval      c1ruti = b2ruti
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_c1bld
+     c                   endsl
+      *
+      * Spørring
+      *
+     c                   if        *inkd
+     c                   goto      c1taga
+     c                   endif
+      *
+     c                   if        c1ruti = *blank
+     c                   goto      end_c1bld
+     c                   endif
+      *
+      * Validering
+      *
+      ***                if        c1ruti = *blank
+      ***                eval      *in31  = *on
+      ***                goto      c1taga
+      ***                endif
+      *
+      * Sender opp informasjonsbilde dersom rad finnes fra før
+      *
+     c                   eval      aforlr_ruti = c1ruti
+     c     aforlr_key    chain     aforlr
+     c                   if        %found
+     c                   exsr      xc1msg
+     c                   if        b_anul = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   exsr      xc2bld
+      *
+     c                   eval      c1ruti = *blank
+      *
+     c                   goto      c1taga
+      *
+     c     end_c1bld     tag
+      *
+     c                   eval      b_oppr = *off
+     c                   eval      b2ruti = *blank
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+      *
+     c                   eval      aforlr_ruti = c1ruti
+     c     aforlr_key    chain     aforlr
+      *
+     c                   if        %found
+     c                   eval      c2txt1 = aftxt1
+     c                   eval      c2txt2 = aftxt2
+     c                   eval      c2mld1 = afmld1
+     c                   eval      c2mld2 = afmld2
+     c                   eval      c2mld3 = afmld3
+     c                   eval      c2form = afform
+     c                   eval      c2outq = afoutq
+     c                   eval      c2acpi = afacpi
+     c                   eval      c2apos = afapos
+     c                   eval      c2alin = afalin
+     c                   eval      c2oflw = afoflw
+     c                   eval      c2prog = afprog
+     c                   eval      c2akop = afakop
+     c                   eval      c2hldq = afhldq
+     c                   eval      c2save = afsave
+     c                   eval      c2prty = afprty
+     c                   eval      c2chgv = afchgv
+     c                   eval      c2inst = afinst
+     c                   eval      c2prfi = afprfi
+     c                   eval      c20rot = af0rot
+     c                   eval      c2tvbt = aftvbt
+      *
+     c                   eval      c3bgir = afbgir
+     c                   eval      c3mvak = afmvak
+     c                   eval      c3kidk = afkidk
+     c                   eval      c3ocrk = afocrk
+     c                   eval      c3ipds = afipds
+     c                   eval      c3hex1 = afhex1
+     c                   eval      c3hex2 = afhex2
+      *
+     c                   eval      c4arki = afarki
+     c                   eval      c4etik = afetik
+     c                   eval      c4work = afwork
+     c                   eval      c4pdfa = afpdfa
+      *
+     c                   eval      c5skin = afskin
+     c                   eval      c5skut = afskut
+     c                   eval      c5dplx = afdplx
+     c                   eval      c5pkva = afpkva
+      *
+      ***                eval      c2eusr = ..eusr
+      ***  *dmy          move      ..odat        c2odat
+      ***  *dmy          move      ..edat        c2edat
+     c                   else
+     c                   eval      c2txt1 = *blank
+     c                   eval      c2txt2 = *blank
+     c                   eval      c2mld1 = *blank
+     c                   eval      c2mld2 = *blank
+     c                   eval      c2mld3 = *blank
+     c                   eval      c2form = *blank
+     c                   eval      c2outq = *blank
+     c                   eval      c2acpi = *zero
+     c                   eval      c2apos = *zero
+     c                   eval      c2alin = *zero
+     c                   eval      c2oflw = *zero
+     c                   eval      c2prog = *blank
+     c                   eval      c2akop = *zero
+     c                   eval      c2hldq = *zero
+     c                   eval      c2save = *zero
+     c                   eval      c2prty = *blank
+     c                   eval      c2chgv = *zero
+     c                   eval      c2inst = *zero
+     c                   eval      c2prfi = *zero
+     c                   eval      c20rot = *blank
+     c                   eval      c2tvbt = *blank
+      *
+     c                   eval      c3bgir = *zero
+     c                   eval      c3mvak = *zero
+     c                   eval      c3kidk = *zero
+     c                   eval      c3ocrk = *zero
+     c                   eval      c3ipds = *zero
+     c                   eval      c3hex1 = *blank
+     c                   eval      c3hex2 = *blank
+      *
+     c                   eval      c4arki = *zero
+     c                   eval      c4etik = *zero
+     c                   eval      c4work = *zero
+     c                   eval      c4pdfa = *zero
+      *
+     c                   eval      c5skin = *zero
+     c                   eval      c5skut = *zero
+     c                   eval      c5dplx = *blank
+     c                   eval      c5pkva = *blank
+      *
+      ***                eval      c2eusr = *blank
+      ***                eval      c2odat = 0
+      ***                eval      c2edat = 0
+     c                   endif
+      *
+     c                   if        b1valg = 3
+     c                   eval      c1ruti = k1ruti
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30 = *on
+     c                   endif
+      *
+     c     c2taga        tag
+     c                   eval      b_swtc = *off
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      * Integrasjon PDF print ?
+      *
+     c                   if        *inkg
+     c                   exsr      xc7win
+     c                   endif
+      *
+      * Tilleggsvindu ?
+      *
+     c                   if        *inki
+     c                   exsr      xc3win
+     c                   endif
+      *
+      * email adresser
+      *
+     c                   if        *inkj
+     c                   exsr      xc4win
+     c                   endif
+      *
+      * Tilleggs-vindu printerstyring
+      *
+     c                   if        *inkh
+     c                   exsr      xc5win
+     c                   endif
+      *
+     c                   if        b_swtc = '1'
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Spørring
+      *
+     c                   if        *inkd
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Validering av input
+      *
+     c                   if        c2txt1 = *blank
+     c                   eval      *in31 = *on
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Oppdatering
+      *
+     c                   clear                   aforlur
+      *
+     c                   eval      aforlu_ruti = c1ruti
+     c     aforlu_key    chain     aforlur
+      *
+     c                   eval      aftxt1 = c2txt1
+     c                   eval      aftxt2 = c2txt2
+     c                   eval      afmld1 = c2mld1
+     c                   eval      afmld2 = c2mld2
+     c                   eval      afmld3 = c2mld3
+     c                   eval      afform = c2form
+     c                   eval      afoutq = c2outq
+     c                   eval      afacpi = c2acpi
+     c                   eval      afapos = c2apos
+     c                   eval      afalin = c2alin
+     c                   eval      afoflw = c2oflw
+     c                   eval      afprog = c2prog
+     c                   eval      afakop = c2akop
+     c                   eval      afhldq = c2hldq
+     c                   eval      afsave = c2save
+     c                   eval      afprty = c2prty
+     c                   eval      afchgv = c2chgv
+     c                   eval      afinst = c2inst
+     c                   eval      afprfi = c2prfi
+     c                   eval      af0rot = c20rot
+     c                   eval      aftvbt = c2tvbt
+      *
+     c                   eval      afbgir = c3bgir
+     c                   eval      afmvak = c3mvak
+     c                   eval      afkidk = c3kidk
+     c                   eval      afocrk = c3ocrk
+     c                   eval      afipds = c3ipds
+     c                   eval      afhex1 = c3hex1
+     c                   eval      afhex2 = c3hex2
+      *
+     c                   eval      afarki = c4arki
+     c                   eval      afetik = c4etik
+     c                   eval      afwork = c4work
+     c                   eval      afpdfa = c4pdfa
+      *
+     c                   eval      afskin = c5skin
+     c                   eval      afskut = c5skut
+     c                   eval      afdplx = c5dplx
+     c                   eval      afpkva = c5pkva
+      *
+      ***                time                    ..edat
+      ***                time                    ..etim
+      ***                eval      ..eusr = l_user
+      *
+     c                   if        %found
+     c                   update    aforlur
+     c                   else
+      ***                eval      ..firm = w_firm
+     c                   eval      afruti = c1ruti
+      ***                time                    ..odat
+     c                   write     aforlur
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c                   if        b1valg = 2
+     c                   eval      b1ruti = afruti
+     c                   eval      b1form = afform
+     c                   eval      b1outq = afoutq
+     c                   eval      b1acpi = afacpi
+     c                   eval      b1alin = afalin
+     c                   eval      b1akop = afakop
+     c                   eval      b1hldq = afhldq
+     c                   eval      b1inst = afinst
+     c                   eval      b1prfi = afprfi
+     c                   eval      b1txt1 = aftxt1
+     c                   endif
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * C3WIN Behandle bilde for tilleggs-opplysninger
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc3win        begsr
+      *
+     c                   eval      w_alin = 4
+     c                   eval      w_apos = 20
+     c                   write     c3win
+      *
+     c                   exfmt     c3win
+      *
+     c     *inkc         cabeq     *on           c3tag1
+     c     *inkl         cabeq     *on           c3tag1
+      *
+     c     c3tag1        tag
+     c                   eval      b_swtc = '1'
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * C5WIN Behandle bilde for tilleggsstyring print
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc5win        begsr
+      *
+     c                   eval      w_alin = 4
+     c                   eval      w_apos = 20
+     c                   write     c5win
+      *
+     c                   exfmt     c5win
+      *
+     c     *inkc         cabeq     *on           c5tag1
+     c     *inkl         cabeq     *on           c5tag1
+      *
+     c     c5tag1        tag
+     c                   eval      b_swtc = '1'
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * C7WIN Håndtere vedlikehold av PDF informasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc7win        begsr
+      * Kall subprogram for vedlikehold av PDF informasjon
+      *
+     c                   if        *in30 = *on
+     c                   eval      w_edit = 0
+     c                   else
+     c                   eval      w_edit = 1
+     c                   endif
+      *
+     c                   eval      w_ruti = c1ruti
+     c                   call      'AX015R'
+     c                   parm                    w_ruti
+     c                   parm                    w_edit
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * C4WIN Håndtere vedlikehold av email adresser
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc4win        begsr
+      *
+      * Kall subprogram for vedlikehold av email adresser
+      *
+     c                   if        *in30 = *on
+     c                   eval      w_edit = 0
+     c                   else
+     c                   eval      w_edit = 1
+     c                   endif
+      *
+     c                   eval      w_ruti = c1ruti
+     c                   call      'AA013R'
+     c                   parm                    w_ruti
+     c                   parm                    w_edit
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      aforlr_ruti = d1ruti
+     c     aforlr_key    chain     aforlr
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter rad
+      *
+     c                   eval      aforlu_ruti = d1ruti
+     c     aforlu_key    chain     aforlur
+      *
+     c                   delete    aforlur
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle kopierings-bildet (K1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xk1win        begsr
+      *
+      * Tar vare på nøkkel til rad det skal kopieres fra
+      *
+     c                   eval      s_ruti = k1ruti
+      *
+      * Fyller kopierings-bildet
+      *
+     c                   eval      aforlr_ruti = k1ruti
+     c     aforlr_key    chain     aforlr
+      *
+     c     k1taga        tag
+      *
+     c                   exfmt     k1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+      * Sjekk om utfylt
+      *
+     c                   if        k1ruti = *blank
+     c                   eval      *in31 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Sjekker om rad finnes fra før
+      *
+     c                   eval      aforlr_ruti = k1ruti
+     c     aforlr_key    chain     aforlr
+     c                   if        %found
+     c                   eval      *in32 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   eval      c1ruti = s_ruti
+     c                   exsr      xc2bld
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl1
+     c                   write     b2ctl2
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+      ***                read      aforl2
+     c                   other
+     c                   read      aforl1
+     c                   endsl
+      *
+      ***                if        %eof or
+      ***                          ..firm <> w_firm
+     c                   if        %eof
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+      * Sjekk at det er ei rutine vi kan endre
+      *
+     c                   if        %lookup(afruti:rut) = 0
+     c                   iter
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+      ***                eval      aforl2_txt1 = aftxt1
+     c                   other
+     c                   eval      aforl1_ruti = afruti
+     c                   endsl
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1ruti = afruti
+     c                   eval      b1form = afform
+     c                   eval      b1outq = afoutq
+     c                   eval      b1acpi = afacpi
+     c                   eval      b1alin = afalin
+     c                   eval      b1akop = afakop
+     c                   eval      b1hldq = afhldq
+     c                   eval      b1inst = afinst
+     c                   eval      b1prfi = afprfi
+     c                   eval      b1txt1 = aftxt1
+      * Hent inn informasjon om PDF aktivering
+     c                   eval      b1pdfa = *blanks
+     c                   exsr      sj_pdf
+      *
+     c                   write     b1sfl1
+     c                   write     b1sfl2
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c                   select
+     c                   when      w_seqe = 'B'
+      ***  aforl2_key    setgt     aforl2
+      ***                readp     aforl2
+     c                   other
+     c     aforl1_key    setgt     aforl1
+     c                   readp     aforl1
+     c                   endsl
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+      ***                readp     aforl2
+     c                   other
+     c                   readp     aforl1
+     c                   endsl
+      *
+      ***                if        %eof or
+      ***                          ..firm <> w_firm
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+      ***                eval      aforl2_txt1 = aftxt1
+     c                   other
+     c                   eval      aforl1_ruti = afruti
+     c                   endsl
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c                   select
+     c                   when      w_seqe = 'B'
+      ***  aforl2_key    setll     aforl2
+     c                   other
+     c     aforl1_key    setll     aforl1
+     c                   endsl
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   if        *in91 = *on
+     c                   exfmt     b2ctl1
+     c                   endif
+     c                   if        *in92 = *on
+     c                   exfmt     b2ctl2
+     c                   endif
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for hente inn informasjon om pdf aktivering
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sj_pdf        begsr
+      * Hvis hovedstatus for PDF er deaktivert, endres ikke status (*in35=*on)
+     c                   eval      afoplr_prut = afruti
+     c     afoplr_key    chain     afoplr
+     c                   if        %found
+      * Rutinen finnes, er den deaktivert
+     c                   if        afppdf = 0
+     c                   eval      b1pdfa = 'P'
+     c                   else
+     c                   eval      b1pdfa = 'A'
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+      * Key for posisjonering på rutine
+      *
+     c     aforl1_key    klist
+     c                   kfld                    aforl1_ruti
+      *
+      * Key for posisjonering på beskrivelse
+      *
+      ***  aforl2_key    klist
+      ***                kfld                    aforl2_txt1
+      ***                kfld                    aforl2_ruti
+      *
+      * Key for les på rutine
+      *
+     c     aforlr_key    klist
+     c                   kfld                    aforlr_ruti
+      *
+      * Key for oppdatering av rutine
+      *
+     c     aforlu_key    klist
+     c                   kfld                    aforlu_ruti
+      *
+      * Key for aktivering/deaktivering av PDF print
+      *
+     c     afpslu_key    klist
+     c                   kfld                    afpslu_ufil
+     c                   kfld                    afpslu_uide
+      *
+      * Key for aktivering/deaktivering av PDF print
+      *
+     c     afpslr_key    klist
+     c                   kfld                    afpslr_ufil
+     c                   kfld                    afpslr_uide
+      *
+      * Key for rutineregister
+      *
+     c     afoplr_key    klist
+     c                   kfld                    afoplr_prut
+      *
+      *
+      * Henter verdier fra LDA, og initierer skjermbildet
+      *
+      ***                eval      w_firm = l_firm
+      *
+     c                   eval      *in22 = *on
+     c                   eval      *in92 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      aforl1_ruti = *blank
+     c     aforl1_key    setll     aforl1
+      *
+      * Hent inn hvilke rutiner som er gyldige for behandling
+      *
+     c                   eval      w_ant = 1
+      *
+       CallP CO402R(l_filg:w_firm:0:'MGR_GYLDIGE_RUTINER':
+                       co402_verdi1:co402_verdi2);
+
+       if co402_verdi1 = '1';
+      * rutiner
+           w_pos = 1;
+           dow (w_pos > 0);
+           w_pos = %scan(';' : co402_verdi2);
+             if w_pos > 0;
+             rut(w_ant) = %subst(co402_verdi2 : 1 : w_pos - 1);
+             co402_verdi2 =  %subst(co402_verdi2:w_pos+1:2048-w_pos);
+             w_ant = w_ant + 1;
+             endif;
+           enddo;
+       endif;
+      *
+     c                   exsr      crt_subfile
+      *
+      * Sjekk om PDF er aktivert
+      *
+     c                   eval      *in35 = *off
+     c                   eval      afpslu_ufil = l_filg
+     c                   movel     'STATUS    '  afpslu_uide
+      *
+     c                   eval      afpslr_ufil = l_filg
+     c                   movel     'STATUS    '  afpslr_uide
+     c     afpslr_key    chain     afpslr
+     c                   if        %found
+     c                   if        %trim(afudss) = '0'
+     c                   eval      *in35 = *on
+     c                   endif
+     c                   endif
+      *
+     c                   endsr

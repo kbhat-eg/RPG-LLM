@@ -1,0 +1,455 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VV681R
+      * Beskrivelse . . : Vare, sletting av varer uten salg - utplukk
+6.30  *                       + utgåtte varer
+      *                   Rutine for massesletting av varer fra vareregister
+      *
+      *                   Følgende må være oppfyllt på vare før sletting:
+      *                   - lager eller skaffevare (varetype L eller S)
+      *                   - ikke ha beholdning i noen lagre.
+      *                     Dersom batchnr er valgt testes det mot at varen
+      *                     er tellt i batchen istedenfor mot beholdning.
+      *                     Batchnr skal derfor kun velges dersom dette er
+      *                     en totaltelling
+      *                   - ikke ligge i bestilling, i ordre eller
+      *                     i pakkseddel.
+      *
+6.30  *  Dette er parameter
+6.30  *                   - ikke opprettet siste XX måndeder
+6.30  *                   - ikke solgt siste XX måneder
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       141101 HKO  Nytt program
+      *       100104 HKO  Lagt inn valg av telle-batch
+      *       031005 HKO  Åpnet for sletting av varer som ligger i tilbud
+      *                   Kaller dedikert program for å finne ut om en vare
+      *                   ligger i ordre eller har lagerbeholding
+5.70  * PRGR  241008 bof  Innført prisgruppe /varetupe fra lager
+6.10  *       280110 bof  Lagt inn ekstra test på LBDTPF og lagerbeh.
+6.21  * 6.20  190511 bø   Utvidet vl710r med div. info
+6.30  * 6.30  190511 bø   Utvidet med slette utgåtte varer + nye parametre
+6.31  * 6.30  170918 bkv  Utvidet med trelast sortiment
+7.01  *       270212 bsa  Sjekker ikke bare L og S varer
+      *
+8.01  *PRG2   140622 bsa  Utvidet prisgruppe fra 1 til 2 posisjoner
+8.01  *PRG2               Endringer består kun i kompilering, da alle
+8.01  *PRG2               referanser er eksternt definert.
+8.02  *K0000  230425 bsa  Reversert sjekk mot leverandør. NXS-21105.
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvlagl1    if   e           k disk    rename(vlagpfr:vlagl1r)
+     fltell3    if   e           k disk    rename(ltelpfr:ltell3r)
+6.10 flbdtl3    if   e           k disk    rename(lbdtpfr:lbdtl3r)
+     fsstal2    if   e           k disk    rename(sstapfr:sstal2r)
+6.31 fvvlel1    if   e           k disk    rename(vvlepfr:vvlel1r)
+     fvvawpf    o    e             disk
+      *
+      * Definering av datastruktur
+      *
+      *  parameterliste - inn
+      *
+     d                 ds
+     d d_list                        80
+     d  d_firm                        3  0 overlay(d_list: 1)
+     d  d_kntr                        1  0 overlay(d_list: 4)
+     d  d_batc                       10    overlay(d_list: 5)
+     d  d_srt1                        1  0 overlay(d_list:15)
+     d  d_srt2                        1  0 overlay(d_list:16)
+     d  d_srt3                        1  0 overlay(d_list:17)
+     d  d_srt4                        1  0 overlay(d_list:18)
+6.30 d  d_anto                        2  0 overlay(d_list:19)
+6.30 d  d_ants                        2  0 overlay(d_list:21)
+6.30 d  d_utgv                        1  0 overlay(d_list:23)
+      *
+      *  varegruppe
+      *
+     d                 ds
+     d d_vgrp                         7  0
+     d  d_ogrp                        2  0 overlay(d_vgrp)
+     d  d_hgrp                        2  0 overlay(d_vgrp:3)
+     d  d_ugrp                        3  0 overlay(d_vgrp:5)
+      *
+      *  sorteringsnøkkel
+      *
+     d                 ds
+     d d_vakey                       64
+     d  d_vsrt1                      21    overlay(d_vakey)
+     d  d_vsrt2                      21    overlay(d_vakey:22)
+     d  d_vsrt3                      21    overlay(d_vakey:43)
+      *
+      * Definering av parametre
+      *
+     d p_list          s             80
+      *
+      * Definering av variable i nøkler
+      *
+     d ltell3_vare     s                   like(levare)
+6.10 d lbdtl3_vare     s                   like(lvvare)
+     d sstal2_vare     s                   like(sfvare)
+     d sstal2_paar     s                   like(sfpaar)
+     d sstal2_bida     s                   like(sfbida)
+6.30 d vlagl1_vare     s                   like(vlvare)
+      *
+      * Definering av variable
+      *
+     d b_inlr          s              1    inz(*off)
+     d b_ordr          s              1    inz(*off)
+     d b_lagr          s              1    inz(*off)
+6.30 d b_utgv          s              1    inz(*off)
+6.30 d b_utgl          s              1    inz(*off)
+      *
+     d w_dato          s               d   datfmt(*iso)
+6.30 d w_dato_o        s               d   datfmt(*iso)
+6.30 d w_dato_s        s               d   datfmt(*iso)
+     d w_dato_8        s              8
+     d w_paar          s              4  0
+      *
+     d w_firm          s                   like(vvfirm)
+5.70 d w_lage          s              2  0
+5.70 d w_vtyp          s                   like(vvvtyp)
+6.20 d w_ldor          s                   like(vvldor)
+6.21 d w_utda          s                   like(vvudat)
+6.31 d w_lv_nobb       s                   like(vvlnob)
+6.31 d w_lv_modn       s                   like(vvlmod)
+6.31 d w_lv_lldo       s                   like(vvlnle)
+6.31 d w_lv_llva       s                   like(vvllva)
+      *
+      * Local data area
+      *
+5.70 d                uds
+7.01 d l_filg                931    933
+5.70 d l_lagr               1001   1002  0
+      *
+7.01 d u_s701          s              1    inz(*off)                            Sjekk mot varetype
+7.01  *
+7.01  * Definering av eksterne prg
+7.01  *
+7.01   dcl-s co402_verdi1  char(1);
+7.01   dcl-s co402_verdi2  char(2048);
+7.01   DCL-PR CO402R EXTPGM('CO402R');
+7.01     p_filgrp            char(3)     const;
+7.01     p_firm              packed(3:0) const;
+7.01     p_lager             packed(2:0) const;
+7.01     p_nokkel            char(50)    const;
+7.02     p_verdi1            char(1);
+7.01     p_verdi2            char(2048);
+7.01   END-PR;
+7.01  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Finner dato og årstall ett år tilbake i tid
+      *
+6.30 c                   time                    w_dato
+6.30 c                   time                    w_dato_s
+6.30 c                   subdur    d_ants:*m     w_dato_s
+6.30 c                   time                    w_dato_o
+6.30 c                   subdur    d_anto:*m     w_dato_o
+      *
+6.30 c     *iso0         move      w_dato_s      w_dato_8
+     c                   movel     w_dato_8      w_paar
+      *
+      * Leser vareregister
+      *
+     c     vvarl1_key    setll     vvarl1
+     c     vvarl1_key    reade     vvarl1
+     c                   dow       not %eof
+      *
+      * henter varetype
+      *
+5.70 c                   call      'VL710R'
+5.70 c                   parm                    w_firm
+5.70 c                   parm                    vvvare
+5.70 c                   parm                    w_lage
+5.70 c                   parm                    w_vtyp
+6.21 c                   parm                    w_utda
+6.21 c                   parm                    w_ldor
+6.21 c                   parm                    b_inlr
+6.31 c                   parm                    w_lv_nobb
+6.31 c                   parm                    w_lv_modn
+6.31 c                   parm                    w_lv_lldo
+6.31 c                   parm                    w_lv_llva
+      *
+      * Test på varetype
+      *
+7.01 c                   if        u_s701 = *off
+5.70 c                   if        w_vtyp <> 'L' and
+5.70 c                             w_vtyp <> 'S'
+     c                   goto      neste_vare
+     c                   endif
+7.01  *
+7.01  * Test på leverandør
+7.01  *
+7.01 c*8.02              if        vvldor <> 0
+7.01 c*8.02              goto      neste_vare
+7.01 c*8.02              endif
+7.01  *
+7.01 c                   endif
+      *
+      *
+      * Test på opprettelsesdato
+      *
+6.30 c                   if        vvodat >= w_dato_o
+     c                   goto      neste_vare
+     c                   endif
+      *
+      * Kaller program for å sjekke om en vare finnes i ordre eller har
+      * beholdningstall i noen lagre
+      *
+     c                   eval      b_inlr = *on
+      *
+     c                   call      'VV490R'
+     c                   parm                    w_firm
+     c                   parm                    vvvare
+     c                   parm                    b_inlr
+     c                   parm                    b_ordr
+     c                   parm                    b_lagr
+      *
+      * Vare som finnes i ordre kan ikke slettes
+      *
+     c                   if        b_ordr = *on
+     c                   goto      neste_vare
+     c                   endif
+      *
+      * Tester mot lagerbeholdning dersom telle-batch ikke er valgt
+      *
+6.10 c*                  if        d_batc = *blank and
+6.19 c                   if        b_lagr = *on
+     c                   goto      neste_vare
+     c                   endif
+      *
+      * Test mot telle-batch
+      *
+     c                   if        d_batc <> *blank
+     c                   eval      ltell3_vare = vvvare
+     c     ltell3_key    setll     ltell3
+     c     ltell3_key    reade     ltell3
+     c                   dow       not %eof
+     c                   if        lebatc = d_batc and
+     c                             leantt <> 0
+     c                   goto      neste_vare
+     c                   endif
+     c     ltell3_key    reade     ltell3
+     c                   enddo
+6.10  *tester også mot lbdtpf - hvis den ligger der,skal
+6.10  *den ikke slettes
+6.10 c                   eval      lbdtl3_vare = vvvare
+6.10 c     lbdtl3_key    setll     lbdtl3
+6.10 c     lbdtl3_key    reade     lbdtl3
+6.10 c                   dow       not %eof
+6.10 c                   if        lvbatc = d_batc
+6.10 c                   goto      neste_vare
+6.10 c                   endif
+6.10 c     lbdtl3_key    reade     lbdtl3
+6.10 c                   enddo
+     c                   endif
+      *
+      * Test på salg
+      *
+     c                   eval      sstal2_vare = vvvare
+     c                   eval      sstal2_paar = w_paar
+6.30 c                   eval      sstal2_bida = w_dato_s
+     c     sstal2_key    setll     sstal2
+     c                   read      sstal2
+     c                   if        not %eof and
+     c                             sffirm = vvfirm and
+     c                             sfvare = vvvare
+     c                   goto      neste_vare
+     c                   endif
+6.30  *
+6.30  * Hvis parameter for å slette utgåtte varer, så test her.
+6.30  *
+6.30 c                   if        d_utgv = 1
+6.30 c                   exsr      utg_vare
+6.30 c                   if        b_utgv = *off and
+6.30 c                             b_utgl = *off
+6.30 c                   goto      neste_vare
+6.30 c                   endif
+6.30 c                   endif
+      *
+      * Bygg opp sorterings-nøkkel
+      *
+     c                   eval      d_ogrp = vvogrp
+     c                   eval      d_hgrp = vvhgrp
+     c                   eval      d_ugrp = vvugrp
+      *
+     c                   eval      d_vsrt1 = *blank
+     c                   eval      d_vsrt2 = *blank
+     c                   eval      d_vsrt3 = *blank
+      *
+     c                   if        d_srt1 = 1
+     c                   movel     d_vgrp        d_vsrt1
+     c                   endif
+      *
+     c                   if        d_srt1 = 2
+     c                   movel     d_vgrp        d_vsrt2
+     c                   endif
+      *
+     c                   if        d_srt1 = 3
+     c                   movel     d_vgrp        d_vsrt3
+     c                   endif
+      *
+     c                   if        d_srt2 = 1
+     c                   movel     vvldor        d_vsrt1
+     c                   endif
+      *
+     c                   if        d_srt2 = 2
+     c                   movel     vvldor        d_vsrt2
+     c                   endif
+      *
+     c                   if        d_srt2 = 3
+     c                   movel     vvldor        d_vsrt3
+     c                   endif
+      *
+     c                   if        d_srt3 = 1
+     c                   movel     vvtek1        d_vsrt1
+     c                   endif
+      *
+     c                   if        d_srt3 = 2
+     c                   movel     vvtek1        d_vsrt2
+     c                   endif
+      *
+     c                   if        d_srt3 = 3
+     c                   movel     vvtek1        d_vsrt3
+     c                   endif
+      *
+     c                   if        d_srt4 = 1
+     c                   movel     vvvare        d_vsrt1
+     c                   endif
+      *
+     c                   if        d_srt4 = 2
+     c                   movel     vvvare        d_vsrt2
+     c                   endif
+      *
+     c                   if        d_srt4 = 3
+     c                   movel     vvvare        d_vsrt3
+     c                   endif
+      *
+     c                   eval      vwakey = d_vakey
+      *
+      * Skriver til arbeidsfil
+      *
+     c                   write     vvawpfr
+      *
+     c     neste_vare    tag
+      *
+     c     vvarl1_key    reade     vvarl1
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  * Subrutine for å sjekke om vare er utgått.
+6.30  * * Hvis utg. på vare utfylt og den er passert
+6.30  * * Hvis utg. på alle lager er utfylt og og den er passert
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  *
+6.30 c     utg_vare      begsr
+6.30  *
+6.30 c                   eval      b_utgv = *off
+6.30 c                   eval      b_utgl = *off
+6.30  *
+6.30 c                   if        vvudat <> *loval and
+6.30 c                             vvudat <= w_dato
+6.30 c                   eval      b_utgv = *on
+6.30 c                   leavesr
+6.30 c                   endif
+6.30  *
+6.30  * sjekk alle lager
+6.30  *
+6.30 c                   eval      vlagl1_vare = vvvare
+6.30 c     vlagl1_key    setll     vlagl1
+6.30 c     vlagl1_key    reade     vlagl1
+6.30 c                   dow       not %eof(vlagl1)
+6.30 c                   if        vludat <> *loval and
+6.30 c                             vludat <= w_dato
+6.30 c                   eval      b_utgl = *on
+6.30 c                   else
+6.30 c                   eval      b_utgl = *off
+6.30 c                   endif
+6.30 c     vlagl1_key    reade     vlagl1
+6.30 c                   enddo
+6.30  *
+6.30 c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_list
+      *
+      * Key for les på vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+6.30  *
+6.30  * Key for les på vare-lager
+6.30  *
+6.30 c     vlagl1_key    klist
+6.30 c                   kfld                    w_firm
+6.30 c                   kfld                    vlagl1_vare
+      *
+      * Key for les på lagertelling-telle
+      *
+     c     ltell3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ltell3_vare
+6.10  *
+6.10  * Key for les på lagertelling
+6.10  *
+6.10 c     lbdtl3_key    klist
+6.10 c                   kfld                    w_firm
+6.10 c                   kfld                    lbdtl3_vare
+      *
+      * Key for les på salgsstatistikk
+      *
+     c     sstal2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    sstal2_vare
+     c                   kfld                    sstal2_paar
+     c                   kfld                    sstal2_bida
+      *
+      *
+      * Kopierer parameterliste til datastruktur
+      *
+     c                   eval      d_list = p_list
+      *
+      * Henter firma fra parameter
+      *
+     c                   eval      w_firm = d_firm
+      *
+5.70 c                   eval      w_lage = l_lagr
+      *
+7.01  *
+7.01  * Sjekker mot leverandør og ikke varetype
+7.01  *
+7.01   CallP CO402R(l_filg:w_firm:0:'VV681_701':
+7.01   co402_verdi1:co402_verdi2);
+7.01   if co402_verdi1 = '1';
+7.01     u_s701 = *on;
+7.01   endif;
+7.01  *
+      *
+     c                   endsr

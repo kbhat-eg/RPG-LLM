@@ -1,0 +1,391 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FD118R
+      * Beskrivelse . . : Ordre-linje, hurtigoppretting av varelinje fra Winner
+      *
+      * Spesialversjon. : Bygget på FD106R med oppdatering av flere felter
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       270319 ASK  Nytt program
+8.01  *PRG2   080622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+8.02  *K0000  310524 bsa  Legger på GTIN nummer ved opprettelse av varelinjer.
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvenl1    if   e           k disk    rename(vvenpfr:vvenl1r)
+     ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+     ffodtl1    if   e           k disk    rename(fodtpfr:fodtl1r)
+     ffodtlu    uf a e           k disk    rename(fodtpfr:fodtlur)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+      *
+      * Definering av parametre
+      *
+     d p_kode          s              1
+     d p_firm          s                   like(fdfirm)
+     d p_numm          s                   like(fdnumm)
+     d p_suff          s                   like(fdsuff)
+     d p_line          s                   like(fdline)
+     d p_ltyp          s                   like(fdltyp)
+     d p_lety          s                   like(fdlety)
+     d p_vare          s                   like(fdvare)
+     d p_anta          s                   like(fdanta)
+     d p_enhe          s                   like(fdenh1)
+     d p_ldat          s                   like(fdldat)
+     d p_vtyp          s                   like(vvvtyp)
+     d p_tek1          s                   like(vvtek1)
+     d p_tek2          s                   like(vvtek1)
+     d p_ntpr          s                   like(fdsapr)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+      *
+      *
+      * Definering av variabler i nøkler
+      *
+     d vvarl1_vare     s                   like(vvvare)
+     d vvenl1_vare     s                   like(vevare)
+     d vvenl1_enhe     s                   like(veenhe)
+     d rkunl1_kund     s                   like(rkkund)
+      *
+      * Definering av variable
+      *
+     d w_stat          s              1
+      *
+     d w_firm          s                   like(vvfirm)
+     d w_numm          s                   like(fonumm)
+     d w_suff          s                   like(fosuff)
+     d w_line          s                   like(fdline)
+      *
+     d w_raba          s                   like(fdsums)
+     d w_sumr          s                   like(fdsums)
+     d w_sums          s                   like(fdsums)
+     d w_prgr          s                   like(fdprgr)
+     d w_udat          s               d   datfmt(*iso)
+     d w_ldor          s                   like(vvldor)
+     d w_numa          s              8
+     d w_lina          s              4
+8.02 d w_gtin          s                   like(fdeann)
+8.02 d w_levr          s              6  0
+      *
+     d b_inlr          s              1    inz(*off)
+     d b_kont          s              1    inz(*off)
+     d w_tilb          s                   like(fdsapr)
+     d w_tra1          s                   like(fdrab1)
+     d w_tra2          s                   like(fdrab2)
+     d w_enhe          s                   like(fdenh1)
+      *
+      * Definering av konstanter
+      *
+     d lo              c                   'abcdefghijklmnopqrstuvwxyzæøåäö'
+     d up              c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅÄÖ'
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Avbryter dersom vare eller antall ikke er utfylt
+      *
+     c                   if        p_vare = *blank or
+     c                             p_anta = 0
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Avbryter dersom enhet ikke finnes på vare
+      *
+     c                   eval      vvenl1_vare = p_vare
+     c                   eval      vvenl1_enhe = p_enhe
+     c     vvenl1_key    chain     vvenl1
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Avbryter dersom ordre-linje finnes fra før
+      *
+     c     fodtl1_key    chain     fodtl1
+     c                   if        %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Henter vareinformasjon
+      *
+     c                   eval      vvarl1_vare = p_vare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Kaller program for henting av Varetype fra lager/vare
+      *
+      *
+      * Initierer ordre-linje
+      *
+     c                   clear                   fodtlur
+      *
+     c                   eval      fdfirm = w_firm
+     c                   eval      fdnumm = w_numm
+     c                   eval      fdsuff = w_suff
+     c                   eval      fdline = w_line
+     c                   eval      fdltyp = p_ltyp
+     c                   eval      fdvare = p_vare
+     c                   eval      fdanta = p_anta
+     c                   eval      fdenh1 = p_enhe
+     c                   eval      fdtek1 = p_tek1
+     c                   eval      fdtek2 = p_tek2
+     c                   eval      fdlety = p_lety
+     c                   eval      fdpasl = fopasl
+     c                   eval      fdldat = p_ldat
+8.02  *
+8.02 c                   exsr      hent_GTIN
+      *
+      * Bruker priser og rabatter fra Winner
+      *
+     c                   eval      fdsapr = p_ntpr
+     c                   eval      fdkopr = 0
+     c                   eval      fdkpri = *blank
+     c                   eval      fdrab1 = 0
+     c                   eval      fdrab2 = 0
+      *
+     c                   eval      fdpasl = 0
+     c                   eval      fdkamp = *blank
+     c                   eval      fdalme = 0
+     c                   eval      fdomva = '3'
+     c                   eval      fdbrty = 0
+     c                   eval      fdbrr1 = 0
+     c                   eval      fdbrr2 = 0
+     c                   eval      fdpriv = 0
+     c                   eval      fdprgr = *blank
+      *
+      * Beregning av totaler
+      *
+     c*                  eval      w_sums = fdsapr * fdanta
+     c                   eval(h)   w_sums = fdsapr * fdanta
+     c                   eval      w_sumr = 0
+      *
+      * Rabatt
+      *
+      *
+     c*                  if        fdrab1 <> 0
+     c*                  eval(h)   w_raba = (w_sums - w_sumr) * fdrab1 / 100
+     c*                  eval      w_sumr = w_sumr + w_raba
+     c*                  endif
+      *
+     c*                  if        fdrab2 <> 0
+     c*                  eval(h)   w_raba = (w_sums - w_sumr) * fdrab2 / 100
+     c*                  eval      w_sumr = w_sumr + w_raba
+     c*                  endif
+      *
+      *
+      * Legger inn totaler
+      *
+     c                   eval      fdsums = w_sums
+     c                   eval      fdsumr = w_sumr
+     c                   eval      fdsumk = fdkopr * fdanta
+      *
+      * Legger inn faste opplysninger fra vare og ordre
+      *
+     c                   eval      fdotyp = footyp
+     c                   eval      fdlage = folage
+     c                   eval      fdkakk = 0
+     c                   eval      fdkgeb = 0
+     c                   eval      fdlass = 0
+      *
+     c                   eval      fdkund = fokund
+     c                   if        folkun <> 0
+     c                   eval      fdkund = folkun
+     c                   endif
+      *
+     c                   eval      fdbenr = 0
+     c                   eval      fdbsuf = 0
+     c                   eval      fdblin = 0
+     c                   eval      fdavde = 0
+     c                   eval      fdkont = 0
+     c                   eval      fdspes = 0
+     c**                 eval      fdproj = 0
+     c                   eval      fdproj = *blank
+     c                   eval      fdakti = *blank
+     c                   eval      fdnobb = vvnobb
+     c                   eval      fdlvar = vvlvar
+     c                   eval      fdldor = vvldor
+     c                   eval      fdogrp = vvogrp
+     c                   eval      fdhgrp = vvhgrp
+     c                   eval      fdugrp = vvugrp
+      *
+      * Oversetter varetekst til store bokstaver dersom dette er valgt
+      *
+     c                   if        faahoy = 1
+     c     lo:up         xlate     fdtek1        fdtek1
+     c                   endif
+      *
+      * Skriver til ordre-linje
+      *
+     c                   time                    fdodat
+     c                   time                    fdotim
+     c                   eval      fdoous = l_user
+     c                   time                    fdedat
+     c                   time                    fdetim
+     c                   eval      fdeusr = l_user
+     c                   write     fodtlur
+      *
+      * Legger inn kode som sier at minst en linje er registrert
+      *
+     c                   eval      p_kode = *on
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+8.02  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.02  * Henter oGTIN informasjon om vare/enhet
+8.02  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.02  *
+8.02 c     hent_GTIN     begsr
+8.02  *
+8.02 c                   eval      w_gtin = 0
+8.02 c                   eval      w_levr = 0
+8.02 c                   eval      w_stat = *blanks
+8.02  *
+8.02 c                   call      'VE713R'
+8.02 c                   parm                    w_firm
+8.02 c                   parm                    w_levr
+8.02 c                   parm                    p_vare
+8.02 c                   parm                    p_enhe
+8.02 c                   parm                    w_gtin
+8.02 c                   parm                    w_stat
+8.02  *
+8.02 c                   eval      fdeann = w_gtin
+8.02  *
+8.02 c                   endsr
+8.02  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_kode
+     c                   parm                    p_firm
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+     c                   parm                    p_line
+     c                   parm                    p_ltyp
+     c                   parm                    p_lety
+     c                   parm                    p_vare
+     c                   parm                    p_anta
+     c                   parm                    p_enhe
+     c                   parm                    p_ldat
+     c                   parm                    p_tek1
+     c                   parm                    p_tek2
+     c                   parm                    p_ntpr
+     c*                  parm                    p_kpri
+     c*                  parm                    p_rab1
+     c*                  parm                    p_rab2
+     c*                  parm                    p_lvnr
+      *
+      * Key for oppslag på status
+      *
+     c     fstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for oppslag på vare-enhet
+      *
+     c     vvenl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl1_vare
+     c                   kfld                    vvenl1_enhe
+      *
+      * Key for oppslag på ordre-hode
+      *
+     c     fohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_numm
+     c                   kfld                    w_suff
+      *
+      * Key for oppdatering av ordre-linje
+      *
+     c     fodtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_numm
+     c                   kfld                    w_suff
+     c                   kfld                    w_line
+      *
+      * Key for oppslag på ordre-linje
+      *
+     c     fodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_numm
+     c                   kfld                    w_suff
+     c                   kfld                    w_line
+      *
+      * Key for oppslag på kunde - sideregister
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      *
+      * Henter parametre
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      w_numm = p_numm
+     c                   eval      w_suff = p_suff
+     c                   eval      w_line = p_line
+      *
+      * Hent opplysninger fra ofak koderegister
+      *
+     c     fstsl1_key    chain     fstsl1r                            90
+      *
+      * Hent opplysninger fra ordre-hode
+      *
+     c     fohel1_key    chain     fohel1r                            90
+      *
+      * sjekker om kunde har kontant-kunde satt på
+      *
+     c                   eval      b_kont = *off
+     c                   eval      rkunl1_kund = fokund
+     c     rkunl1_key    chain     rkunl1
+     c                   if        %found(rkunl1) and
+     c                             rkkoti = 1
+     c                   eval      b_kont = *on
+     c                   endif
+      *
+      *
+     c                   endsr
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

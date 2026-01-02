@@ -1,0 +1,324 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : HR721R
+      * Beskrivelse . . : Radioterminal trans, lagertelling buntlinjer
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *              ASK  Nytt program
+6.20  *       171214 BOF  Les status med firma-nr
+6.21  *       181214 BOF  Problemer med å finne firma, leser 1.trans
+6.nu  * 6.30  170614 bof  endret ihht. nummerutvidelse
+8.01  * 800   090222 ask  Kompilert pga. utvidelse av LWHBPF, påvirker ikke logikken
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flwhbl1    if   e           k disk    rename(lwhbpfr:lwhbl1r)
+     flwhblu    uf a e           k disk    rename(lwhbpfr:lwhblur)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     flstsl1    if   e           k disk    rename(lstspfr:lstsl1r)
+     flbhelu    uf a e           k disk    rename(lbhepfr:lbhelur)
+     flbdtlu    uf a e           k disk    rename(lbdtpfr:lbdtlur)
+      *
+      * Definering av parametre
+      *
+     d p_tims          s                   like(mytime)
+     d p_kode          s              1
+     d p_stat          s              1
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+     d l_firm                944    946  0
+      *
+      * Datastruktur - EAN128
+      *
+     d                 ds
+     d d_e128                        26
+     d  d_fast                        3  0 overlay(d_e128)
+     d  d_eann                       13  0 overlay(d_e128:4)
+     d  d_kode                        4  0 overlay(d_e128:17)
+     d  d_anta                        6  2 overlay(d_e128:21)
+      *
+      * Definering av variabler i nøkler
+      *
+     d lwhbl1_kode     s                   like(mykode)
+     d lwhblu_kode     s                   like(mykode)
+     d lwhblu_line     s                   like(myline)
+     d vvarl1_vare     s                   like(vvvare)
+     d lbhelu_batc     s                   like(lubatc)
+     d lbhelu_numm     s                   like(lunumm)
+     d lbdtlu_batc     s                   like(lvbatc)
+     d lbdtlu_numm     s                   like(lvnumm)
+     d lbdtlu_line     s                   like(lvline)
+      *
+      * Definering av variable
+      *
+     d b_scan          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+     d b_oppr          s              1    inz(*off)
+     d b_bunt          s              1    inz(*off)
+      *
+     d w_udat          s               d   datfmt(*iso)
+     d w_scan          s             26
+     d w_leng          s              2  0
+     d w_posi          s              2  0
+     d w_line          s              5  0
+     d w_vare          s             15
+     d w_kod2          s              1
+     d w_fell          s              6
+     d w_type          s              2
+     d w_fast          s             10
+     d w_stek          s             35
+     d x               s              1  0
+      *
+     d w_firm          s                   like(lvfirm)
+     d w_kode          s                   like(mykode)
+     d w_enhe          s                   like(lvenh1)
+     d w_anta          s                   like(lvantt)
+     d w_dato          s                   like(luodat)
+     d w_time          s                   like(mytime)
+     d w_anta_kalk     s                   like(lvantt)
+6.nu d w_bnum          s              8  0
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Oppretter tellebunt
+      *
+     c                   eval      p_stat = ' '
+      *
+     c                   exsr      opprett
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   if        b_oppr = *on
+     c                   eval      p_stat = '1'
+     c                   endif
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppretting av tellebunt
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     opprett       begsr
+      *
+     c                   eval      b_oppr = *off
+      * Begynner å lese transaksjoner fra arbeidsregister
+     c                   eval      lwhbl1_kode = w_kode
+     c     lwhbl1_key    setll     lwhblu
+     c     lwhbl1_key    reade     lwhblu
+     c                   dow       not %eof(lwhblu)
+      *
+      * Oppretter bunthode
+     c                   if        b_oppr = *off
+     c                   eval      w_line = 0
+     c                   exsr      ny_bunt
+     c                   eval      b_oppr = *on
+     c                   eval      lbhelu_batc = mybatc
+     c                   eval      lbhelu_numm = w_bnum
+     c     lbhelu_key    chain     lbhelur
+      *
+     c                   if        not %found
+     c                   if        mybtxt <> *blank
+     c                   eval      lutext = mybtxt
+     c                   else
+     c                   eval      lutext = 'Håndterminal'
+     c                   endif
+     c                   eval      luoper = *blank
+     c                   eval      lulage = mylage
+     c                   eval      lutype = 'HTRT      '
+     c                   eval      luwsid = l_wsid
+     c                   eval      luuser = myeusr
+     c                   eval      lutnum = 0
+     c                   time                    ludato
+     c                   time                    lutime
+      *
+     c                   eval      lusdat = *loval
+     c                   eval      luodat = *loval
+     c                   eval      luskod = 0
+     c                   eval      lukode = 0
+      *
+     c                   eval      lufirm = w_firm
+     c                   eval      lubatc = lbhelu_batc
+     c                   eval      lunumm = lbhelu_numm
+     c                   write     lbhelur
+     c                   endif
+     c                   endif
+      *
+      * Flytter telling fra radioterminal til tellebunt-linje
+      *
+      * Hent inn informasjon fra vareregisteret
+     c                   eval      vvarl1_vare = myvare
+     c     vvarl1_key    chain     vvarl1                             91
+     c                   if        %found(vvarl1)
+      * Initier varetellingslinje
+     c                   clear                   lbdtlur
+     c                   eval      lvfirm = myfirm
+     c                   eval      lvbatc = mybatc
+     c                   eval      lvnumm = w_bnum
+     c                   eval      w_line = w_line + 1
+     c                   eval      lvline = w_line
+     c                   eval      lvlage = mylage
+     c                   eval      lvogrp = vvogrp
+     c                   eval      lvhgrp = vvhgrp
+     c                   eval      lvugrp = vvugrp
+     c                   eval      lvvare = myvare
+     c                   eval      lvenh1 = myenhe
+     c                   eval      lvtek1 = vvtek1
+     c                   eval      lvantt = myanta
+     c                   eval      lvtims = mytims
+      *
+     c                   write     lbdtlur
+      *
+     c                   delete    lwhblu
+     c                   endif
+      *
+     c     lwhbl1_key    reade     lwhblu                                 90
+     c                   enddo
+      *
+     c     end_opprett   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å finne neste ledige buntnummer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     ny_bunt       begsr
+      *
+     c     ny_les        tag
+     c                   eval      w_kod2 = '0'
+     c                   eval      w_fell = laatbu
+      *                  eval      w_fell = 'LTBUNT'
+     c                   eval      w_type = *blank
+     c                   eval      w_fast = *blank
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kod2
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_bnum
+      *
+      * Sjekk om bunt allerede brukt
+      *
+     c                   eval      lbhelu_batc = mybatc
+     c                   eval      lbhelu_numm = w_bnum
+     c     lbhelu_key    chain     lbhelur
+      *
+     c                   if        %found
+     c                   goto      ny_les
+     c                   endif
+      *
+     c     end_ny_bunt   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+     c                   eval      p_stat = ' '
+610  c                   move      *on           *inlr
+610  c                   return
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_tims
+     c                   parm                    p_stat
+      *
+      * Key for oppslag på radioterminal-trans
+      *
+     c     lwhbl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lwhbl1_kode
+     c                   kfld                    w_time
+6.21  *
+6.21 c     lwhbl1_key2   klist
+6.21 c                   kfld                    w_firm
+      *
+      * Key for oppdatering av radioterminal-trans
+      *
+     c     lwhblu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lwhblu_kode
+     c                   kfld                    w_time
+     c                   kfld                    lwhblu_line
+      *
+      * Key for oppslag på vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      *  Key for oppdatering av TELLEBUNT-HODE
+      *
+     c     lbhelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lbhelu_batc
+     c                   kfld                    lbhelu_numm
+      *
+      *  Key for oppdatering TELLEBUNT-LINJE
+      *
+     c     lbdtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lbdtlu_batc
+     c                   kfld                    lbdtlu_numm
+     c                   kfld                    lbdtlu_line
+      *
+      * Key for oppslag på lager status-koder
+      *
+     c     lstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Henter opplysninger fra lager og statuskoder
+      *
+     c     lstsl1_key    chain     lstsl1r                            90
+      *
+      * Henter firma og timestamp fra parameter
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      w_kode = 'T'
+     c                   eval      w_time = p_tims
+6.21  *
+6.21  * Leser for sikkerhet skyld 1. rec av trans,for å finne firma
+6.21  *
+6.21 c     lwhbl1_key    setll     lwhbl1
+6.21 c                   read      lwhbl1
+6.21 c                   eval      w_firm =  myfirm
+6.20  *
+6.20  * Henter opplysninger fra lager og statuskoder
+6.20  *
+6.20 c     lstsl1_key    chain     lstsl1r                            90
+      *
+     c                   endsr

@@ -1,0 +1,87 @@
+             PGM
+/*                                                                         */
+/*    Programmet lister alle jobber med lock til current bibliotek         */
+/*    Så går det gjennom lista og sender melding til alle brukere om at    */
+/*    de skal logge av for ikke å bli kastet ut om ett minutt.(loop='1')   */
+/*    Deretter kjøres en ny runde hvor jobbene kastes ut.(loop ='2')       */
+/*    Dersom det er ASP-brukere får du spørsmål om de skal kastes ut       */
+/*                                                                         */
+             dcl        var(&m1)   type(*char)   len(50) +
+                        value('Denne jobben tar ned jobber som sperrer ADBxxx')
+             dcl        var(&m2)   type(*char)   len(50) +
+                        value('Svar -N- dersom du ønsker å avbryte kkjøring')
+             dcl        var(&av)   type(*dec)    len(1 0)
+             dcl        var(&sv)   type(*char)   len(1)
+             dcl        var(&lib)  type(*char)   len(10)
+             dcl        var(&loop) type(*char)   len(1)  value('1')
+
+             dclf       file(*curlib/endjobwiz) alwnull(*yes)
+
+             rtvjoba    curlib(&lib)
+             chgvar     var(%sst(&m1 41 10))   value(&lib)
+             call       pgm(aa007r) +
+                        parm(&m1 &m2 +
+                              &sv &av)
+             if       cond(&sv *eq 'N') then(do)
+               goto    endpgm
+             enddo
+             if       cond(&av *eq 1) then(do)
+               goto    endpgm
+             enddo
+
+             rtvjoba    curlib(&lib)
+start:
+     clrpfm      file(*libl/endjobwiz)
+     wrkobjlck   obj(&lib) objtype(*lib) output(*print)
+     cpysplf     file(qpdspolk) tofile(*libl/endjobwiz) +
+                 splnbr(*last)
+      dltsplf    file(qpdspolk) splnbr(*last)
+/*   Les fil med jobber som sperrer ADBxxx                         */
+rcv:  rcvf
+      monmsg     msgid(cpf0864) exec(goto loop)
+      if         cond(%sst(&endjobwiz 47 4) *eq 'HELD') then(do)
+/* ---------------- */
+      if         cond(%sst(&endjobwiz 16 3) *eq 'ASP') then(do)
+        chgvar   var(&M1)  value('Bruker ' *cat +
+                                %sst(&endjobwiz 16 10)  *tcat +
+                           ' sperrer ' *cat +
+                          &lib *tcat ' med jobb ' +
+                           *cat %sst(&endjobwiz 04 10))
+        chgvar   var(&M2)  value('Skal brukerens jobb slettes?')
+        call     aa007r    parm(&m1 &m2 &sv &av)
+        if       cond(&sv *ne 'J') then(do)
+         goto    cmdlbl(rcv)
+        enddo
+      enddo
+/* ---------------- */
+      if         cond(%sst(&endjobwiz 1 30) *ne '    ') then(do)
+        if         cond(&loop *eq '1') then(do)
+          sndbrkmsg msg('Oppgradering kjøres.  Logg av eller +
+                        du blir kastet ut om 1 minutt.       +
+                        NB!!!!!   Dette er bare en test')    +
+                        tomsgq(%sst(&endjobwiz 4 10))
+          monmsg   msgid(cpf2469)
+          goto     cmdlbl(rcv)
+        enddo
+
+        endjob job(%sst(&endjobwiz 28 6)/%sst(&endjobwiz 16 10)/+
+                   %sst(&endjobwiz 4 10))  option(*immed)
+        monmsg     msgid(cpf1342) exec(do)
+          chgvar   var(&M1)  value('Du står i biblioteket ' +
+                             *cat &lib  *tcat +
+                             ' som du prøver å frigi')
+          chgvar   var(&M2)  value('Kjør med bruker som ikke +
+                                  binder opp biblioteket')
+          call     aa007r    parm(&m1 &m2 &sv &av)
+          enddo
+        enddo
+      enddo
+      goto       rcv
+ loop:
+      if         cond(&loop *eq '1')  then(do)
+        chgvar   var(&loop)   value('2')
+        dlyjob   dly(60)
+        close
+        goto     cmdlbl(start)
+      enddo
+ ENDPGM:     ENDPGM

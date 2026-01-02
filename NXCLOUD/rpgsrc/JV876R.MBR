@@ -1,0 +1,252 @@
+     h option(*nodebugio: *srcstmt) datedit(*dmy)
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASVADM
+      * Program . . . . : JV876R
+      * Beskrivelse . . : Oppdater fra NOBB, kontaktperson
+      *
+      *                   Oppdaterer kontaktperson NOBB (XML-format)
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       120818 BKV
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjstsl1    if   e           k disk    rename(jstspfr:jstsl1r)
+     f                                     infsr(FileErr)
+     fjlkplu    uf a e           k disk    rename(jlkppfr:jlkplur)
+     fjlgslu    uf   e           k disk    rename(jlgspfr:jlgslur)
+      *
+      * Definering av variable i nøkler
+      *
+     d jlkplu_pldo     s                   like(jkpldo)
+     d jlgslu_gldo     s                   like(jlgldo)
+      * Brukes som parametre til jobblogging
+     d p_jbid          s             41
+     d p_jsts          s              2  0
+     d p_jmld          s            200
+6.20 d w_dato          s               d   datfmt(*iso)
+      *
+      * Definering av Local Data Area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+      *
+     d w_firm          s              3  0
+      *
+      * Definering av parametre
+      *
+     d p_firm          s              3  0
+     d p_stat          s              1
+     d p_orec          s            100
+     d p_hrec          s            100
+     d p_urec          s            100
+     d p_drec          s            200
+     d p_job_log       s             50
+     d p_inlr          s              1
+      *
+      *  Dataelementer kontaktperson
+      *
+     d                 ds
+     d d_konrec                     200
+     d  d_jkpldo                      6    overlay(d_konrec:1)
+     d   d_jkpldo_nym                 6  0 overlay(d_jkpldo:1)
+     d  d_jkptel                      6    overlay(d_konrec:7)
+     d   d_jkptel_num                 6  0 overlay(d_jkptel:1)
+     d  d_jkpnav                     35    overlay(d_konrec:13)
+     d  d_jkpttl                     35    overlay(d_konrec:48)
+     d  d_jkptlf                     15    overlay(d_konrec:83)
+     d  d_jkpmob                     15    overlay(d_konrec:98)
+     d  d_jkpfax                     15    overlay(d_konrec:113)
+     d  d_jkpmai                     50    overlay(d_konrec:128)
+     d  d_jkprol                     15    overlay(d_konrec:178)
+
+      *
+     d d_job_log                     50
+     d  w_alevt                       5    overlay(d_job_log:2)
+     d  w_alev                        5  0 overlay(w_alevt:1)
+      * Definering av variable
+      *
+     d b_inlr          s              1
+     d b_vfel          s              1    inz(*off)
+     d b_slett         s              1    inz(*off)
+     d b_stell         s                   like(jkptel)
+      *
+      * Datastruktur for informasjon ved exceptions
+      *
+     d PgmError       sds
+     d  proc_name        *proc
+     d  pgm_status       *STATUS
+     d  prv_status            16     20s 0
+     d  line_numm             21     28
+     d  routine          *ROUTINE
+     d  parms            *PARMS
+     d  excp_type             40     42
+     d  excp_numm             43     46
+     d  pgm_lib               81     90
+     d  excp_data             91    170
+     d  excp_id              171    174
+     d  date                 191    198
+     d  year                 199    200s 0
+     d  last_file            201    208
+     d  file_info            209    243
+     d  job_name             244    253
+     d  job_user             254    263
+     d  job_numb             264    269s 0
+
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+     C/Exec SQL
+     C+  Set Option DatFmt=*ISO
+     C/End-Exec
+
+     c                   eval      d_job_log = p_job_log
+     c                   if        p_inlr = *on
+     c                   eval      d_konrec = p_drec
+      *
+     c                   if        d_jkptel_num = 1
+     c                   exsr      slett_konp
+     c                   endif
+     c                   exsr      skr_kont
+      *
+     c                   endif
+
+      * retunerer jobb status
+     c                   eval      p_job_log = d_job_log
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     avslutt       tag
+
+     c                   if        p_inlr <> *on
+     c                   eval      *inlr = *on
+     c                   endif
+     c                   return
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Error rutine for file errors
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     FileErr       begsr
+      *
+     c                   eval      p_stat = '1'
+     c                   eval      p_jsts = 50
+     c                   eval      p_jmld = 'Fil ' + %trim(last_file) +
+     c                             ' feil. Info=' + %trim(excp_data) +
+     c                             '. Job=' + %trim(job_name) + '/' +
+     c                             %trim(job_user) + '/' +
+     c                             %char(job_numb)
+      *
+     c                   call      'AB705R'
+     c                   parm                    p_jbid
+     c                   parm                    p_jsts
+     c                   parm                    p_jmld
+      *
+     c                   goto      avslutt
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppdaterer deltaker/levr.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skr_kont      begsr
+      *
+      *
+     c
+      /free
+       exec sql
+          SELECT IFNULL(MAX(JKPTEL), 0) into :b_stell FROM JLKPPF WHERE
+            JKPLDO = :d_jkpldo_nym ;
+      /end-free
+     c
+     c                   clear                   jlkplur
+      *
+     c                   eval      jkpldo = d_jkpldo_nym
+     c                   eval      jkptel = b_stell + 1
+     c                   eval      jkpnav = %trim(d_jkpnav)
+     c                   eval      jkpttl = %trim(d_jkpttl)
+     c                   eval      jkptlf = %trim(d_jkptlf)
+     c                   eval      jkpmob = %trim(d_jkpmob)
+     c                   eval      jkpfax = %trim(d_jkpfax)
+     c                   eval      jkpmai = %trim(d_jkpmai)
+     c                   eval      jkprol = %trim(d_jkprol)
+      *
+     c                   eval      jkpusr = l_user
+     c                   time                    jkpeda
+     c                   time                    jkpeti
+      *
+     c                   eval      jkpldo = d_jkpldo_nym
+     c                   time                    jkpoda
+     c                   time                    jkpoti
+     c                   write     jlkplur
+      *
+     c                   endsr
+      *
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sletter kontaktpersoner
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     slett_konp    begsr
+      * sletter deltakers kontaktpersoner
+     c                   eval      jlkplu_pldo = d_jkpldo_nym
+     c     jlkplu_key    setll     jlkplur
+     c     jlkplu_key    reade     jlkplur
+     c                   dow       not %eof(jlkplu)
+     c                   delete    jlkplur
+     c     jlkplu_key    reade     jlkplur
+     c                   enddo
+     c                   endsr
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_drec
+     c                   parm                    p_job_log
+     c                   parm                    p_inlr
+      *
+      * Key for oppslag på status
+      *
+     c     jstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppdatering av deltaker kontaktpersoner
+      *
+     c     jlkplu_key    klist
+     c                   kfld                    jlkplu_pldo
+      *
+      * Key for rydding av deltaker gs1
+      *
+     c     jlgslu_key    klist
+     c                   kfld                    jlgslu_gldo
+      *
+      *
+      * Henter firma fra parameter
+      *
+     c                   eval      w_firm = l_firm
+6.20 c                   time                    w_dato
+      *
+     c     jstsl1_key    chain     jstsl1
+      *
+     c                   endsr
+

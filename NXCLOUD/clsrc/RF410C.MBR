@@ -1,0 +1,137 @@
+             PGM
+             DCLF       FILE(RF410D)
+
+             DCL        VAR(&A1VRA0) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&A1VRA1) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&A1VHOV) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&A1VRR0) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&A1FGRP) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&A1FIRM) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&A1TGRP) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&A1TFIR) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&LEVL)   TYPE(*CHAR) LEN(2)
+             DCL        VAR(&OKOK)   TYPE(*CHAR) LEN(2)
+             DCL        VAR(&FGRP)   TYPE(*CHAR) LEN(3)
+             DCL        VAR(&FIRM)   TYPE(*CHAR) LEN(3)
+             DCL        VAR(&BIBL)   TYPE(*CHAR) LEN(06) VALUE('ADB   ')
+             DCL        VAR(&MLD3)   TYPE(*CHAR) LEN(50)
+             DCL        VAR(&MLD4)   TYPE(*CHAR) LEN(50)
+             DCL        VAR(&SVAR)   TYPE(*CHAR) LEN(1)
+             DCL        VAR(&MLD1)   TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD2)   TYPE(*CHAR) LEN(40)
+             DCL        VAR(&WALI)   TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO)   TYPE(*DEC)  LEN(2 0)
+
+/* Kontrollere brukertilgang                                         */
+
+             CHGVAR     VAR(&LEVL) VALUE('40')
+             CHGVAR     VAR(&OKOK) VALUE('  ')
+             CALL       PGM(AA050C)  PARM(&LEVL &OKOK)
+             IF         COND(&OKOK *NE 'OK') THEN(DO)
+             CALL       PGM(AA004C)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+
+
+/* Hente inn filgruppe / firma fra LDA                               */
+
+             RTVDTAARA  DTAARA(*LDA (931 03)) RTNVAR(&FGRP)
+             RTVDTAARA  DTAARA(*LDA (944 03)) RTNVAR(&FIRM)
+
+             CHGVAR     VAR(&A1FGRP) VALUE(&FGRP)
+             CHGVAR     VAR(&A1FFIR) VALUE(&FIRM)
+
+             SNDRCVF    RCDFMT(A1BLD)
+
+/* F3 + F12                                                          */
+             IF         COND(&IN03) THEN(GOTO CMDLBL(ENDPGM))
+             IF         COND(&IN12) THEN(GOTO CMDLBL(ENDPGM))
+
+             CHGVAR     VAR(%SST(&BIBL 4 3)) VALUE(&A1TGRP)
+
+/* Varselbilde med bekreftelse på om jobb skal settes i gang         */
+
+             CHGVAR     VAR(&MLD3) +
+                        VALUE('Kopierer 000/ADBxxx til 000/ADByyy')
+             CHGVAR     VAR(&MLD4) +
+                        VALUE('       Bekreft at dette er riktig !')
+             CHGVAR     VAR(%SST(&MLD3 10 3)) VALUE(&FIRM)
+             CHGVAR     VAR(%SST(&MLD3 17 3)) VALUE(&FGRP)
+             CHGVAR     VAR(%SST(&MLD3 25 3)) VALUE(&A1TFIR)
+             CHGVAR     VAR(%SST(&MLD3 32 3)) VALUE(&A1TGRP)
+
+             CALL       PGM(AA007R)    PARM(&MLD3 &MLD4 &SVAR &IN12)
+
+             IF         COND(&IN12 *EQ '1') +
+                          THEN(GOTO CMDLBL(ENDPGM))
+
+             IF         COND(&SVAR *EQ ' ' *OR &SVAR *EQ 'J') +
+                          THEN(GOTO CMDLBL(VIDERE))
+             ELSE       CMD(GOTO CMDLBL(ENDPGM))
+
+VIDERE:
+
+/*  Call rutiner for å kopiere                                       */
+
+/*  Statuskoder                                                     */
+
+             IF         COND(&A1VRA0 *EQ '1') THEN(DO)
+
+/*           Tester på om filer finnes:                              */
+
+             CHKOBJ     OBJ(&BIBL/RAA1PF)   OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801)      EXEC(GOTO CMDLBL(KODER))
+
+             CALL       PGM(RF411C)    PARM(&A1TGRP &A1TFIR)
+             ENDDO
+
+/*  Koder                                                           */
+
+KODER:
+
+             IF         COND(&A1VRA1 *EQ '1') THEN(DO)
+
+/*           Tester på om filer finnes:                              */
+
+             CHKOBJ     OBJ(&BIBL/RA01PF)   OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801)      EXEC(GOTO CMDLBL(KONTO))
+
+             CALL       PGM(RF412C)    PARM(&A1TGRP &A1TFIR)
+             ENDDO
+
+/*  Kontoplan                                                       */
+
+KONTO:
+
+             IF         COND(&A1VHOV *EQ '1') THEN(DO)
+
+/*           Tester om filer finnes:                                 */
+
+             CHKOBJ     OBJ(&BIBL/RHOVPF)   OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801)      EXEC(GOTO CMDLBL(RESRAP))
+
+             CHGVAR     VAR(&WALI) VALUE(4)
+             CHGVAR     VAR(&WAPO) VALUE(44)
+
+             CHGVAR     VAR(&MLD1) VALUE('Kopiering av filer...      ')
+             CHGVAR     VAR(&MLD2) VALUE('...... Kontoplan ....      ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+
+             CALL       PGM(RF413C)    PARM(&A1TGRP &A1TFIR)
+             ENDDO
+
+/*  Resultatrapporter                                               */
+
+RESRAP:
+
+             IF         COND(&A1VRR0 *EQ '1') THEN(DO)
+
+/*           Tester om filer finnes:                                 */
+
+             CHKOBJ     OBJ(&BIBL/RRF0PF)   OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801)      EXEC(GOTO CMDLBL(ENDPGM))
+
+             CALL       PGM(RF414C)    PARM(&A1TGRP &A1TFIR)
+             ENDDO
+
+ ENDPGM:     ENDPGM

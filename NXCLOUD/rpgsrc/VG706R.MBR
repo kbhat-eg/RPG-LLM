@@ -1,0 +1,420 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : VG706R
+      * Beskrivelse . . : Beregner ny glidende gjennomsnittlig kostpris
+      *                   basert på innkjøpsstatistikk og historisk lagerbok
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       260820 ASK  Nytt program
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvgkpiu    uf a e           k disk    rename(vgkpst:vgkpiur)
+     fvgkpi1    if   e           k disk    rename(vgkpst:vgkpi1r)
+     fvvarl1    if   e           K disk    rename(vvarpfr:vvarl1r)
+      *
+      * Definering av parametre
+      *
+     d p_vare          s                   like(vgvare)
+     d p_lage          s                   like(vglage)
+     d p_inkp          s              9  2
+     d p_anta          s             11  3
+     d p_best          s              8  0
+     d p_suff          s              2  0
+     d p_line          s              4  0
+     d p_inlr          s              1
+     d p_dato          s              8  0
+     d p_ldor          s              6  0
+     d p_cost          s                   like(vgcost)
+     d p_pkod          s                   like(vgpkod)
+     d p_frec          s            300
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_firm                944    946  0
+      *
+      * Datastruktur for kostprisfaktorer
+      *
+     d d_frec          ds
+     d  d_fty1                       30
+     d  d_fsi1                        1
+     d  d_fak1                        8  6
+     d  d_kto1                        6  0
+     d  d_mot1                        6  0
+     d  d_fty2                       30
+     d  d_fsi2                        1
+     d  d_fak2                        8  6
+     d  d_kto2                        6  0
+     d  d_mot2                        6  0
+     d  d_fty3                       30
+     d  d_fsi3                        1
+     d  d_fak3                        8  6
+     d  d_kto3                        6  0
+     d  d_mot3                        6  0
+     d  d_fty4                       30
+     d  d_fsi4                        1
+     d  d_fak4                        8  6
+     d  d_kto4                        6  0
+     d  d_mot4                        6  0
+     d  d_fty5                       30
+     d  d_fsi5                        1
+     d  d_fak5                        8  6
+     d  d_kto5                        6  0
+     d  d_mot5                        6  0
+      *
+      * Definering av variabler i nøkler
+      *
+     d vgkpiu_lage     s              2  0
+     d vgkpiu_hkod     s                   like(vghkod)
+     d vgkpiu_vare     s                   like(vgvare)
+     d vgkpi1_lage     s              2  0
+     d vgkpi1_hkod     s                   like(vghkod)
+     d vgkpi1_vare     s                   like(vgvare)
+     d vgkpi1_gdat     s                   like(vggdat)
+     d vgkpi1_gtim     s                   like(vggtim)
+     d vvarl1_vare     s                   like(vvvare)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(vgfirm)
+     d w_sign          s              1  0
+     d w_til1          s              9  2
+     d w_til2          s              9  2
+     d w_til3          s              9  2
+     d w_til4          s              9  2
+     d w_til5          s              9  2
+     d w_nykp          s              9  2
+     d w_nylv          s             12  2
+     d w_gmlv          s             12  2
+     d w_dato          s               d   datfmt(*iso)
+     d w_hdat          s               d   datfmt(*iso)
+     d w_htim          s               t   timfmt(*iso)
+     d w_antl          s              9  3
+     d w_antt          s              9  3
+     d w_anta          s              9  3
+     d w_kbeh          s              9  3
+     d w_gjkp          s              9  2
+     d b_feil          s              1    inz(*off)
+
+     C/Exec SQL
+     C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR,
+     C+             commit=*none
+     C/End-Exec
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedrutine - beregn ny glidende gj.sn kostpris
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Sjekk om det er "siste runde" for å lukke tabeller
+      *
+     c                   if        p_inlr = '1'
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Sjekk om gyldig vare
+      *
+     c                   exsr      les_vare
+     c                   if        b_feil = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Hent eventuelle kostprisfaktorer og beregn tillegg/fradrag
+      *
+     c                   eval      p_frec = *blank
+      *
+     c                   call      'VG703R'
+     c                   parm                    p_vare
+     c                   parm                    p_lage
+     c                   parm                    p_ldor
+     c                   parm                    p_frec
+     c                   eval       d_frec = p_frec
+      *
+     c                   exsr      finn_kostt
+     c                   eval      w_nykp = p_inkp + w_til1 + w_til2 + w_til3
+     c                                             + w_til4 + w_til5
+      *
+      * Beregn lagerverdi på nytt innkjøp
+      *
+     c                   eval(h)   w_nylv = w_nykp * p_anta
+      *
+      * Hent gjeldende gjennomsnittlig kostpris og beregn eksisterende lagerverdi
+      *
+     c                   eval      p_cost = 0
+     c                   eval      w_dato = %date()
+     c                   eval      p_dato = %dec(w_dato:*iso)
+     c                   call      'VG701R'
+     c                   parm                    p_vare
+     c                   parm                    p_lage
+     c                   parm                    p_dato
+     c                   parm                    p_cost
+      *
+     c                   exsr      sum_lager
+      *
+      * Sjekk om tall kommer fra negativ saldo
+      *
+     c                   if        w_anta < p_anta
+     c                   eval      w_anta = 0
+     c                   eval      w_kbeh = 0
+     c                   else
+     c                   eval      w_kbeh = w_anta - p_anta
+     c                   endif
+      *
+      * Sjekk om tall kommer fra trolig feilføring
+      *
+     c                   if        w_anta > 100000
+     c                   eval      w_anta = 0
+     c                   eval      w_kbeh = 0
+     c                   else
+     c                   eval      w_kbeh = w_anta - p_anta
+     c                   endif
+      *
+     c                   eval(h)   w_gmlv = p_cost * (w_anta - p_anta)
+     c                   if        w_gmlv < 0
+     c                   eval      w_gmlv = 0
+     c                   endif
+      *
+      * Bergn ny glidende gjennomsnittlig kostpris
+      *
+     c                   if        w_anta > 0
+     c                   eval(h)   w_gjkp = (w_nylv + w_gmlv)
+     c                                       / w_anta
+     c                   else
+     c                   eval      w_gjkp = w_nykp
+     c                   endif
+      *
+      * Oppdatering
+      *
+     c                   eval      vgkpiu_hkod = *blank
+     c                   movel     p_vare        vgkpiu_vare
+     c                   eval      vgkpiu_lage = p_lage
+     c     vgkpiu_key    chain     vgkpiu
+      *
+     c                   if        %found
+     c                   exsr      pris_hist
+     c                   end
+      *
+     c                   clear                   vgkpiur
+     c                   eval      vgfirm = w_firm
+     c                   eval      vghkod = ' '
+     c                   eval      vgvare = p_vare
+     c                   eval      vglage = p_lage
+     c                   eval      vggdat = w_hdat
+     c                   eval      vggtim = w_htim
+     c                   eval      vgenhe = vvenhl
+     c                   eval      vgtype = 'I'
+     c                   eval      vgcost = w_gjkp
+      *
+     c                   eval      vgbest = p_best
+     c                   eval      vgsuff = p_suff
+     c                   eval      vgline = p_line
+     c                   eval      vggmkp = p_cost
+     c                   eval      vginkp = p_inkp
+     c                   eval      vgpkod = p_pkod
+     c                   eval      vganta = p_anta
+     c                   eval      vgbehl = w_kbeh
+      *
+     c                   time                    vgttim
+     c                   time                    vgbdat
+      *
+     c                   write     vgkpiur
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   if        p_inlr = '1'
+     c                   eval      *inlr = *on
+     c                   endif
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppslag på vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     les_vare      begsr
+      *
+     c                   eval      vvarl1_vare = p_vare
+     c     vvarl1_key    chain     vvarl1r
+     c                   if        %found
+     c                   eval      b_feil = *off
+     c                   else
+     c                   eval      b_feil = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å beregne kostpris tillegg og fradrag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     finn_kostt    begsr
+      *
+     c                   if        d_fty1 <> *blank
+     c                   if        d_fsi1 = '-'
+     c                   eval      w_sign = -1
+     c                   else
+     c                   eval      w_sign = 1
+     c                   endif
+     c                   eval(h)   w_til1  = ((p_inkp * d_fak1)/100) * w_sign
+     c                   endif
+      *
+     c                   if        d_fty2 <> *blank
+     c                   if        d_fsi2 = '-'
+     c                   eval      w_sign = -1
+     c                   else
+     c                   eval      w_sign = 1
+     c                   endif
+     c                   eval(h)   w_til2  = ((p_inkp * d_fak2)/100) * w_sign
+     c                   endif
+      *
+     c                   if        d_fty3 <> *blank
+     c                   if        d_fsi3 = '-'
+     c                   eval      w_sign = -1
+     c                   else
+     c                   eval      w_sign = 1
+     c                   endif
+     c                   eval(h)   w_til3  = ((p_inkp * d_fak3)/100) * w_sign
+     c                   endif
+      *
+     c                   if        d_fty4 <> *blank
+     c                   if        d_fsi4 = '-'
+     c                   eval      w_sign = -1
+     c                   else
+     c                   eval      w_sign = 1
+     c                   endif
+     c                   eval(h)   w_til4  = ((p_inkp * d_fak4)/100) * w_sign
+     c                   endif
+      *
+     c                   if        d_fty5 <> *blank
+     c                   if        d_fsi5 = '-'
+     c                   eval      w_sign = -1
+     c                   else
+     c                   eval      w_sign = 1
+     c                   endif
+     c                   eval(h)   w_til5  = ((p_inkp * d_fak5)/100) * w_sign
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å beregne lagerbeholdning på alle lager på varen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sum_lager     begsr
+      *
+      /FREE
+          w_antl = 0;
+          w_antt = 0;
+          w_anta = 0;
+
+            exec sql
+            select
+              vhbehl, vhdato, vhtime
+            into :w_antl, :w_hdat, :w_htim
+            from vhispf
+             where vhonum = :p_best and vhvare = :p_vare
+             order by vhdato desc, vhtime desc
+                       fetch first 1 rows only;
+
+      *     exec sql
+      *     select
+      *       vhbehl
+      *     into :w_antt
+      *     from vhispf
+      *      where vhvare = :p_vare;
+      *
+          w_anta = w_antl;
+
+      /END-FREE
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kostpris historikk
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     pris_hist     begsr
+      *
+      * Sletter opprinnelig post
+      *
+     c                   delete    vgkpiur
+      *
+      * Oppretter historikk post - sjekker om historikk post allerede finnes
+      *
+     c                   eval      vgkpi1_lage = vglage
+     c                   eval      vgkpi1_hkod = 'H'
+     c                   eval      vgkpi1_vare = vgvare
+     c                   eval      vgkpi1_gdat = vggdat
+     c                   eval      vgkpi1_gtim = vggtim
+     c     vgkpi1_key    chain     vgkpi1
+      *
+     c                   if        %found
+     c                   goto      end_hist
+     c                   end
+     c                   eval      vghkod = 'H'
+      *
+     c                   write     vgkpiur
+      *
+     c     end_hist      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_vare
+     c                   parm                    p_lage
+     c                   parm                    p_ldor
+     c                   parm                    p_inkp
+     c                   parm                    p_pkod
+     c                   parm                    p_anta
+     c                   parm                    p_best
+     c                   parm                    p_suff
+     c                   parm                    p_line
+     c                   parm                    p_inlr
+      *
+      * Key for oppslag av kostpris
+      *
+     c     vgkpiu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vgkpiu_lage
+     c                   kfld                    vgkpiu_hkod
+     c                   kfld                    vgkpiu_vare
+      *
+     c     vgkpi1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vgkpi1_lage
+     c                   kfld                    vgkpi1_hkod
+     c                   kfld                    vgkpi1_vare
+     c                   kfld                    vgkpi1_gdat
+     c                   kfld                    vgkpi1_gtim
+      *
+      *  Key for file les av vareregister
+      *
+     c     vvarl1_key    KLIST
+     c                   KFLD                    w_firm
+     c                   KFLD                    vvarl1_vare
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   endsr

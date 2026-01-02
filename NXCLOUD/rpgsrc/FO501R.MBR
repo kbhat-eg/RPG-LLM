@@ -1,0 +1,492 @@
+      /TITLE  ASOFAK Spørring på bongregister
+     h option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FO501R
+      * Beskrivelse . . : Spørring på bongregister
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       241106 KOB  Nytt program
+6.nu  * R6.30 270514 bsa  Programmet gjennomgått mtp nummerutvidelser.
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       16 = Readc 16 on, no more records
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-59 = Varsle m/feilmeldinger/skjermindikatorer
+      *    60-69 = Fileindikatorer chain etc.
+      *    70-79 = Arbeidsindikatorer i sub-rutiner
+      *    80-89 = Arbeidsindikatorer ordinære
+      *    90-99 = Benyttes ved std. sub-rutiner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fbohel3    if   e           k disk    rename(bohepfr:bohel3r)
+     fbohel2    if   e           k disk    rename(bohepfr:bohel2r)
+     fboheld    if   e           k disk    rename(bohepfr:boheldr)
+     fbohele    if   e           k disk    rename(bohepfr:boheler)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+      *
+     ffo501d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av variabler i nøkler
+      *
+     d bohel3_bong     s                   like(bobong)
+     d bohel2_ornr     s                   like(boornr)
+     d boheld_date     s                   like(bodate)
+5.30 d bohele_kund     s                   like(bokund)
+     d rkunl1_kund     s                   like(rkkund)
+      *
+      * Definering av variable
+      *
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+      *
+     d w_tek1          s             35
+     d w_dato          s               d   datfmt(*iso)
+      *
+     d w_firm          s                   like(bofirm)
+     d w_aarr          s                   like(boaarr)
+     d w_vkun          s                   like(bokund)
+     d w_date          s                   like(bodate)
+5.31 d n               s              2  0
+5.31 d w_bong          s                   like(bobong)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(11)
+5.31 d nummer          c                   '0123456789'
+      *
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_srrn - Relativt recordnummer i subfile
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * wvisrn - Vis den side som inneholder denne record.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile                                  DSP SFL
+      *
+      * Behandling av standard funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      b2tagb
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile                                  CRT SFL
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on                                  CRT SFL
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2bong <> *blank or
+     c                             b2ornr <> 0 or
+     c                             b2kund <> 0 or
+     c                             b2date <> 0 or
+     c                             b2aarr <> w_aarr
+     c                   eval      w_aarr = b2aarr                              CRT SFL
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandling av spørringer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     spØrring      begsr
+      *
+     c     end_spØrr     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   select
+     c                   when      w_seqe = 'O'
+     c     bohel2_key    setll     bohel2
+     c                   when      w_seqe = 'D'
+     c     boheld_key    setll     boheld
+     c                   when      w_seqe = 'K'
+     c     bohele_key    setll     bohele
+     c                   other
+     c     bohel3_key    setll     bohel3
+     c                   endsl
+      *
+     c                   exsr      clr_subfile                                  TØM SFL
+     c                   exsr      crt_subfile                                  CRT SFL
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjoner startverdi på bong
+      *
+     c                   if        b2bong <> *blank
+     c                   eval      w_seqe = ' '
+     c                   move      b2bong        bohel3_bong
+     c     bohel3_key    setll     bohel3
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på ordrenummer
+      *
+     c                   if        b2ornr <> 0
+     c                   eval      w_seqe = 'O'
+     c                   eval      bohel2_ornr = b2ornr
+     c     bohel2_key    setll     bohel2
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på fakturadato
+      *
+     c                   if        b2date <> 0
+     c                   eval      w_seqe = 'D'
+     c                   eval      boheld_date = *loval
+     c     *dmy          test(d)                 b2date                 31
+     c                   if        *in31 = *off
+     c     *dmy          move      b2date        boheld_date
+     c                   endif
+     c     boheld_key    setll     boheld
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på kunde
+      *
+     c                   if        b2kund <> 0
+     c                   eval      w_seqe = 'K'
+     c                   eval      bohele_kund = b2kund
+     c     bohele_key    setll     bohele
+     c                   goto      end_pos
+      *
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   exsr      clr_subfile                                  TØM SFL
+     c                   exsr      crt_subfile                                  CRT SFL
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2bong = *blank
+     c                   eval      b2ornr = 0
+     c                   eval      b2date = 0
+     c                   eval      b2kund = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+      * Beholder eksisterende posisjonering i subfilen
+      *
+     c                   if        wcurrn > 0
+     c                   eval      wvisrn =  wcurrn
+     c                   endif
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl                                  16
+      *
+     c                   if        *in16
+     c                   leave
+     c                   endif
+      *
+     c                   eval      wvisrn = w_srrn
+      *
+      * Vise faktura/bong
+      *
+     c                   if        b1valg = '5'
+     c                   exsr      vise
+     c                   eval      b1valg = *blank
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Skriv bongkopi
+      *
+     c                   if        b1valg = '6'
+     c                   exsr      skriv
+     c                   eval      b1valg = *blank
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil                     SFL END
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = 'O'
+     c                   read      bohel2                                 15
+     c                   when      w_seqe = 'D'
+     c                   read      boheld                                 15
+     c                   when      w_seqe = 'K'
+     c                   read      bohele                                 15
+     c                   other
+     c                   read      bohel3                                 15
+     c                   endsl
+      *
+     c                   if        *in15                                        EOF
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   if        bofirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   if        boaarr <> b2aarr
+     c                   iter
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1valg = *blank
+     c                   eval      b1date = bodate
+     c                   eval      b1aarr = boaarr
+     c                   eval      b1wsid = bowsid
+     c                   eval      b1bong = bobong
+     c                   eval      b1otyp = bootyp
+      *
+     c                   eval      b1fdat = 0
+     c                   if        bodate <> *loval
+     c     *dmy          move      bodate        b1fdat
+     c                   endif
+      *
+     c                   eval      b1ornr = boornr
+     c                   eval      b1kund = bokund
+      *
+     c                   eval      b1navn = *blank
+      *
+     c                   eval      rkunl1_kund = bokund
+     c     rkunl1_key    chain     rkunl1                             61
+     c                   if        *in61 = *off
+     c                   eval      b1navn = rknavn
+     c                   endif
+      *
+     c                   eval      b1tots = botots
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c     end_crt       tag
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      wvisrn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+     c                   eval      *in22 = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å vise faktura eller butikk-bong
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     vise          begsr
+      *
+      * Vis bong
+      *
+     c                   call      'BO310R'
+     c                   parm                    w_firm
+     c                   parm                    b1aarr
+     c                   parm                    b1wsid
+     c                   parm                    b1bong
+      *
+     c     end_vise      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å skrive fakturakopi
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skriv         begsr
+      *
+     c     end_skriv     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for posisjonering på bongnummer
+      *
+     c     bohel3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bohel3_bong
+      *
+      * Key for posisjonering på ordre
+      *
+     c     bohel2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bohel2_ornr
+      *
+      * Key for posisjonering på dato
+      *
+     c     boheld_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    boheld_date
+      *
+      * Key for posisjonering på kunde
+      *
+     c     bohele_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bohele_kund
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Henter verdi til skjermbilde
+      *
+     c                   eval      b2aarr = *year
+     c                   eval      w_aarr = *year
+      *
+      * Fyller subfile
+      *
+     c                   eval      *in22 = *on
+      *
+     c     bohel3_key    setll     bohel3
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

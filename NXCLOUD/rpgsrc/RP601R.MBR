@@ -1,0 +1,619 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOKON
+      * Program . . . . : RP601R
+      * Beskrivelse . . : Underprosjekt, spørring
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+6.20  *       111210 NHO  Nytt program
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frp2ul1    if   e           k disk    rename(rp2upfr:rp2ul1r)
+     frp2ul2    if   e           k disk    rename(rp2upfr:rp2ul2r)
+     frp2ul3    if   e           k disk    rename(rp2upfr:rp2ul3r)
+     frp1plu    uf   e           k disk    rename(rp1ppfr:rp1plur)
+     frp601d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Definering av parametre
+      *
+T5.00d p_firm          s                   like(rp2frm)
+     d p_pros          s                   like(rp2pro)
+     d p_upro          s                   like(rp2upr)
+     d p_txt1          s                   like(rp2txt)
+     d p_txt2          s                   like(rp2txt)
+     d p_kund          s                   like(rp2knr)
+     d p_rakt          s                   like(rp1rup)
+7.01 d p_fdat          s              6  0
+7.01 d p_tdat          s              6  0
+7.01 d p_selg          s              4  0
+7.01 d p_kunf          s              6  0
+     d p_kpro          s              6  0
+     d p_knav          s             30
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av variabler i nøkler
+      *
+T5.00d rp2ul1_firm     s                   like(rp2frm)
+     d rp2ul1_pros     s                   like(rp2pro)
+     d rp2ul1_upro     s                   like(rp2upr)
+     d rp2ul2_pros     s                   like(rp2pro)
+     d rp2ul2_alfa     s                   like(rp2alf)
+     d rp1plu_pros     s                   like(rp1pro)
+T5.00d rp2ul3_firm     s                   like(rp2frm)
+     d rp2ul3_pros     s                   like(rp2pro)
+     d rp2ul3_upro     s                   like(rp2upr)
+      *
+      * Definering av variable
+      *
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+     d w_kund          s                   like(rp2knr)
+     d w_pros          s                   like(rp2pro)
+     d w_ms1           s             50
+     d w_ms2           s             50
+     d w_svar          s              1
+     d w_in12          s              1  0
+      *
+     d w_seqe          s              1
+     d b_eof           s              1    inz(*off)
+     d b_valg_ok       s              1    inz(*off)
+      *
+     d w_firm          s                   like(rp2frm)
+      *
+      * Definering av konstanter
+      *
+E5.50d c_sfil          s              2  0 inz(8)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * w_curn - Current recordnummer på siden
+      * w_virn - Vis den side som inneholder denne record.
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+7.01 c                   when      *inkf
+7.01 c                   exsr      regny
+7.01 c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b22pro <> *blanks or
+     c                             b22upr <> *blank  or
+     c                             b22alf <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+     c                   if        b_valg_ok = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_sfrn <> 0
+     c     w_sfrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c     rp2ul2_key    setll     rp2ul2
+     c                   other
+     c     rp2ul1_key    setll     rp2ul1
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  * Subrutine for registrering av nye Prosjekt/underprosjekt/aktivitet
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01 c     regny         begsr
+7.01  *
+     c                   eval      rp1plu_pros = p_pros
+     c     rp1plu_key    chain     rp1plu
+     c                   if        %found(rp1plu)
+     c                             and rp1rup <> 'J'
+     c                   eval      w_ms1 = 'Dette prosjektet kan ikke deles +
+     c                                      i underprosjekt'
+     c                   eval      w_ms2 = 'Ønsker du og åpne for inndeling, +
+     c                                      svar <J>.      '
+     c                   eval      w_svar = 'N'
+     c                   call      'AA007R'
+     c                   parm                    w_ms1
+     c                   parm                    w_ms2
+     c                   parm                    w_svar
+     c                   parm                    w_in12
+     c                   if        w_svar = 'J'
+     c                   eval      rp1rup = 'J'
+     c                   update    rp1plur
+     c                   else
+     c                   unlock    rp1plu
+     c                   goto      end_regny
+     c                   endif
+     c**                 else
+     c**                 goto      end_regny
+     c                   endif
+      *
+7.01 c                   call      'RP110R'
+9.02 c                   parm                    p_fdat
+9.02 c                   parm                    p_tdat
+9.02 c                   parm                    p_txt1
+9.02 c                   parm                    p_selg
+9.02 c                   parm                    p_kunf
+9.02 c                   parm                    p_pros
+9.02 c                   parm                    p_kpro
+9.02 c                   parm                    p_knav
+9.02 c                   eval      rp1plu_pros = p_pros
+7.01 c                   exsr      forny
+7.01 c     end_regny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjoner startverdi på prosjekt
+      *
+     c                   if        b22pro <> *blanks
+     c                   eval      w_seqe = ' '
+     c                   eval      rp2ul1_pros = b22pro
+     c                   eval      rp2ul1_upro = b22upr
+     c     rp2ul1_key    setll     rp2ul1
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på underprosjekt
+      *
+     c                   if        b22upr <> *blanks
+     c                   eval      w_seqe = 'A'
+     c                   eval      rp2ul3_pros = b22pro
+     c                   eval      rp2ul3_upro = b22upr
+     c     rp2ul3_key    setll     rp2ul3
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på beskrivelse
+      *
+     c                   if        b22alf <> *blank
+     c                   eval      w_seqe = 'B'
+     c                   eval      rp2ul2_pros = p_pros
+     c                   eval      rp2ul2_alfa = b22alf
+     c     rp2ul2_key    setll     rp2ul2
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b22pro = *blank
+     c                   eval      b22upr = *blank
+     c                   eval      b22alf = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   if        w_curn > 0
+     c                   eval      w_virn = w_curn
+     c                   endif
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Velg
+      *
+     c                   if        b1valg = 1
+      *
+      * Hent tekst for hovedprosjekt
+      *
+     c                   eval      rp1plu_pros = b1pros
+     c     rp1plu_key    chain     rp1plu                             61
+     c                   if        *in61 = *off
+     c                   eval      p_txt2 = rp1txt
+     c                   else
+     c                   eval      p_txt2 = *blanks
+     c                   endif
+     c                   eval      p_pros = b1pros
+     c                   eval      p_upro = b1upro
+     c                   eval      p_txt1 = b1txt1
+     c                   eval      p_rakt = b1rakt
+     c                   eval      b_valg_ok = *on
+     c                   leave
+     c                   endif
+      *
+     c                   enddo
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = 'A'
+     c                   read      rp2ul3                                 15
+     c                   when      w_seqe = 'B'
+     c                   read      rp2ul2                                 15
+     c                   other
+     c                   read      rp2ul1                                 15
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             rp2frm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+      *
+      * Ikke ta med underprosjekt som er avsluttet
+     c                   if        rp2sts = 'A'
+     c                   goto      dd100
+     c                   endif
+      *
+      *
+      * Dersom hovedprosjekt er utfylt skal kun underprosjekt som hører
+      * til dette hovedprosjektet vises
+     c                   if        p_pros <> *blank and
+     c                             p_pros <> rp2pro
+     c                   goto      dd100
+     c                   endif
+      *
+      * Dersom hovedprosjekt er blank skal kun arbeidsordre på regist-
+      * rert kunde vises
+     c                   if        p_pros = *blank and
+     c                             p_kund <> rp2knr
+     c                   goto      dd100
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1pros = rp2pro
+     c                   eval      b1upro = rp2upr
+     c                   eval      b1txt1 = rp2txt
+     c                   eval      b1rakt = rp2rak
+      *
+     c                   write     b1sfl
+      *
+     c     dd100         tag
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   select
+     c                   when      w_seqe = 'A'
+     c     rp2ul3_key    setll     rp2ul3
+     c                   when      w_seqe = 'B'
+     c     rp2ul2_key    setll     rp2ul2
+     c                   other
+     c     rp2ul1_key    setll     rp2ul1
+     c                   endsl
+      *
+      * Leser tilbake en side + posisjoneringsrad
+      *
+     c                   eval      b_eof  = *off
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = c_sfil + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'A'
+     c                   readp     rp2ul3
+     c                   when      w_seqe = 'B'
+     c                   readp     rp2ul2
+     c                   other
+     c                   readp     rp2ul1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             rp2frm <> w_firm
+     c                   eval      b_eof = *on
+     c                   leave
+     c                   endif
+      *
+      * Ikke ta med underprosjekt som er avsluttet
+     c                   if        rp2sts = 'A'
+     c                   goto      dd200
+     c                   endif
+      *
+      * Dersom hovedprosjekt er utfylt skal kun underprosjekt som hører
+      * til dette hovedprosjektet vises
+     c                   if        p_pros <> *blank and
+     c                             p_pros <> rp2pro
+     c                   goto      dd200
+     c                   endif
+      *
+      * Dersom hovedprosjekt er blank skal kun arbeidsordre på regist-
+      * rert kunde vises
+     c                   if        p_pros = *blank and
+     c                             p_kund <> rp2knr
+     c                   goto      dd200
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   if        w_stel <= c_sfil
+     c                   select
+     c                   when      w_seqe = 'A'
+     c                   eval      rp2ul3_upro = rp2upr
+     c                   eval      rp2ul3_pros = rp2pro
+     c                   when      w_seqe = 'B'
+     c                   eval      rp2ul2_alfa = rp2alf
+     c                   other
+     c                   eval      rp2ul1_pros = rp2pro
+     c                   endsl
+     c                   endif
+      *
+     c     dd200         tag
+      *
+     c                   enddo
+      *
+     c                   if        b_eof = *on
+     c                   select
+     c                   when      w_seqe = 'A'
+     c     rp2ul3_key    setll     rp2ul3
+     c                   when      w_seqe = 'B'
+     c     rp2ul2_key    setll     rp2ul2
+     c                   other
+     c     rp2ul1_key    setll     rp2ul1
+     c                   endsl
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *                                          RP601R
+     c     *entry        plist
+T5.00c                   parm                    p_firm
+     c                   parm                    p_pros
+     c                   parm                    p_upro
+     c                   parm                    p_rakt
+     c                   parm                    p_txt1
+     c                   parm                    p_txt2
+     c                   parm                    p_kund
+     c                   parm                    p_fdat
+     c                   parm                    p_tdat
+     c                   parm                    p_knav
+     c                   parm                    p_selg
+     c                   parm                    p_kunf
+     c                   parm                    p_kpro
+      *
+      * Key for posisjonering på prosjekt
+      *
+     c     rp2ul1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rp2ul1_pros
+     c                   kfld                    rp2ul1_upro
+      *
+      *
+     c     rp1plu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rp1plu_pros
+      *
+      * Key for posisjonering på beskrivelse
+      *
+     c     rp2ul2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rp2ul2_pros
+     c                   kfld                    rp2ul2_alfa
+      *
+      * Key for posisjonering på underprosjekt
+      *
+     c     rp2ul3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rp2ul3_upro
+     c                   kfld                    rp2ul3_pros
+      *
+      *
+      * Henter parametre, og initierer skjermbildet
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      b22pro = p_pros
+     c                   eval      b22upr = p_upro
+     c                   eval      b22alf = p_txt1
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      rp2ul2_pros = p_pros
+     c                   eval      rp2ul1_pros = p_pros
+     c     rp2ul1_key    setll     rp2ul1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

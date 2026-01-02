@@ -1,0 +1,756 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VA166R
+      * Beskrivelse . . : Bonustype, kobling maler og kundekategorier
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       220711 bsa  Nytt program
+6.20  *       210212 bsa  Fjernet krav på kunde. Spes for MGR
+6.30  *       190615 bsa  Sist oppdatert dato blir ikke oppdatert
+7.xx  * 7.00  150316 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvbotl1    if   e           k disk    rename(vbotpfr:vbotl1r)
+     fembhi1    if   e           k disk    rename(embhst:embhi1r)
+     fra11l1    if   e           k disk    rename(ra11pfr:ra11l1r)
+     fembkir    if   e           k disk    rename(embkst:embkirr)
+     fembkiu    uf   e           k disk    rename(embkst:embkiur)
+     fekbti3    if   e           k disk    rename(ekbtst:ekbti3r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+      *
+     fva166d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d vbotl1_tbot     s                   like(vatbot)
+      *
+     d ra11l1_kkod     s                   like(rakkod)
+      *
+     d embkir_kbot     s                   like(emkbot)
+     d embkir_kmnr     s                   like(emkmnr)
+     d embkir_kkat     s                   like(emkkat)
+      *
+     d embkiu_kbot     s                   like(emkbot)
+     d embkiu_kmnr     s                   like(emkmnr)
+     d embkiu_kkat     s                   like(emkkat)
+      *
+     d embhi1_hbot     s                   like(emhbot)
+     d embhi1_hmnr     s                   like(emhmnr)
+      *
+     d ekbti3_tkka     s                   like(ektkka)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(vatfir)
+     d p_ok            s              1
+      *
+     d s_tbot          s                   like(vatbot)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meleingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2tbot <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   eval      embkir_kbot = b1kbot
+     c     embkir_key    setll     embkir
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Enhet
+      *
+     c                   if        b2tbot <> *blank
+     c                   eval      w_seqe = *blank
+     c                   eval      vbotl1_tbot = b2tbot
+     c     vbotl1_key    setll     vbotl1
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2tbot = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+      *
+      * Kopier
+      *
+      *
+      * Slett
+      *
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1tbot = b1kbot
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Fjerne bonustypekobling
+      *
+     c                   if        b1valg = 7
+     c                   exsr      xr1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+6.30 c**                 iter
+6.30 c                   goto      renew
+     c                   endif
+      *
+      * Oppdater kundekategori
+      *
+     c                   if        b1valg = 9
+     c                   exsr      xm1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+6.30 c**                 iter
+6.30 c                   goto      renew
+     c                   endif
+      *
+     c                   enddo
+      *
+6.30 c     renew         tag
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+      *
+     c                   eval      vbotl1_tbot = c1tbot
+     c     vbotl1_key    chain     vbotl1
+      *
+     c                   if        %found
+     c                   eval      c2tbes = vatbes
+     c                   else
+     c                   eval      c2tbes = *blank
+     c                   endif
+      *
+     c                   eval      c2mbes = b1kbes
+     c                   eval      c2kkat = b1kkat
+     c                   eval      c2kbes = b1ktxt
+     c                   eval      c2kdat = b1kdat
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30 = *on
+     c                   endif
+      *
+     c     c2taga        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      * Validering av input
+      *
+     c*                  if        c2tbes = *blank
+     c*                  eval      *in31 = *on
+     c*                  goto      c2taga
+     c*                  endif
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kopiering av bonusmal til kundekategori
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xm1win        begsr
+      *
+     c                   eval      m1kkat = b1kkat
+     c                   eval      m1ktxt = *blank
+     c                   eval      ra11l1_kkod = m1kkat
+     c     ra11l1_key    chain     ra11l1                             36
+     c                   if        %found
+     c                   eval      m1ktxt = raktxt
+     c                   else
+     c                   eval      *in31 = *on
+     c                   endif
+      *
+     c     m1tagb        tag
+      *
+     c                   exfmt     m1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      * Kan ikke oppdatere med kundekategori som ikke finnes lenger
+     c                   eval      ra11l1_kkod = m1kkat
+     c     ra11l1_key    chain     ra11l1                             36
+     c                   if        not %found
+     c                   goto      m1tagb
+     c                   eval      *in31 = *on
+     c                   endif
+      *
+     c                   if        m1kkat = 0
+     c                   goto      m1tagb
+     c                   endif
+      *
+      * Leser alle kunder i en kundekategori
+      *
+     c     rkunl1_key2   setll     rkunl1
+     c     rkunl1_key2   reade     rkunl1
+     c                   dow       not %eof(rkunl1)
+     c                   if        rkkatg = m1kkat
+     c                   exsr      kopier
+     c                   endif
+     c     rkunl1_key2   reade     rkunl1
+     c                   enddo
+6.30  * Oppdater med siste kjøredato
+6.30 c                   eval      embkiu_kbot = b1kbot
+6.30 c                   eval      embkiu_kmnr = b1kmnr
+6.30 c                   eval      embkiu_kkat = b1kkat
+6.30 c     embkiu_key    chain     embkiu
+6.30 c                   if        %found
+6.30 c                   time                    emkdat
+6.30 c                   update    embkiur
+6.30 c                   endif
+      *
+     c                   eval      b_forn = *on
+     c                   eval      m1kkat = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fjerne bonusavtale på kundekategori
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xr1win        begsr
+      *
+     c                   eval      r1kkat = b1kkat
+     c                   eval      r1ktxt = *blank
+     c                   eval      ra11l1_kkod = r1kkat
+     c     ra11l1_key    chain     ra11l1                             36
+     c                   if        %found
+     c                   eval      r1ktxt = raktxt
+     c                   else
+     c                   eval      *in31 = *on
+     c                   endif
+      *
+     c     r1tagb        tag
+      *
+     c                   exfmt     r1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      * Kan ikke oppdatere med kundekategori som ikke finnes lenger
+     c                   eval      ra11l1_kkod = r1kkat
+     c     ra11l1_key    chain     ra11l1                             36
+     c                   if        not %found
+     c                   goto      r1tagb
+     c                   eval      *in31 = *on
+     c                   endif
+      *
+     c                   if        r1kkat = 0
+     c                   goto      r1tagb
+     c                   endif
+      *
+      * Leser alle kunder i en kundekategori
+      *
+     c                   eval      ekbti3_tkka = r1kkat
+     c     ekbti3_key    setll     ekbti3
+     c     ekbti3_key    reade     ekbti3
+     c                   dow       not %eof(ekbti3)
+     c                   exsr      rmv_bonus
+     c     ekbti3_key    reade     ekbti3
+     c                   enddo
+      * Fjern koblingselement
+     c                   eval      embkiu_kbot = b1kbot
+     c                   eval      embkiu_kmnr = b1kmnr
+     c                   eval      embkiu_kkat = r1kkat
+     c     embkiu_key    chain     embkiu                             36
+     c                   if        %found
+     c                   delete    embkiur
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+     c                   eval      r1kkat = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å kopiere av bonusmal
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     kopier        begsr
+      * Sjekk om kunden oppfyller krav til kopiering av valgt bonusmal
+6.20 c                   if        1=2
+     c                   eval      p_ok = '0'
+     c                   call      'EM114R'
+     c                   parm                    rkkund
+     c                   parm                    b1kbot
+     c                   parm                    b1kmnr
+     c                   parm                    p_ok
+6.20 c                   endif
+      *
+6.20 c**                 if        p_ok = '1'
+     c                   call      'EM111R'
+     c                   parm                    rkkund
+     c                   parm                    b1kbot
+     c                   parm                    b1kmnr
+6.20 c**                 endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å kopiere av bonusmal
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     rmv_bonus     begsr
+      *
+     c                   call      'EM400R'
+     c                   parm                    ektbku
+     c                   parm                    ektbot
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      embkir
+      *
+     c                   if        %eof or
+     c                             emkfir <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      embkir_kbot = emkbot
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1kmnr = emkmnr
+     c                   eval      b1kbot = emkbot
+     c                   eval      b1kkat = emkkat
+     c                   if        emkdat <> *loval
+     c     *dmy          move      emkdat        b1kdat
+     c                   endif
+      * Finn tekster
+     c                   exsr      hnt_txt
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     embkir_key    setgt     embkir
+     c                   readp     embkir
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     embkir
+      *
+     c                   if        %eof or
+     c                             emkfir <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      embkir_kbot = emkbot
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     embkir_key    setll     embkir
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Henter tekster
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hnt_txt       begsr
+      *
+     c                   eval      b1kbes = *blank
+     c                   eval      b1ktxt = *blank
+      * Tekst på bonustype/mal
+     c                   eval      embhi1_hmnr = emkmnr
+     c                   eval      embhi1_hbot = emkbot
+     c     embhi1_key    chain     embhi1
+     c                   if        %found
+     c                   eval      b1kbes = emhbes
+     c                   endif
+      * Tekst kundekategori
+     c                   eval      ra11l1_kkod = emkkat
+     c     ra11l1_key    chain     ra11l1
+     c                   if        %found
+     c                   eval      b1ktxt = raktxt
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for posisjonering på
+      *
+     c     vbotl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vbotl1_tbot
+      *
+      * Key for posisjonering på
+      *
+     c     ra11l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra11l1_kkod
+      *
+      * Key for elementer
+      *
+     c     embkir_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    embkir_kbot
+     c                   kfld                    embkir_kmnr
+     c                   kfld                    embkir_kkat
+      *
+      * Key for malhode
+      *
+     c     embhi1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    embhi1_hbot
+     c                   kfld                    embhi1_hmnr
+      *
+      * Key for kundebonus
+      *
+     c     ekbti3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ekbti3_tkka
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunl1_key2   klist
+     c                   kfld                    w_firm
+      *
+      * Key for kobling kundekat/mal
+      *
+     c     embkiu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    embkiu_kbot
+     c                   kfld                    embkiu_kmnr
+     c                   kfld                    embkiu_kkat
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Initierer skjermbildet
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      embkir_kbot = *blank
+     c                   eval      embkir_kmnr = 0
+     c                   eval      embkir_kkat = 0
+     c     embkir_key    setll     embkir
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

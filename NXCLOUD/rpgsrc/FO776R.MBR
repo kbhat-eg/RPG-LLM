@@ -1,0 +1,828 @@
+      /TITLE  ASOFAK Ordre, splitting av ordre til  suff ut fra lager
+     h option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FO776R
+      * Beskrivelse . . : Ordre, Splitting av ordre til suffix ut fra plukkområde
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       010119 bsa  Nytt program
+6.nu  *       010119 bof  Nummerutvidelse
+      *
+8.01  *       010119 bsa  Må huske å ta med lengde og bredde spesifikasjoner.
+8.02  *       220119 bsa  Suffiks 0 skal bestandig være varer uten
+8.02  *                   plukkområde.
+8.03  *K0000  301122 bsa  Hvis plukkeområde er tilknyttet eget lager, må
+8.03  *                   vi bytte lager på ordren.
+8.04  *K0000  011222 bsa  Tjenestevarer skal være med på første suffiks.
+8.05  *K0000  130223 bsa  Nullstille ekstrenreferanse hvis ordren kommer
+8.05  *K0000              opprinnelig fra NGN.
+8.06  *K0000  020424 bsa  Endret logikk. Tekst/T linjer som kommer først
+8.06  *K0000              skal ut på første suffiks. Evnt tekst/T linjer
+8.06  *K0000              som kommer utover følger foregående varelinje.
+8.07  *K0000  040424 bsa  Endret logikk ved å finne sist brukte suffiks
+8.08  *K000   090424 bsa  Kaller program for å hente høyeste suffiks på ordrenummer
+8.09  *K000   190424 bsa  Hvis kun et plukkomrtåde, legg første linje dit
+8.09  *K000               hvis det er tekstlinje.
+8.10  *K000   220424 bsa  Skal ikke sette plukkode 2
+8.11  *K000   290824 bsa  Hvis nytt sufiks, oppdater tilhørende bestillingslinjer
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvltyl1    if   e           k disk    rename(vltypfr:vltyl1r)
+     flpoml1    if   e           k disk    rename(lpompfr:lpoml1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+8.06 fjvarl1    if   e           k disk    rename(jvarpfr:jvarl1r)
+8.01 ffvlslr    uf   e           k disk    rename(fvlspfr:fvlslrr)
+8.01 ffvlslu    uf a e           k disk    rename(fvlspfr:fvlslur)
+     ffodtl1    uf   e           k disk    rename(fodtpfr:fodtl1r)
+     ffodtlu    uf a e           k disk    rename(fodtpfr:fodtlur)
+     ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+     ffohelr    if   e           k disk    rename(fohepfr:fohelrr)
+     f                                     prefix(xx:2)
+     ffohelu    uf a e           k disk    rename(fohepfr:fohelur)
+8.11 flodtlu    uf   e           k disk    rename(lodtpfr:lodtlur)
+      *
+      * Definering av tabeller
+      *
+     d a_plom          s             10    dim(99)
+8.03 d a_plla          s              2  0 dim(99)
+     d a_suff          s              2  0 dim(20)
+      *
+      * Definering av parametere
+      *
+     d p_firm          s                   like(fofirm)
+     d p_numm          s                   like(fonumm)
+     d p_suff          s                   like(fosuff)
+     d p_anta          s              2  0
+     d p_stat          s              1
+      *
+      * Definering av variable i nøkler
+      *
+     d fodtl1_numm     s                   like(fdnumm)
+     d fodtl1_suff     s                   like(fdsuff)
+     d fodtlu_numm     s                   like(fdnumm)
+     d fodtlu_suff     s                   like(fdsuff)
+     d fodtlu_line     s                   like(fdline)
+     d fohel1_numm     s                   like(fonumm)
+     d fohel1_suff     s                   like(fosuff)
+     d fohelr_numm     s                   like(fonumm)
+     d fohelr_suff     s                   like(fosuff)
+     d fohelu_numm     s                   like(fonumm)
+     d fohelu_suff     s                   like(fosuff)
+     d lpoml1_olag     s                   like(lpolag)
+     d lpoml1_oogr     s                   like(lpoogr)
+     d lpoml1_ohgr     s                   like(lpohgr)
+     d lpoml1_ougr     s                   like(lpougr)
+     d lpoml1_omod     s                   like(lpomod)
+     d lpoml1_ovar     s                   like(lpovar)
+     d vvarl1_vare     s                   like(vvvare)
+8.06 d jvarl1_vare     s                   like(jvvare)
+     d vltyl1_ltyp     s                   like(valtyp)
+8.01 d fvlslu_numm     s                   like(fvnumm)
+8.01 d fvlslu_suff     s                   like(fvsuff)
+8.01 d fvlslu_line     s                   like(fvline)
+8.01 d fvlslu_lpnr     s                   like(fvlpnr)
+8.01 d fvlslr_numm     s                   like(fvnumm)
+8.01 d fvlslr_suff     s                   like(fvsuff)
+8.01 d fvlslr_line     s                   like(fvline)
+8.11 d lodtlu_numm     s                   like(ldnumm)
+8.11 d lodtlu_suff     s                   like(ldsuff)
+8.11 d lodtlu_line     s                   like(ldline)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(fofirm)
+     d w_nysuff        s                   like(fosuff)
+     d w_plom          s             10
+8.03 d w_plla          s              2  0
+8.03 d w_lrec          s            128
+8.03 d w_stat          s              1
+8.03 d w_numa          s              8
+8.03 d w_lina          s              4
+8.07 d w_suff          s              2  0
+8.08 d x_suff          s                   like(fosuff)
+8.09 d w_count         s              2  0
+     d s_plom          s             10
+     d i               s              2  0
+     d x               s              2  0
+      *
+8.02 d b_trel          s              1    inz(*off)
+8.02 d b_blan          s              1    inz(*off)
+8.04 d b_vtyp          s              1    inz(*off)
+8.04 d b_odel          s              1    inz(*off)
+      *
+      * Definering av datastruktur
+      *
+     d                 ds
+     d d_urec                        80
+     d  d_firm                        3  0 overlay(d_urec)
+     d  d_aarr                        4  0 overlay(d_urec:4)
+6.NU d  d_numm                        8  0 overlay(d_urec:8)
+6.NU d  d_suff                        2  0 overlay(d_urec:16)
+6.NU d  d_kodb                        1    overlay(d_urec:18)
+6.NU d  d_date                         d   overlay(d_urec:19) datfmt(*iso)
+6.NU d  d_time                         t   overlay(d_urec:29) timfmt(*iso)
+6.NU d  d_user                       10    overlay(d_urec:37)
+6.NU d  d_wsid                       10    overlay(d_urec:47)
+8.03  *
+8.03  * Definering av data-struktur
+8.03  * for lageroppdatering
+8.03  *
+8.03 d                 ds
+8.03 d hlrec                        128
+8.03 d  hlvare                       15    overlay(hlrec)
+8.03 d  hllage                        2  0 overlay(hlrec:16)
+8.03 d  hldato                         d   overlay(hlrec:18) datfmt(*iso)
+8.03 d  hltime                         t   overlay(hlrec:28) timfmt(*iso)
+8.03 d  hlotyp                        2    overlay(hlrec:36)
+8.03 d  hlltyp                        2    overlay(hlrec:38)
+8.03 d  hlanta                       11  3 overlay(hlrec:40)
+8.03 d  hlkopr                        9  2 overlay(hlrec:51)
+8.03 d  hlrefr                       20    overlay(hlrec:60)
+8.03 d  hlsyst                        1    overlay(hlrec:80)
+8.03 d  hlaltk                        2    overlay(hlrec:81)
+8.03 d  hlrest                        1    overlay(hlrec:83)
+8.03 d  hltype                        1    overlay(hlrec:84)
+8.03 d  hlenhe                        3    overlay(hlrec:85)
+8.03 d  hlinlr                        1    overlay(hlrec:88)
+8.03 d  hllety                        1    overlay(hlrec:89)
+8.03 d  hlonum                        8  0 overlay(hlrec:90)
+8.03 d  hlolin                        4  0 overlay(hlrec:98)
+      *
+      * Definering av Local Data Arae (LDA)
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Lese sjekker om splitting er nødvendig
+      *
+8.07 c                   eval      w_suff = 0
+      *
+     c                   exsr      sjk_splitt
+      *
+8.02 c**                 if        i > 1
+8.04 c                   if        i > 0
+8.04 c**                 if        b_trel = *on and
+8.04 c**                           b_blan = *on
+     c                   exsr      splitt
+     c                   exsr      nye_summer
+8.04 c                   exsr      sjk_ohead
+8.02 c                   else
+8.02 c                   eval      i = 1
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      p_anta = i
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker om splitting av ordre er nødvendig - flere lager på ordrelinjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjk_splitt    begsr
+      *
+     c                   eval      a_plom(*) = *blanks
+8.03 c                   eval      a_plla(*) = *zeros
+8.02 c                   eval      b_trel = *off
+8.02 c                   eval      b_blan = *off
+      *
+8.04 c**                 eval      i = 1
+8.04 c                   eval      i = 0
+8.04 c**                 eval      a_plom(i) = '*BLANK'
+8.03 c                   eval      fohel1_numm = p_numm
+8.03 c                   eval      fohel1_suff = p_suff
+8.03 c     fohel1_key    chain     fohel1
+8.03 c                   if        %found
+8.04 c**                 eval      a_plla(i) = folage
+8.03 c                   endif
+      *
+     c                   eval      fodtl1_numm = p_numm
+     c                   eval      fodtl1_suff = p_suff
+     c     fodtl1_key    setll     fodtl1
+     c     fodtl1_key    reade     fodtl1
+     c                   dow       not %eof(fodtl1)
+8.06  * Ikke tekstlinjer - flyttet
+8.06 c                   if        fdltyp = 'TX' or
+8.06 c                             %trim(fdvare) = *blanks
+8.04 c                   goto      neste_vare
+8.04 c                   endif
+      * Hent vareinformasjon
+8.04 c                   eval      vvarl1_vare = fdvare
+8.04 c     vvarl1_key    chain     vvarl1
+8.04 c                   if        not %found
+8.06 c                   eval      jvarl1_vare = fdvare
+8.06 c     jvarl1_key    chain     jvarl1
+8.06 c                   if        not %found
+8.06 c                   goto      neste_vare
+8.06 c                   endif
+8.06 c                   else
+8.04  * Ikke tjeneste/diverse varer - alle disse legges på første suffiks
+8.04  * uavhengig av plukkområde.
+8.04 c                   if        vvvtyp = 'T'
+8.04 c                   goto      neste_vare
+8.04 c                   endif
+8.04 c                   endif
+      * Finn plukkområde
+     c                   exsr      finn_plom
+      *
+8.02 c                   if        w_plom = '*BLANK'
+8.02 c                   eval      b_blan = *on
+8.02 c                   endif
+8.02  *
+8.02 c                   if        w_plom <> '*BLANK'
+8.02 c                   eval      b_trel = *on
+8.02 c                   endif
+      *
+     c                   if        %lookup(w_plom:a_plom) = 0
+     c                   eval      i = i +1
+     c                   eval      a_plom(i) = w_plom
+8.03 c                   eval      a_plla(i) = w_plla
+     c                   endif
+      *
+8.04 c     neste_vare    tag
+      *
+     c     fodtl1_key    reade     fodtl1
+     c                   enddo
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Finn plukkområde
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     finn_plom     begsr
+      *
+     c                   eval      w_plom = '*BLANK'
+8.03 c                   eval      w_plla = folage
+      * Sjekk om det er lagt opp på varenummer ?
+     c                   eval      lpoml1_olag = fdlage
+     c                   eval      lpoml1_oogr = 0
+     c                   eval      lpoml1_ohgr = 0
+     c                   eval      lpoml1_ougr = 0
+     c                   eval      lpoml1_omod = 0
+     c                   eval      lpoml1_ovar = fdvare
+     c     lpoml1_key    chain     lpoml1
+     c                   if        %found
+     c                   eval      w_plom = lpopom
+8.03 c                   if        lporla <> 0
+8.03 c                   eval      w_plla = lporla
+8.03 c                   endif
+     c                   goto      end_plom
+     c                   endif
+      * Er det lagt opp på varegruppe og modul ?
+     c                   eval      lpoml1_olag = fdlage
+     c                   eval      lpoml1_oogr = 0
+     c                   eval      lpoml1_ohgr = 0
+     c                   eval      lpoml1_ougr = 0
+     c                   eval      lpoml1_omod = vvnmod
+     c                   eval      lpoml1_ovar = *blanks
+     c     lpoml1_key    chain     lpoml1
+     c                   if        %found
+     c                   eval      w_plom = lpopom
+8.03 c                   if        lporla <> 0
+8.03 c                   eval      w_plla = lporla
+8.03 c                   endif
+     c                   goto      end_plom
+     c                   endif
+      * Er det lagt opp på varegruppe ?
+     c                   eval      lpoml1_olag = fdlage
+     c                   eval      lpoml1_oogr = vvogrp
+     c                   eval      lpoml1_ohgr = vvhgrp
+     c                   eval      lpoml1_ougr = vvugrp
+     c                   eval      lpoml1_omod = 0
+     c                   eval      lpoml1_ovar = *blanks
+     c     lpoml1_key    chain     lpoml1
+     c                   if        %found
+     c                   eval      w_plom = lpopom
+8.03 c                   if        lporla <> 0
+8.03 c                   eval      w_plla = lporla
+8.03 c                   endif
+     c                   goto      end_plom
+     c                   endif
+      * Er det lagt opp på over og hovedgruppe
+     c                   eval      lpoml1_olag = fdlage
+     c                   eval      lpoml1_oogr = vvogrp
+     c                   eval      lpoml1_ohgr = vvhgrp
+     c                   eval      lpoml1_ougr = 0
+     c                   eval      lpoml1_omod = 0
+     c                   eval      lpoml1_ovar = *blanks
+     c     lpoml1_key    chain     lpoml1
+     c                   if        %found
+     c                   eval      w_plom = lpopom
+8.03 c                   if        lporla <> 0
+8.03 c                   eval      w_plla = lporla
+8.03 c                   endif
+     c                   goto      end_plom
+     c                   endif
+      * Er det lagt opp på overgruppe
+     c                   eval      lpoml1_olag = fdlage
+     c                   eval      lpoml1_oogr = vvogrp
+     c                   eval      lpoml1_ohgr = 0
+     c                   eval      lpoml1_ougr = 0
+     c                   eval      lpoml1_omod = 0
+     c                   eval      lpoml1_ovar = *blanks
+     c     lpoml1_key    chain     lpoml1
+     c                   if        %found
+     c                   eval      w_plom = lpopom
+8.03 c                   if        lporla <> 0
+8.03 c                   eval      w_plla = lporla
+8.03 c                   endif
+     c                   goto      end_plom
+     c                   endif
+      * Er det lagt opp kun på lager
+     c                   eval      lpoml1_olag = fdlage
+     c                   eval      lpoml1_oogr = 0
+     c                   eval      lpoml1_ohgr = 0
+     c                   eval      lpoml1_ougr = 0
+     c                   eval      lpoml1_omod = 0
+     c                   eval      lpoml1_ovar = *blanks
+     c     lpoml1_key    chain     lpoml1
+     c                   if        %found
+     c                   eval      w_plom = lpopom
+8.03 c                   if        lporla <> 0
+8.03 c                   eval      w_plla = lporla
+8.03 c                   endif
+     c                   goto      end_plom
+     c                   endif
+      *
+     c     end_plom      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Splitter i nye suffix på lager som ligger i array fra 2 og oppover
+      * 1 følger gjeldende suffix.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     splitt        begsr
+      *
+      * leser heading (som grunnlag)
+      *
+     c                   clear                   fohel1r
+     c                   eval      fohel1_numm = p_numm
+     c                   eval      fohel1_suff = p_suff
+     c     fohel1_key    chain     fohel1
+     c                   if        %found(fohel1)
+      *
+8.04 c**                 eval      x = 2
+8.04 c                   eval      x = 1
+     c                   dow       x <= i
+      *
+     c                   exsr      hent_suff
+8.03 c                   if        folage <> a_plla(x)
+8.03 c                   eval      folage = a_plla(x)
+8.03 c                   endif
+8.05  *
+8.05  * Må nullstille eksternreferansen, da det blir kaos i NGN hvis mange
+8.05  * ordre har samme referanse.
+8.05  *
+8.05 c                   if        fofsys = 'AOR'
+8.05 c                   eval      fofsys = *blanks
+8.05 c                   eval      fonref = *blanks
+8.05 c                   endif
+      *
+      * skriver heading med ny suffix
+      *
+     c                   eval      fosuff = w_nysuff
+     c                   time                    fodate
+     c                   time                    fotime
+     c                   time                    foedat
+     c                   time                    foetim
+     c                   eval      fooous = l_user
+     c                   eval      foeusr = l_user
+     c                   write     fohelur
+      *
+     c                   eval      a_suff(x) = w_nysuff
+      *
+      * leser alle detaljelinjer med gjeldende plukkområde
+      *
+     c                   eval      fodtl1_numm = p_numm
+     c                   eval      fodtl1_suff = p_suff
+     c     fodtl1_key    setll     fodtl1
+     c     fodtl1_key    reade     fodtl1
+     c                   dow       not %eof(fodtl1)
+8.06  *
+8.06  * sjekker linjetype, hvis tekstlinje hent plukkområde fra forrige
+8.06  * lagervare, evnt legges ut på første suffiks
+8.06  *
+8.06 c                   eval      b_vtyp = *off
+8.06  *
+8.06 c                   eval      vltyl1_ltyp = fdltyp
+8.06 c     vltyl1_key    chain     vltyl1
+8.06 c                   if        valktx = 1
+8.09  *
+8.09 c                   if        %trim(s_plom) = *blanks
+8.09  * Sjekk hvor mange elementer - hvis kun et, bruk dette.
+8.09 c                   eval      w_count=%lookup(*BLANKS:a_plom) -1
+8.09 c                   if        w_count = 1
+8.09 c                   eval      w_plom = a_plom(1)
+8.09 c                   endif
+8.09 c                   else
+8.06 c                   eval      w_plom = s_plom
+8.09 c                   endif
+8.06 c*                  if        w_plom = *blanks
+8.06 c                   eval      b_vtyp = *on
+8.06 c*                  endif
+8.06 c                   endif
+      *
+      *
+      * Hent vareinformasjon
+8.06 c**                 eval      b_vtyp = *off
+8.04 c                   eval      vvarl1_vare = fdvare
+8.04 c     vvarl1_key    chain     vvarl1
+8.04 c                   if        %found
+8.04 c                   if        vvvtyp = 'T'
+8.04 c                   eval      b_vtyp = *on
+8.06 c                   if        s_plom <> *blanks
+8.06 c                   eval      w_plom = s_plom
+8.06 c                   endif
+8.04 c                   endif
+8.04 c                   endif
+8.06  *
+8.06  * Hvis tekstlinje/T, sjekker vi ikke etter plukkplass. Den skal legges
+8.06  * på første suffiks, eller følge forrige linje.
+8.06  *
+8.06 c                   if        b_vtyp = *off
+      *
+      * Finn hvilken plukkplass denne varen tilhører
+     c                   eval      w_plom = *blanks
+     c                   exsr      finn_plom
+      *
+      * sjekker linjetype, hvis ikke tekstlinje,skal lager tas vare på
+8.06  * Oppslag flyttet til tidligere i loopen
+      *
+8.06 c**                 eval      vltyl1_ltyp = fdltyp
+8.06 c**   vltyl1_key    chain     vltyl1
+     c                   if        valktx = 0
+     c                   eval      s_plom = w_plom
+     c                   endif
+      *
+      * hvis tekstlinje og skal den brukes foranliggende varelinje sitt lager
+      *
+8.06 c*                  if        valktx = 1
+8.06 c*                  eval      w_plom = s_plom
+8.06 c*                  endif
+      *
+8.06 c                   endif
+      *
+8.04  * Linja tilhører plukkområde, eller første suffiks og
+8.04  * tjeneste/diverse vare.
+      *
+8.04 c                   if        w_plom = a_plom(x) or
+8.04 c                             w_nysuff = 1 and
+8.06 c                             b_vtyp = *on and
+8.06 c                             w_plom = *blanks
+8.01 c                   eval      fvlslr_numm = fdnumm
+8.01 c                   eval      fvlslr_suff = fdsuff
+8.01 c                   eval      fvlslr_line = fdline
+     c                   eval      fdsuff = w_nysuff
+     c                   time                    fdodat
+     c                   time                    fdotim
+     c                   time                    fdedat
+     c                   time                    fdetim
+     c                   eval      fdoous = l_user
+     c                   eval      fdeusr = l_user
+8.03  *
+8.03  * Hvis avvikende lager, må gammel lager iordre reduseres, og ny
+8.03  * iordre beregnes på nytt lager
+8.03  *
+8.03 c                   if        fdlage <> a_plla(x)
+8.03 c                   eval      fdotyp = footyp
+8.03 c                   eval      fdanta = fdanta * -1
+8.03 c                   exsr      opplag
+8.03 c                   eval      fdlage = a_plla(x)
+8.03 c                   eval      fdanta = fdanta * -1
+8.03 c                   exsr      opplag
+8.03 c                   endif
+      *
+      * skriver med ny suffix
+      *
+     c                   write     fodtlur
+8.11  *
+8.11  * Oppdater tilhørende bestillinhslinje
+8.11  *
+8.11 c                   if        fdbenr <> 0
+8.11 c                   eval      lodtlu_numm = fdbenr
+8.11 c                   eval      lodtlu_suff = fdbsuf
+8.11 c                   eval      lodtlu_line = fdblin
+8.11 c                   eval      lodtlu_line = fdblin
+8.11 c     lodtlu_key    chain     lodtlu
+8.11 c                   if        %found
+8.11 c                   eval      ldorsu = fdsuff
+8.11 c                   time                    ldedat
+8.11 c                   time                    ldetim
+8.11 c                   eval      ldeusr = l_user
+8.11 c                   update    lodtlur
+8.11 c                   endif
+8.11 c                   endif
+      * sletter lest linje
+     c                   delete    fodtl1r
+8.01  *
+8.01  * Sjekk om det finnes lengdespesifikasjoner på varen
+8.01  *
+8.01 c     fvlslr_key    setll     fvlslr
+8.01 c     fvlslr_key    reade     fvlslr
+8.01 c                   dow       not %eof(fvlslr)
+8.01 c                   eval      fvsuff = w_nysuff
+8.01 c                   time                    fvodat
+8.01 c                   time                    fvotim
+8.01 c                   time                    fvedat
+8.01 c                   time                    fvetim
+8.01 c                   eval      fvousr = l_user
+8.01 c                   eval      fveusr = l_user
+8.01  * skriver med ny suffix
+8.01 c                   write     fvlslur
+8.01  * sletter lest linje
+8.01 c                   delete    fvlslrr
+8.01  *
+8.01 c     fvlslr_key    reade     fvlslr
+8.01 c                   enddo
+      *
+     c                   endif
+      *
+     c     fodtl1_key    reade     fodtl1
+     c                   enddo
+      *
+     c                   eval      x = x + 1
+      *
+     c                   enddo
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Henter siste suffix
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_suff     begsr
+8.08  *
+8.08  * Hent høyeste brukte suffiks på ordrenummer
+8.08  *
+8.08 c                   eval      w_nysuff = 0
+8.08 c                   eval      w_suff = 0
+8.08 c                   eval      x_suff = 0
+8.08 c                   call      'AS110R'
+8.08 c                   parm                    fonumm
+8.08 c                   parm                    x_suff
+      *
+8.08 c                   eval      w_nysuff = x_suff
+      *
+8.08 c*                  eval      fohelr_numm = p_numm
+8.08 c*                  eval      fohelr_suff = 99
+8.08 c*    fohelr_key    setll     fohelr
+8.08 c*                  readp     fohelr
+      *
+     c*                  eval      w_nysuff = fosuff + 1
+8.08 c*                  eval      w_nysuff = xxsuff + 1
+8.08 c*                  if        w_suff = 0
+8.08 c                   eval      w_suff = x_suff
+8.08 c*                  endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Danner nye summer etter splitting, setter også loggkode på ny
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     nye_summer    begsr
+      *
+     c                   eval      fohel1_numm = p_numm
+     c     fohel1_key2   setll     fohel1
+     c     fohel1_key2   reade     fohel1
+     c                   dow       not %eof(fohel1)
+     c                   call      'FO700R  '
+     c                   parm                    fofirm
+     c                   parm                    fonumm
+     c                   parm                    fosuff
+      *
+8.07 c*                  if        fosuff <> p_suff
+8.10 c*                  if        fosuff >= w_suff
+8.10 c*                  eval      d_kodb = '2'
+8.10 c*                  exsr      upd_logg
+8.10 c*                  endif
+     c     fohel1_key2   reade     fohel1
+     c                   enddo
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppdatere logg-register
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     upd_logg      begsr
+      *
+      *
+     c                   eval      d_firm = fofirm
+     c                   eval      d_numm = fonumm
+     c                   eval      d_suff = fosuff
+     c
+     c                   time                    d_date
+     c                   time                    d_time
+     c                   eval      d_user = l_user
+     c                   eval      d_wsid = l_wsid
+     c                   eval      d_aarr = %subdt(fobdat:*years)
+     c                   call      'FU900R  '
+     c                   parm                    p_stat
+     c                   parm                    d_urec
+      *
+      *
+     c                   endsr
+      *
+8.03  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.03  * Oppdatering av Lager
+8.03  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.03  *
+8.03 c     opplag        begsr
+8.03  *
+8.03  * Legger over verdier i overførings-felter
+8.03  *
+8.03 c                   eval      hlvare = fdvare
+8.03 c                   eval      hllage = fdlage
+8.03 c                   eval      hlenhe = fdenh1
+8.03 c                   eval      hldato = *loval
+8.03 c                   eval      hltime = *loval
+8.03 c                   eval      hlotyp = fdotyp
+8.03 c                   eval      hlltyp = fdltyp
+8.03  *
+8.03 c                   eval      hlanta = fdanta
+8.03 c                   eval      hlkopr = fdkopr
+8.03 c                   eval      hlonum = fdnumm
+8.03 c                   eval      hlolin = fdline
+8.03 c                   eval      hlsyst = 'F'
+8.03 c                   eval      hlaltk = *blank
+8.03 c                   eval      hlrest = *blank
+8.03 c                   move      fdnumm        w_numa
+8.03 c                   move      fdline        w_lina
+8.03 c                   eval      hlrefr = 'O:' + w_numa +
+8.03 c                                      ' L:' + w_lina
+8.03 c                   move      fdlety        hllety
+8.03  *
+8.03  * Kaller opp lageroppdaterings-program
+8.03  *
+8.03 c                   eval      w_lrec = hlrec
+8.03  *
+8.03 c                   call      'VL001R'
+8.03 c                   parm                    w_stat
+8.03 c                   parm                    w_lrec
+8.03  *
+8.03 c                   endsr
+8.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.04  * Slett suffiks 0, hvsi det ikke lenger finnes varelinjer her
+8.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.04  *
+8.04 c     sjk_ohead     begsr
+8.04  *
+8.04 c                   eval      b_odel = *on
+8.04  *
+8.04 c                   eval      fodtl1_numm = p_numm
+8.04 c                   eval      fodtl1_suff = p_suff
+8.04 c     fodtl1_key    setll     fodtl1
+8.04 c     fodtl1_key    reade     fodtl1
+8.04 c                   dow       not %eof(fodtl1)
+8.04 c                   eval      b_odel = *off
+8.04 c     fodtl1_key    reade     fodtl1
+8.04 c                   enddo
+8.04  *
+8.04 c                   if         b_odel = *on
+8.04 c                   eval      fohelu_numm = p_numm
+8.04 c                   eval      fohelu_suff = p_suff
+8.04 c     fohelu_key    chain     fohelu
+8.04 c                   if        %found
+8.04 c                   delete    fohelu
+8.04 c                   endif
+8.04 c                   endif
+8.04  *
+8.04 c                   endsr
+8.04  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+     c                   parm                    a_suff
+     c                   parm                    p_anta
+      *
+      * Key for les på ordrehode
+      *
+     c     fohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohel1_numm
+     c                   kfld                    fohel1_suff
+      *
+      * Key for les på ordrehode
+      *
+     c     fohel1_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohel1_numm
+      *
+      * Key for les på ordrehode
+      *
+     c     fohelr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohelr_numm
+     c                   kfld                    fohelr_suff
+      *
+      * Key for oppslag på ordrehode
+      *
+     c     fohelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohelu_numm
+     c                   kfld                    fohelu_suff
+      *
+      * Key for oppslag på ordrelinje
+      *
+     c     fodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtl1_numm
+     c                   kfld                    fodtl1_suff
+      *
+      * Key for opppdat på ordrelinje
+      *
+     c     fodtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtlu_numm
+     c                   kfld                    fodtlu_suff
+      *
+      * Key for opppdat på plukkområde
+      *
+     c     lpoml1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lpoml1_olag
+     c                   kfld                    lpoml1_oogr
+     c                   kfld                    lpoml1_ohgr
+     c                   kfld                    lpoml1_ougr
+     c                   kfld                    lpoml1_omod
+     c                   kfld                    lpoml1_ovar
+      *
+      * Key for les av linjetype
+      *
+     c     vltyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltyl1_ltyp
+      *
+      * Key for les av vareregister
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+8.06  *
+8.06  * Key for les av vareregister - VA
+8.06  *
+8.06 c     jvarl1_key    klist
+8.06 c                   kfld                    jvarl1_vare
+8.01  *
+8.01  * Key for les på lengdespesifikasjoner
+8.01  *
+8.01 c     fvlslu_key    klist
+8.01 c                   kfld                    w_firm
+8.01 c                   kfld                    fvlslu_numm
+8.01 c                   kfld                    fvlslu_suff
+8.01 c                   kfld                    fvlslu_line
+8.01 c                   kfld                    fvlslu_lpnr
+8.01  *
+8.01  * Key for les på lengdespesifikasjoner
+8.01  *
+8.01 c     fvlslr_key    klist
+8.01 c                   kfld                    w_firm
+8.01 c                   kfld                    fvlslr_numm
+8.01 c                   kfld                    fvlslr_suff
+8.01 c                   kfld                    fvlslr_line
+8.11  *
+8.11  * Key for file : Bestilling-LINJE-REGISTER
+8.11  *
+8.11 c     lodtlu_key    klist
+8.11 c                   kfld                    w_firm
+8.11 c                   kfld                    lodtlu_numm
+8.11 c                   kfld                    lodtlu_suff
+8.11 c                   kfld                    lodtlu_line
+      *
+      * Legg inn firmanummer
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      a_suff(*) = 0
+     c                   eval      a_suff(1) = p_suff
+      *
+     c                   endsr

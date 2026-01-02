@@ -1,0 +1,514 @@
+     H DFTACTGRP(*NO)
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASVADM
+      * Program . . . . : JV863R_XML
+      * Beskrivelse . . : Leser NOBB Modul XML 8.0. Legger xml data i en variable.
+      *                   Kaller standard rpg program, som gjør sjekk av data
+      *                   og oppdatere basen
+      *
+      *                   Dette programmet er skrevet i free format RPG
+      *
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       040414 BKV  Nytt program
+6.30  * R6.30 300614 BKV  Korrigering av parameter def
+6.31  * R6.30 130814 BKV  Angi xpath i basen
+6.32  * R6.30 061014 BKV  Ok hvis ingen moduler, dvs retur dagens dato
+6.33  * R6.30 260618 bof  takle at oppdat.dato mangler
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.31 fafpslr    if   e           k disk    rename(afpspfr:afpslrr)
+
+      * Definering av Local Data Area
+      *
+6.31 d                uds
+6.31 d l_user                911    920
+6.31 d l_firm                944    946  0
+6.31 d l_filg                931    933
+      *
+      * Definering av variabler i nøkler
+      *
+6.31 d afpslr_ufil     s                   like(l_filg)
+6.31 d afpslr_uide     s                   like(afuide)
+      *
+      * Definering av parametre
+      *
+     d p_stat          s              1
+
+      * Brukes som parametre til jobblogging
+     d p_jnav          s             15
+     d p_jbid          s             41
+     d p_jsts          s              2  0
+     d p_jmld          s            200
+     d p_jtxt          s             35
+
+     d p_sistDato      s             10a
+
+      *
+      * Job log teller
+      *
+     d                 ds
+     d d_job_log                     50
+     d  w_jmstt                       5    overlay(d_job_log:2)
+     d  w_jmst                        5  0 overlay(w_jmstt:1)
+     d  w_jmsdt                       5    overlay(d_job_log:7)
+     d  w_jmsd                        5  0 overlay(w_jmsdt:1)
+     d  w_jmtxt                       5    overlay(d_job_log:12)
+     d  w_jmtx                        5  0 overlay(w_jmtxt:1)
+     d  w_jmodt                       5    overlay(d_job_log:17)
+     d  w_jmod                        5  0 overlay(w_jmodt:1)
+
+     d b_inlr          s              1
+6.32 d w_lest          s              1  0 Inz(0)
+
+      * Definering av tabell med meldinger
+     d a_meld          s            100    dim(4) ctdata perrcd(1)
+
+      *
+      * START NOBB 8.0 XML definisjon
+      *
+
+      * Path til modul taggen
+     D modul_path      s             34a   Inz(
+     D                                     'ModulResult/ModulListe/Modul')
+
+
+      * Taggen: <n2:Modul>
+     D Modul_t         DS                  Qualified
+     D   Status                            LikeDS(Status_t)
+     D   NOBBmodulNr...
+     D                                8a   varying
+     D   InterntModulnr...
+     D                                8a   varying
+     D   DeltakerNr...
+     D                                6a   varying
+     D   ProdusentNr...
+     D                               20a   varying
+     D   ProdusentNavn...
+     D                              100a   varying
+     D   VareGruppeNr...
+     D                                7a   varying
+     D   Merkenavn...
+     D                               30a   varying
+     D   Stikkord...
+     D                                     LikeDS(Stikkord_t) Dim(100)
+     D   countStikkord...
+     D                                5i 0
+     D   Standard...
+     D                                     LikeDS(Standard_t) Dim(100)
+     D   countStandard...
+     D                                5i 0
+     D   Modulbeskrivelse...
+     D                            30000a   varying
+     D   ModulTekst1...
+     D                               35a   varying
+     D   ModulTekst2...
+     D                               35a   varying
+     D   Deltakernavn...
+     D                              255a   varying
+     D   VareGruppeNavn...
+     D                              255a   varying
+     D   HovedGruppeNr...
+     D                                4a   varying
+     D   OverGruppeNr...
+     D                                2a   varying
+     D   HovedGruppeNavn...
+     D                              100a   varying
+     D   OverGruppeNavn...
+     D                              100a   varying
+
+
+      * Taggen: <b:Stikkord>
+     D Stikkord_t      DS                  Qualified
+     D                                     based(Template)
+     D   StikkOrd                    30a
+
+      * Taggen: <b:Standard>
+     D Standard_t      DS                  Qualified
+     D                                     based(Template)
+     D   StandardKode...
+     D                               35a
+     D   Beskrivelse                 30a
+     D   Status                            LikeDS(Status_t)
+
+
+      * Taggen: <b:Status>
+     D Status_t        DS                  Template
+     D   Created                     25a
+     D   Updated                     25a
+
+      *
+      * STOPP NOBB 8.0 XML definisjon
+      *
+
+      *
+      *  Dataelementer modul
+      *
+     d                 ds
+     d d_mrec                       250
+     d  d_modn                        8    overlay(d_mrec:1)
+     d   d_modn_num                   8  0 overlay(d_modn:1)
+     d  d_stat                        1    overlay(d_mrec:9)
+     d   d_stat_num                   1  0 overlay(d_stat:1)
+     d  d_mte1                       35    overlay(d_mrec:10)
+     d  d_mte2                       35    overlay(d_mrec:45)
+     d  d_merk                       35    overlay(d_mrec:80)
+     d  d_ldor                        6    overlay(d_mrec:115)
+     d   d_ldor_num                   6  0 overlay(d_ldor:1)
+     d  d_prod                        6    overlay(d_mrec:121)
+     d   d_prod_num                   6  0 overlay(d_prod:1)
+     d  d_vgnr                        7    overlay(d_mrec:127)
+     d   d_vgnr_num                   7  0 overlay(d_vgnr:1)
+     d   d_ogrp                       2    overlay(d_vgnr:1)
+     d   d_ogrp_num                   2  0 overlay(d_ogrp:1)
+     d   d_hgrp                       2    overlay(d_vgnr:3)
+     d   d_hgrp_num                   2  0 overlay(d_hgrp:1)
+     d   d_ugrp                       3    overlay(d_vgnr:5)
+     d   d_ugrp_num                   3  0 overlay(d_ugrp:1)
+     d  d_imnr                       15    overlay(d_mrec:134)
+     d  d_mtyp                       35    overlay(d_mrec:149)
+     d  d_crea                       10    overlay(d_mrec:184)
+     d   d_crea_iso                    d   overlay(d_crea:1) datfmt(*iso)
+     d  d_upda                       10    overlay(d_mrec:194)
+     d   d_upda_iso                    d   overlay(d_upda:1) datfmt(*iso)
+     d  d_dele                       10    overlay(d_mrec:204)
+     d   d_dele_iso                    d   overlay(d_dele:1) datfmt(*iso)
+      *
+      *  Dataelementer stikkord
+      *
+     d                 ds
+     d d_skrc                       100    Dim(100)
+     d  d_sord                       35    overlay(d_skrc:1)
+     d  d_screa                      10    overlay(d_skrc:36)
+     d   d_screa_iso                   d   overlay(d_screa:1) datfmt(*iso)
+     d  d_supda                      10    overlay(d_skrc:46)
+     d   d_supda_iso                   d   overlay(d_supda:1) datfmt(*iso)
+     d  d_sdele                      10    overlay(d_skrc:56)
+     d   d_sdele_iso                   d   overlay(d_sdele:1) datfmt(*iso)
+      *
+      *  Dataelementer standard
+      *
+     d                 ds
+     d d_strc                       100    Dim(100)
+     d  d_sstd                       35    overlay(d_strc:1)
+     d  d_dcrea                      10    overlay(d_strc:36)
+     d   d_dcrea_iso                   d   overlay(d_dcrea:1) datfmt(*iso)
+     d  d_dupda                      10    overlay(d_strc:46)
+     d   d_dupda_iso                   d   overlay(d_dupda:1) datfmt(*iso)
+     d  d_ddele                      10    overlay(d_strc:56)
+     d   d_ddele_iso                   d   overlay(d_ddele:1) datfmt(*iso)
+      *
+      *  Dataelementer fritekst
+      *
+     d d_ftxt          s          30000
+
+
+      * Prototype for procedure LesVarer
+      * Leser inn 5 varer, som blir behandlet av procduren LesVarer
+     D LesModuler      PR            10i 0
+     D   commArea                    10a
+     D   Modul                             likeds(Modul_t)
+     D                                     dim(5) const
+     D   count                       10u 0 value
+
+      * info og commArea må være likt def. De brukes ikke i programmet, men må
+      * være definert
+     D info            s             10a
+     D options         s            200a   varying
+
+      * Prototype for externt program sjekker Modul og lagrer i basen
+      *  Overfører vara datastruktur som parameter
+     D P_BehModul      PR                  ExtPgm('JV864R_XML')
+     d  p_mrec                      250
+     d  p_skrc                      100    Dim(5)
+     d  p_strc                      100    Dim(5)
+     d  p_ftxt                    30000
+     d  p_job_log                    50
+     d  b_inlr                        1
+
+     D P_AB705R        PR                  ExtPgm('AB705R')
+     d  p_jbid                       41
+     d  p_jsts                        2  0
+     d  p_jmld                      200
+
+     D P_AB710R        PR                  ExtPgm('AB710R')
+     d  p_jnav                       15
+     d  p_jbid                       41
+
+     D P_AB700R        PR                  ExtPgm('AB700R')
+     d  p_jnav                       15
+     d  p_jbid                       41
+     d  p_jtxt                       35
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       // ------------------------------------- Prototypes
+     D JV863R_XML      PR                  ExtPgm('JV863R_XML')
+     D   filNavn                    255a   options(*varsize)
+6.30 D   lengde                       3p 0 const
+     D   sisteDato                   10a
+       // ----------------------- Main procedure interface
+     D JV863R_XML      PI
+     D   filNavn                    255    options(*varsize)
+6.30 D   lengde                       3p 0 const
+     D   sisteDato                   10a
+
+     D   navnet        s            255a   varying
+6.30 D   len           s              3i 0
+
+6.31  *
+6.31  * Key for propertiesfil
+6.31  *
+6.31 c     afpslr_key    klist
+6.31 c                   kfld                    afpslr_ufil
+6.31 c                   kfld                    afpslr_uide
+
+      /free
+
+       len = lengde;
+       navnet = %trim(%subst(filNavn:1:len));
+
+       w_jmst = *zeros;
+       w_jmsd = *zeros;
+       w_jmtx = *zeros;
+       w_jmod = *zeros;
+
+6.32   w_lest = 0;
+
+       // Vi starter jobblogging
+       p_jnav = 'MODULXML';
+       p_jtxt = *blank;
+       CallP P_AB700R (p_jnav : p_jbid : p_jtxt);
+
+6.31   //  Hent inn NOBB 80 XML path som skal brukes
+6.31   afpslr_ufil = l_filg;
+6.31   afpslr_uide = 'NOBB80MOD';
+6.31   chain afpslr_key afpslrr;
+6.31   if %found;
+6.31     modul_path = *blanks;
+6.31     modul_path = %trim(afudss);
+6.31   else;
+6.31     p_stat = '1';
+6.31   endif;
+
+6.31   if (p_stat <> '1');
+
+         b_inlr = *on;
+
+         options = 'doc=file +
+                    case=any +
+                    countprefix=count +
+                    datasubf=text +
+                    ns=remove +
+                    path='+modul_path+' '+
+                   'allowmissing=yes +
+                    allowextra=yes';
+
+
+            // Bruker RPG xml-info til å lese xml filen.
+            // Behandling av innleste varer gjøres av LesVarer
+            xml-into %handler(LesModuler: info) %xml(navnet: options);
+
+            b_inlr = *off;
+
+            CallP P_BehModul (d_mrec : d_skrc : d_strc
+                              : d_ftxt : d_job_log :b_inlr);
+
+
+6.31   endif;
+
+       sisteDato = p_sistDato;
+
+6.32   // hvis w_lest er 0, så var det ingen elementer i XML, dvs tom liste, men det er ok
+6.32   if (sisteDato = '' and w_lest = 0);
+6.32     sisteDato = %char(%date(): *iso);
+6.32   endif;
+
+       // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       // Avslutt program
+       // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       // Vi oppsummerer
+
+       if (p_stat = '1');
+         p_jsts = 50;
+         p_jmld = 'Alvorlig feil oppstod i JV863R_XML';
+
+         CallP P_AB705R (p_jbid : p_jsts : p_jmld);
+
+       else;
+         p_jsts = 10;
+         p_jmld = *blanks;
+         p_jmld = %trim(a_meld(1)) + ' ' + %Char(w_jmst);
+         CallP P_AB705R (p_jbid : p_jsts : p_jmld);
+
+         p_jsts = 10;
+         p_jmld = *blanks;
+         p_jmld = %trim(a_meld(2)) + ' ' + %Char(w_jmsd);
+         CallP P_AB705R (p_jbid : p_jsts : p_jmld);
+
+         p_jsts = 10;
+         p_jmld = *blanks;
+         p_jmld = %trim(a_meld(3)) + ' ' + %Char(w_jmtx);
+         CallP P_AB705R (p_jbid : p_jsts : p_jmld);
+
+         p_jsts = 10;
+         p_jmld = *blanks;
+         p_jmld = %trim(a_meld(4)) + ' ' + %Char(w_jmod);
+         CallP P_AB705R (p_jbid : p_jsts : p_jmld);
+
+       endif;
+
+       CallP P_AB710R (p_jnav : p_jbid );
+
+       *inlr = *on;
+
+       return;
+       /end-free
+
+      *
+      * Denne proseduren mottar 5 og 5 varer fra XML filen
+      *
+      *
+     P LesModuler      B
+     D LesModuler      pi            10i 0
+     D   commArea                    10a
+     D   Moduler                           likeds(Modul_t)
+     D                                     dim(5) const
+     D   count                       10u 0 value
+
+     D t_moduler       s             10u 0
+     D d               s              5i 0
+     D e               s              5i 0
+     D
+      /free
+
+         for t_moduler = 1 to count;
+
+           BehModul(Moduler(t_moduler));
+6.32       w_lest = 1;
+
+         endfor;
+         return 0;
+
+      /end-free
+     P LesModuler      E
+
+
+
+      *
+      * Behandler 1 vare. Overføre vare data til data struktur
+      * og kaller programmet P_BehVare
+     P BehModul        B
+     D BehModul        pi            10i 0
+     D   Modul                             likeds(Modul_t) const
+     D
+     D t_teller        s              5i 0
+     c
+     c
+      /free
+
+       ModulInit();
+
+       //d_nobb = Vare.NOBBNr;
+       d_modn_num = %Int(Modul.NOBBmodulNr);
+       d_stat_num = *zero;
+       d_ldor_num = %Int(Modul.DeltakerNr);
+       d_prod_num = %Int(Modul.ProdusentNr);
+       d_vgnr_num = %Int(Modul.VareGruppeNr);
+       d_mte1 = Modul.ModulTekst1 ;
+       d_mte2 = Modul.ModulTekst2;
+       d_merk = Modul.Merkenavn;
+       d_imnr = Modul.InterntModulnr;
+
+       d_ftxt = Modul.Modulbeskrivelse;
+
+
+       if (%Trim(Modul.Status.Created) <> '');
+         d_crea = %subst(Modul.Status.Created:1:10);
+       endif;
+6.33   if (%Trim(Modul.Status.Updated) <> '');
+         d_upda = %subst(Modul.Status.Updated:1:10);
+       endif;
+
+       d_dele_iso = *loval;
+
+       for t_teller = 1 to Modul.countStikkord;
+         d_sord(t_teller) = Modul.Stikkord(t_teller).StikkOrd;
+         d_screa_iso = d_crea_iso;
+         d_supda_iso = d_upda_iso;
+       endfor;
+
+       for t_teller = 1 to Modul.countStandard;
+         d_sstd(t_teller) = Modul.Standard(t_teller).StandardKode;
+         //d_sord(t_teller) = Modul.Standard(t_teller).Beskrive;
+
+         if (%Trim(Modul.Standard(t_teller).Status.Created) <> '');
+           d_dcrea = %subst(Modul.Standard(t_teller).Status.Created:1:10);
+         endif;
+         if (%Trim(Modul.Standard(t_teller).Status.Created) <> '');
+           d_dupda = %subst(Modul.Standard(t_teller).Status.Updated:1:10);
+         endif;
+       endfor;
+
+       CallP P_BehModul (d_mrec : d_skrc : d_strc : d_ftxt : d_job_log :b_inlr);
+
+       p_sistDato = d_upda;
+
+       return 0;
+
+      /end-free
+
+     P BehModul        E
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av modul
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     P ModulInit       B
+     D
+     D t_teller        s              5i 0
+      /free
+       d_mrec = *blank;
+
+       d_modn_num = *zero;
+       d_stat_num = *zero;
+       d_ldor_num = *zero;
+       d_prod_num = *zero;
+       d_vgnr_num = *zero;
+       d_crea_iso = *loval;
+       d_upda_iso = *loval;
+       d_dele_iso = *loval;
+
+
+       for t_teller = 1 to 5;
+         d_sord(t_teller) = *blank;
+         d_screa_iso(t_teller) = *loval;
+         d_supda_iso(t_teller) = *loval;
+         d_sdele_iso(t_teller) = *loval;
+       endfor;
+
+       for t_teller = 1 to 5;
+         d_sstd(t_teller) = *blank;
+         d_dcrea_iso(t_teller) = *loval;
+         d_dupda_iso(t_teller) = *loval;
+         d_ddele_iso(t_teller) = *loval;
+       endfor;
+
+      /end-free
+     P ModulInit       E
+
+**
+Antall nye modustikkord er:
+Antall nye modulstandarder er:
+Antall nye modultekster er:
+Antall nye moduler er:

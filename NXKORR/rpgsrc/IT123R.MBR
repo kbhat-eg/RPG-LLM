@@ -1,0 +1,443 @@
+     h option(*nodebugio : *srcstmt) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASNAVIOKO
+      * Program . . . . : IT123R
+      * Beskrivelse . . : Oppdaterer returkvittering på posteringstranser
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       250321 ask  Nytt program
+8.01  *  800  070521 ask  Lagt inn LR styring for å øke hastigheten
+8.02  *  800  280521 ask  Lagt inn firma i SQL der det manglet
+8.03  *  800  180821 ask  Håndterer retur av bilagsnummer med '-'
+8.04  *  800  080921 ask Skriver om for å finne buntident og buntinfo
+8.04  *                  Bruker logikk for å unngå dobbeltoppdatering av JOURN
+8.05  *  800  281021 ask Div. forbedringer i returbehandling
+8.06  *  800  030522 ask Uvidet eksternt dokumentnummer
+8.07  *  800  091123 ask Justert beregning av buntsummer
+8.08  *  800  210725 ask Justert beregning av buntsummer på nytt
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+      * Parameter-inn
+      *
+     d p_firm          s              3  0
+     d p_comd          s             20
+     d p_parm          s           2048
+     d p_user          s             10
+     d p_stat          s              1
+8.01 d p_inlr          s              1
+      *
+      *
+      * Definering av variable
+      *
+     d w_stat          s              5
+     d w_tima          s             26
+     d w_tims          s               z
+     d w_timb          s               z
+     d w_binr          s              8  0
+     d w_bela          s             13
+     d w_belh          s             10  0
+     d w_beld          s              2  0
+     d w_sumd          s             12  2
+     d w_sumk          s             12  2
+     d w_antp          s              5  0
+     d w_valu          s              5
+8.03 d w_balf          s             20
+     d w_idoc          s             18
+8.06 d w_sapn          s             50
+     d w_stko          s              2
+     d w_stml          s            120
+     d w_posi          s              2  0
+     d w_sd2           s             12  2
+     d w_sk2           s             12  2
+     d w_sd3           s             12  2
+     d w_sk3           s             12  2
+     d w_sd4           s             12  2
+     d w_sk4           s             12  2
+8.04 d w_type          s              4
+8.05 d b_feil          s              1    inz(*off)
+
+     c/Exec SQL
+     c+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR,
+     c+             commit=*none
+     c/End-Exec
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Hovedprogram - oppdaterer informasjon på loggfil, setter statusflagg
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.01  *
+8.01  * Sjekk om det er "siste runde" for å lukke tabeller
+8.01  *
+8.01 c                   if        p_inlr = '1'
+8.01 c                   eval      *inlr = *on
+8.01 c                   goto      slutt
+8.01 c                   endif
+      *
+8.04  * Redigerer parameterdata før behandling og finner buntident
+      *
+     c                   exsr      red_flt
+8.05 c                   if        w_binr = 0
+8.05 c                   eval      p_stat = '9'
+8.05 c                   goto      slutt
+8.05 c                   endif
+      *
+8.04 c                   exsr      finn_bunt
+8.05 c                   if        b_feil = *on
+8.05 c                   eval      p_stat = '9'
+8.05 c                   goto      slutt
+8.05 c                   endif
+      *
+      * Velger oppdatering avhengig av status
+      *
+     c                   select
+     c                   when      w_stat = 'OVERF'
+     c                   exsr      upd_overf
+     c                   exsr      bunt_oppd
+     c                   when      w_stat = 'KLADD'
+     c                   exsr      upd_kladd
+     c                   exsr      bunt_oppd
+     c                   when      w_stat = 'JOURN'
+     c                   exsr      upd_journ
+     c                   exsr      bunt_oppd
+     c                   when      w_stat = 'FEIL '
+     c                   exsr      upd_feil
+     c                   endsl
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     slutt         tag
+     c                   return
+
+      /free
+
+      // ---------------------------------------
+      // Redigerer felter fra parameter streng
+      // ---------------------------------------
+
+       begsr red_flt;
+
+         w_stat = %subst(p_parm:1:5);
+
+         w_tima = %subst(p_parm:6:25);
+         w_tima = %trim(%scanrpl('T':'-':w_tima));
+         w_tima = %trim(%scanrpl('Z':'':w_tima));
+         w_tima = %trim(%scanrpl(' ':'-':w_tima:11:1));
+         w_tima = %trim(%scanrpl(' ':'.':w_tima:20:1));
+         w_tima = %trim(%scanrpl(':':'.':w_tima));
+         w_tima = %trim(%scanrpl(' ':'0':w_tima));
+         w_tims = %timestamp(w_tima);
+
+8.03     w_balf = %subst(p_parm:41:20);
+8.03     w_posi = %scan('-' : w_balf);
+8.03     if w_posi > 1;
+8.03     w_binr = %dec(%trim(%subst(w_balf:1:w_posi-1)):8:0);
+8.03     else;
+8.03     w_binr = %dec(%trim(%subst(w_balf:1:8)):8:0);
+8.03     endif;
+
+         w_bela = %subst(p_parm:61:13);
+         w_posi = %scan('.' : w_bela);
+         w_belh = %dec(%subst(w_bela:1:w_posi -1):10:0);
+         w_beld = %dec(%subst(w_bela:w_posi +1:2):2:0);
+         w_sumd = w_belh + (w_beld/100);
+
+         w_bela = %subst(p_parm:74:13);
+         w_posi = %scan('.' : w_bela);
+         w_belh = %dec(%subst(w_bela:1:w_posi -1):10:0);
+         w_beld = %dec(%subst(w_bela:w_posi +1:2):2:0);
+         w_sumk = w_belh + (w_beld/100);
+
+         w_antp = %dec(%trim(%subst(p_parm:87:3)):5:0);
+
+         w_valu = %subst(p_parm:90:5);
+         w_idoc = %subst(p_parm:95:16);
+8.06     w_sapn = %subst(p_parm:111:50);
+8.06     w_stko = %subst(p_parm:161:2);
+8.06     w_stml = %subst(p_parm:163:120);
+
+       endsr;
+8.04
+8.04  // ---------------------------------------
+8.04  // Finn info fra bunthode
+8.04  // ---------------------------------------
+8.04
+8.04   begsr finn_bunt;
+8.04
+8.04  // Finn bunt
+8.04
+8.04   b_feil = *off;
+8.04
+8.04   exec sql
+8.04    select rlbts1
+8.04      into :w_timb
+8.04     from rlobst
+8.04     where
+8.04      rlbfir = :p_firm and
+8.04      rlbbil = :w_binr and rlbslt = ' ' and rlbomk = ' ' ;
+8.04
+8.04     if sqlcod = 100;
+8.04       b_feil = *on;
+8.04     else;
+8.04
+8.04  // Finn buntinfo
+8.04   exec sql
+8.04    select rlhtyp
+8.04      into :w_type
+8.04     from rlohst
+8.04     where
+8.04      rlhfir = :p_firm and
+8.04      rlhts1 = :w_timb;
+8.04
+8.04     if sqlcod = 100;
+8.04       b_feil = *on;
+8.04     endif;
+8.04     endif;
+8.04
+8.04   endsr;
+8.04
+
+      // ---------------------------------------
+      // Oppdatere logg med overføring
+      // ---------------------------------------
+
+       begsr upd_overf;
+
+       exec sql
+         update rlobst
+           set rlbts2 = :w_tims,
+               rlban2 = :w_antp,
+               rlbsd2 = :w_sumd,
+               rlbsk2 = :w_sumk,
+               rlbbr2 = :p_user,
+               rlbff2 = '  ',
+               rlbft2 = '  '
+           where
+8.02       rlbfir = :p_firm and
+           rlbbil = :w_binr and
+           rlbslt = ' ' and
+           rlbomk = ' ';
+
+       p_stat='1';
+         if sqlcod = 100;
+           p_stat='9';
+         endif;
+
+       endsr;
+
+      // ---------------------------------------
+      // Oppdatere logg med kladd
+      // ---------------------------------------
+
+       begsr upd_kladd;
+
+       exec sql
+         update rlobst
+           set rlbts3 = :w_tims,
+               rlban3 = :w_antp,
+               rlbsd3 = :w_sumd,
+               rlbsk3 = :w_sumk,
+               rlbbr3 = :p_user,
+               rlbff3 = '  ',
+               rlbft3 = '  '
+           where
+8.02         rlbfir = :p_firm and
+             rlbbil = :w_binr and
+             rlbslt = ' ' and
+             rlbomk = ' ';
+
+       p_stat='1';
+         if sqlcod = 100;
+           p_stat='9';
+         endif;
+
+       endsr;
+
+      // Oppdatere logg med journal
+
+       begsr upd_journ;
+
+8.04   if w_type = 'SHOP';
+       exec sql
+         update rlobst
+           set rlbts4 = :w_tims,
+               rlban4 = :w_antp,
+               rlbsd4 = rlbsd4 + :w_sumd,
+               rlbsk4 = rlbsk4 + :w_sumk,
+               rlbdnr = :w_sapn,
+               rlbdid = :w_idoc,
+               rlbbr4 = :p_user,
+               rlbff4 = '  ',
+               rlbft4 = '  '
+           where
+8.02         rlbfir = :p_firm and
+             rlbbil = :w_binr and
+             rlbslt = ' ' and
+             rlbomk = ' ';
+8.04     else;
+8.04   exec sql
+8.04     update rlobst
+8.04       set rlbts4 = :w_tims,
+8.04           rlban4 = :w_antp,
+8.04           rlbsd4 = :w_sumd,
+8.04           rlbsk4 = :w_sumk,
+8.04           rlbdnr = :w_sapn,
+8.04           rlbdid = :w_idoc,
+8.04           rlbbr4 = :p_user,
+8.04           rlbff4 = '  ',
+8.04           rlbft4 = '  '
+8.04       where
+8.04         rlbfir = :p_firm and
+8.04         rlbbil = :w_binr and
+8.04         rlbslt = ' ' and
+8.04         rlbomk = ' ';
+8.04
+8.04     endif;
+
+       p_stat='1';
+         if sqlcod = 100;
+           p_stat='9';
+         endif;
+
+       endsr;
+
+      // ---------------------------------------
+      // Oppdatere logg med feilstatus
+      // ---------------------------------------
+
+8.05   begsr upd_feil;
+
+       exec sql
+         update rlobst
+           set rlbts4 = :w_tims,
+               rlban4 = 0,
+               rlbsd4 = 0,
+               rlbsk4 = 0,
+               rlbbr4 = :p_user,
+               rlbff4 = :w_stko,
+               rlbft4 = :w_stml
+           where
+8.02         rlbfir = :p_firm and
+             rlbbil = :w_binr and rlbslt = ' ' and rlbomk = ' ' ;
+
+       p_stat='1';
+         if sqlcod = 100;
+           p_stat='9';
+         endif;
+
+       exec sql
+        select rlbts1
+          into :w_timb
+         from rlobst
+         where
+8.02      rlbfir = :p_firm and
+          rlbbil = :w_binr and rlbslt = ' ' and rlbomk = ' ' ;
+
+       exec sql
+         update rlohst
+           set rlhts4 = :w_tims,
+               rlhbs4 = 0,
+               rlhbr4 = : p_user
+          where
+8.02       rlhfir = :p_firm and
+           rlhts1 = :w_timb;
+       endsr;
+
+      // ---------------------------------------
+      // Oppdatere bunthode med bilagsinfo
+      // ---------------------------------------
+
+       begsr bunt_oppd;
+
+       exec sql
+        select rlbts1
+          into :w_timb
+         from rlobst
+         where
+8.02      rlbfir = :p_firm and
+          rlbbil = :w_binr and rlbslt = ' ' and rlbomk = ' ' ;
+
+       exec sql
+         select
+           sum(rlbsd2),sum(rlbsk2),
+           sum(rlbsd3),sum(rlbsk3),
+           sum(rlbsd4),sum(rlbsk4)
+         into
+           :w_sd2,:w_sk2,:w_sd3,:w_sk3,:w_sd4,:w_sk4
+         from rlobst
+         where
+8.02      rlbfir = :p_firm and
+          rlbts1 = :w_timb;
+
+       if w_stat = 'OVERF';
+       exec sql
+         update rlohst
+           set rlhts2 = :w_tims,
+8.08           rlhbs2 = :w_sd2,
+               rlhbr2 = : p_user
+          where
+8.02       rlhfir = :p_firm and
+           rlhts1 = :w_timb;
+       endif;
+
+       if w_stat = 'KLADD';
+       exec sql
+         update rlohst
+           set rlhts3 = :w_tims,
+8.08           rlhbs3 = w_sd3,
+               rlhbr3 = : p_user
+          where
+8.02       rlhfir = :p_firm and
+           rlhts1 = :w_timb;
+       endif;
+
+       if w_stat = 'JOURN';
+       exec sql
+         update rlohst
+           set rlhts4 = :w_tims,
+8.08           rlhbs4 = :w_sd4,
+               rlhbr4 = : p_user
+          where
+8.02       rlhfir = :p_firm and
+           rlhts1 = :w_timb;
+       endif;
+
+       endsr;
+
+      /end-free
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+     c                   eval      p_stat = '5'
+     c                   eval      *inlr = *on
+     c                   return
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_comd
+     c                   parm                    p_parm
+     c                   parm                    p_user
+     c                   parm                    p_stat
+8.01 c                   parm                    p_inlr
+      *
+     c                   endsr

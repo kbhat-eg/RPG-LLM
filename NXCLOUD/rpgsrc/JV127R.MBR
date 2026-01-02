@@ -1,0 +1,259 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASVADM
+      * Program . . . . : JV127R
+      * Beskrivelse . . : Oppdatering av priser til EVR, start overføring
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       170197 HKO  Nytt program
+      *       240497 HKO  Kontroll-liste som default valg
+      *       101202 HKO  Lagt inn grossistløsning
+      *       250803 HKO  Lagt inn default at det kun vises varer hvor
+      *                   prisgiver sammefaller med leverandør i EVR
+      *       121105 HKO  Lagt inn valg for å utelate varer utgått på dato
+      *                   i EVR
+5.70  * PRGR  191108 bof  Utvidet med prisgruppe
+6.10  *       030909 bof  Utvidet med sortimentskode
+6.11  *       180110 bof  Utvidet med vare iforb. med tvangsoverføring
+6.12  *       050811 bof  Utvidet med dummy i paramter
+6.13  *       070812 bof  Løper igjennom og setter holdekode,for sikk.skyld
+6.20  *       130411 bof  Utvidet varepris med prisgiver
+6.30  *       140714 bof  Utvidet med prisendringsdato + parameter for utg.priser
+6.31  *       010715 bof  fjerner sett av holde kode her.
+6.32  *       160916 bof  Ny datostyring på prisdato i EVR og prisdato l.dor
+8.01  *PRG2   140622 BOF  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.13 fjvarl5    if   e           k disk    rename(jvarpfr:jvarl5r)
+6.13 fjvprl2    if   e           k disk    rename(jvprpfr:jvprl2r)
+6.13 fjvarl1    if   e           k disk    rename(jvarpfr:jvarl1r)
+6.13 fjvdtlu    uf   e           k disk    rename(jvdtpfr:jvdtlur)
+     fjv127d    cf   e             workstn
+      *
+      * Datastruktur for parameterliste -ut
+      *
+     d                 ds
+8.01 d d_list                        79
+     d  d_firm                        3  0 overlay(d_list)
+     d  d_otyp                        1  0 overlay(d_list:4)
+6.32 d  d_edat                         d   overlay(d_list:5)  datfmt(*iso)
+     d  d_ldor                        6  0 overlay(d_list:15)
+     d  d_ogrp                        2  0 overlay(d_list:21)
+     d  d_hgrp                        2  0 overlay(d_list:23)
+     d  d_ugrp                        3  0 overlay(d_list:25)
+     d  d_pgiv                        6  0 overlay(d_list:28)
+     d  d_sams                        1  0 overlay(d_list:34)
+     d  d_utgd                        1  0 overlay(d_list:35)
+     d  d_inio                        1  0 overlay(d_list:36)
+     d  d_koio                        1  0 overlay(d_list:37)
+     d  d_saio                        1  0 overlay(d_list:38)
+     d  d_kntr                        1  0 overlay(d_list:39)
+8.01 d  d_prgr                        2    overlay(d_list:40)
+8.01 d  d_osor                       10    overlay(d_list:42)
+8.01 d  d_vare                       15    overlay(d_list:52)
+8.01 d  d_flpr                        1  0 overlay(d_list:67)
+8.01 d  d_utgp                        1  0 overlay(d_list:68)
+8.01 d  d_pdat                         d   overlay(d_list:69) datfmt(*iso)
+8.01 d  d_dumm                        1    overlay(d_list:79)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s              3  0
+     d p_otyp          s              1  0
+6.32 d p_edat          s               d   datfmt(*iso)
+6.32 d p_pdat          s               d   datfmt(*iso)
+     d p_ldor          s              6  0
+     d p_ogrp          s              2  0
+     d p_hgrp          s              2  0
+     d p_ugrp          s              3  0
+     d p_pgiv          s              6  0
+     d p_sams          s              1  0
+     d p_utgd          s              1  0
+     d p_inio          s              1  0
+     d p_koio          s              1  0
+     d p_saio          s              1  0
+8.01 d p_prgr          s              2
+6.10 d p_osor          s             10
+6.11 d p_vare          s             15
+6.20 d p_flpr          s              1  0
+6.30 d p_utgp          s              1  0
+      *
+6.11 d w_firm          s                   like(jvdfir)
+      *
+      *
+6.13 d jvarl5_ldor     s                   like(jvldor)
+6.13 d jvprl2_ldor     s                   like(jxldor)
+6.13 d jvarl1_vare     s                   like(jvvare)
+6.13 d jvdtlu_dvar     s                   like(jvdvar)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B1 Behandle åpningsbildet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Behandler bildet
+      *
+     c     b1taga        tag
+      *
+     c                   exfmt     b1bld
+      *
+      * Behandling av standad funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   endsl
+      *
+      * Kopierier skjermvariable til datastruktur
+      *
+     c                   eval      d_kntr = b1valg
+      *
+      * Kaller behandlingsprogram
+      *
+     c                   call      'JV625C'
+     c                   parm                    d_list
+      *
+      *
+6.31 c*                  if         b1valg = 0
+6.31 c*                  exsr      nullst_frigj
+6.31 c*                  endif
+     c
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+6.13  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.13  * Subrutine for å sette frigj.i hold. Egentlig gjøres dette i JV626R
+6.13  * men noen ganger henger det igjen.
+6.13  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.13  *
+6.13 c     nullst_frigj  begsr
+6.13  *
+6.13 c                   if        p_ldor <> 0
+6.13  *
+6.13 c                   eval      jvarl5_ldor = p_ldor
+6.13 c     jvarl5_key    setll     jvarl5
+6.13 c     jvarl5_key    reade     jvarl5
+6.13 c                   dow       not %eof
+6.13 c                   eval      jvdtlu_dvar = jvvare
+6.13 c     jvdtlu_key    chain     jvdtlur
+6.13 c                   eval      jvdhko = 1
+6.13 c                   if        %found
+6.13 c                   update    jvdtlur
+6.13 c                   endif
+6.13 c     jvarl5_key    reade     jvarl5
+6.13 c                   enddo
+6.13  *
+6.13 c                   else
+6.13  *
+6.13 c                   eval      jvprl2_ldor = p_pgiv
+6.13 c     jvprl2_key    setll     jvprl2
+6.13 c     jvprl2_key    reade     jvprl2
+6.13 c                   dow       not %eof
+6.13 c                   eval      jvarl1_vare = jxvare
+6.13 c     jvarl1_key    chain     jvarl1
+6.13 c                   if        %found
+6.13 c                   eval      jvdtlu_dvar = jvvare
+6.13 c     jvdtlu_key    chain     jvdtlur
+6.13 c                   eval      jvdhko = 1
+6.13 c                   if        %found
+6.13 c                   update    jvdtlur
+6.13 c                   endif
+6.13 c                   endif
+6.13 c     jvprl2_key    reade     jvprl2
+6.13 c                   enddo
+6.13  *
+6.13 c                   endif
+6.13  *
+6.13 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+6.13  *
+6.13  * Key for les av varer pr. leverandør
+6.13  *
+6.13 c     jvarl5_key    klist
+6.13 c                   kfld                    jvarl5_ldor
+6.13  *
+6.13  * Key for oppdat. på vare-detalj
+6.13  *
+6.13 c     jvdtlu_key    klist
+6.13 c                   kfld                    w_firm
+6.13 c                   kfld                    jvdtlu_dvar
+6.13  *
+6.13  * Key for les på vare-pris (prisgivere)
+6.13  *
+6.13 c     jvprl2_key    klist
+6.13 c                   kfld                    jvprl2_ldor
+6.13  *
+6.13  * Key for oppslag på vare
+6.13  *
+6.13 c     jvarl1_key    klist
+6.13 c                   kfld                    jvarl1_vare
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_otyp
+6.32 c                   parm                    p_edat
+6.32 c                   parm                    p_pdat
+     c                   parm                    p_ldor
+     c                   parm                    p_ogrp
+     c                   parm                    p_hgrp
+     c                   parm                    p_ugrp
+     c                   parm                    p_pgiv
+     c                   parm                    p_sams
+     c                   parm                    p_utgd
+     c                   parm                    p_inio
+     c                   parm                    p_koio
+     c                   parm                    p_saio
+5.70 c                   parm                    p_prgr
+6.10 c                   parm                    p_osor
+6.11 c                   parm                    p_vare
+6.11 c                   parm                    p_flpr
+6.30 c                   parm                    p_utgp
+      *
+      * Flytter inngående parametre til utgående.
+      *
+     c                   eval      d_firm = p_firm
+     c                   eval      d_otyp = p_otyp
+6.32 c                   eval      d_edat = p_edat
+6.32 c                   eval      d_pdat = p_pdat
+     c                   eval      d_ldor = p_ldor
+     c                   eval      d_ogrp = p_ogrp
+     c                   eval      d_hgrp = p_hgrp
+     c                   eval      d_ugrp = p_ugrp
+     c                   eval      d_pgiv = p_pgiv
+     c                   eval      d_sams = p_sams
+     c                   eval      d_utgd = p_utgd
+     c                   eval      d_inio = p_inio
+     c                   eval      d_koio = p_koio
+     c                   eval      d_saio = p_saio
+5.70 c                   eval      d_prgr = p_prgr
+6.10 c                   eval      d_osor = p_osor
+6.11 c                   eval      d_vare = p_vare
+6.20 c                   eval      d_flpr = p_flpr
+6.20 c                   eval      d_utgp = p_utgp
+6.12 c                   eval      d_dumm = '*'
+      *
+      * Initiering av skjermfelter
+      *
+     c                   eval      b1valg = 0
+      *
+     c                   endsr

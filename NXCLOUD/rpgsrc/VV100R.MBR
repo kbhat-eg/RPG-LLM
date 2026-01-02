@@ -1,0 +1,1827 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VV100R
+      * Beskrivelse . . : Vare, vedlikehold
+      *
+      *                   Kaller programmet VV101R for å opprette og endre
+      *                   vare (erstatter C2BLD)
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       090499 HKO  Nytt program
+      *       220200 HKO  Lagt inn Notat
+      *       230300 HKO  Lagt inn test på at vare ikke finnes i ordre
+      *                   ved sletting av vare
+      *       280301 HKO  Lagt inn scanning
+      *       130102 HKO  Lagt kall til programmer i lager/innkjøp ved
+      *                   oppretting og sletting av varer samt ved endring
+      *                   av varetype mellom L og S.
+      *       170903 HKO  P.g.a. GUI er logikk for vising av N for Notat
+      *                   endret
+      *       271103 HKO  Viser ** UTGÅTT ** i vareteksten på utgåtte varer
+      *                   Viser priskode og varetype
+      *                   Lagt inn valg for kun å vise utgåtte varer
+      *       031005 HKO  Åpnet for sletting av varer som ligger i tilbud
+      *                   Kaller dedikert program for å finne ut om en vare
+      *                   kan slettes eller ikke
+6.11  * 6.10  290609 bof  Utivdet eannr til 14 og brukt std. oppslag
+6.12  * 6.10  301009 bsa  Lagt inn vedlikehold av språktekster til vare
+6.20  * 6.20  021110 bof  Utvidet med utg.dato pr. lager
+6.21  * 6.20  051210 bof  Hvis sentral-lagervare, settes farge lik rød
+6.22  * 6.20  150211 bof  Sentral-lagervare kode for styring av farge
+6.23  * 6.20  250511 bof  Hvis nobb utg.dato på varen,så vises *UTG.NOBB*
+6.24  * 6.20  310511 bof  Overgang til vedlikehold lager- valg 98
+6.25  * 6.20  180412 bof  Korrigert tekster i forb. med utg.dato
+6.nu  * R6.30 030614 bsa  Programmet gjennomgått mtp nummerutvidelser.
+6.30  * 6.30  241014 Bsa  Innfører F tast for visning av NOBB info. Erstatter
+6.30  *                   koding i jacada.
+6.31  * 6.30  180515 bkv  Endret LVAR pga økt fra 15 til 20 tegn
+6.3q  *       260515 bof  Datoformat sql
+6.32  * 6.30  061118 bof  Tatt med pga. kompilering - utvidelse VVSOPF
+6.33  *       131118 bkv  Farger på TLS
+7.xx  * 7.00  020216 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+7.01  * 7.00  121217 bkv  Endret på open og close av cursor
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvsopf    if   e           k disk
+     fvvarlr    if   e           k disk    rename(vvarpfr:vvarlrr)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvarl2    if   e           k disk    rename(vvarpfr:vvarl2r)
+     fvvarl3    if   e           k disk    rename(vvarpfr:vvarl3r)
+     fvvarl4    if   e           k disk    rename(vvarpfr:vvarl4r)
+     fvvarl6    if   e           k disk    rename(vvarpfr:vvarl6r)
+     fvvarl7    if   e           k disk    rename(vvarpfr:vvarl7r)
+     fvvarl8    if   e           k disk    rename(vvarpfr:vvarl8r)
+     fvvasl1    if   e           k disk    rename(vvaspfr:vvasl1r)
+6.22 ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+     fanotl1    if   e           k disk    rename(anotpfr:anotl1r)
+      *
+     fvv100d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_firm                944    946  0
+     d l_fnav                951    980
+6.20 d l_lage               1001   1002  0
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d vvarlr_vare     s                   like(vvvare)
+     d vvarl1_vare     s                   like(vvvare)
+     d vvarl2_tek1     s                   like(vvtek1)
+     d vvarl3_nobb     s                   like(vvnobb)
+     d vvarl4_lvar     s                   like(vvlvar)
+     d vvarl6_ogrp     s                   like(vvogrp)
+     d vvarl7_ogrp     s                   like(vvogrp)
+     d vvarl7_hgrp     s                   like(vvhgrp)
+     d vvarl8_ogrp     s                   like(vvogrp)
+     d vvarl8_hgrp     s                   like(vvhgrp)
+     d vvarl8_ugrp     s                   like(vvugrp)
+     d vvasl1_vare     s                   like(vvvare)
+     d rlevl1_levr     s                   like(rllevr)
+     d anotl1_syst     s                   like(ausyst)
+     d anotl1_noid     s                   like(aunoid)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+     d w_leng          s              2  0
+      *
+6.30 d p_nobb          s              8
+      *
+     d w_seqe          s              2
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+     d b_inlr          s              1    inz(*off)
+     d b_ordr          s              1    inz(*off)
+     d b_lagr          s              1    inz(*off)
+     d b_slet          s              1    inz(*off)
+     d b_open_sok      s              1    inz(*off)
+6.21 d b_sent          s              1    inz(*off)
+      *
+6.20 d w_ddat          s               d   datfmt(*iso)
+6.20 d w_udat          s               d   datfmt(*iso)
+     d w_ste1          s             35
+     d w_ste2          s             35
+     d w_ste3          s             35
+     d w_ste4          s             35
+     d w_ste5          s             35
+     d w_posi          s              3  0
+     d w_otxt          s             35
+     d w_htxt          s             35
+     d w_utxt          s             35
+     d w_valg          s              1  0
+     d w_retu          s              1
+     d w_otyp          s              2
+      *
+     d s_stek          s             35
+      *
+     d w_firm          s                   like(vvfirm)
+     d w_vare          s                   like(vvvare)
+     d w_vare_kopi     s                   like(vvvare)
+6.11 d w_eann          s             14  0
+6.11 d w_eanx          s             14
+6.11 d w_eava          s                   like(vvvare)
+6.11 d w_eaen          s                   like(vvenhe)
+6.11 d w_east          s              1
+6.20 d w_lage          s              2  0
+6.33 d w_undv          s              8  0
+6.33 d w_logl          s             15
+6.33 d w_jvqvnr        s                   like(vvvare)
+6.33 d w_jvquno        s              8  0
+      *
+     d s_ogrp          s                   like(vvogrp)
+     d s_hgrp          s                   like(vvhgrp)
+     d s_ugrp          s                   like(vvugrp)
+      *
+      * Konstanter
+      *
+     d c_sfil          s              2  0 inz(10)
+     d c_null          c                   '0000000000000'
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for å opprette ny rad
+      * C1MSG  - C1 Meleingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.3q C/Exec SQL
+6.3q C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR
+6.3q C/End-Exec
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av standard funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      b2taga
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * F9=Gjenta søk
+      *
+     c                   if        *inki = *on
+     c                   eval      *in22 = *on
+     c                   eval      b2ogrp = s_ogrp
+     c                   eval      b2hgrp = s_hgrp
+     c                   eval      b2ugrp = s_ugrp
+     c                   eval      b2stek = s_stek
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * F13=Scanning
+      *
+     c                   if        *inkm = *on
+     c                   exsr      scanning
+     c                   goto      b2taga
+     c                   endif
+      *
+      * F21=Bytt mellom å vise kun utgåtte eller alle varer
+      *
+     c                   if        *inkv = *on
+     c                   if        *in84 = *off
+     c                   eval      *in84 = *on
+     c                   else
+     c                   eval      *in84 = *off
+     c                   endif
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+      * F23=Ny posisjonering (Varenr/Nobbnr/Lev.varenr)
+      *
+     c                   if        *inkx = *on
+      *
+     c                   if        *in80 = *on
+     c                   eval      *in80 = *off
+     c                   eval      *in81 = *on
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+     c                   if        *in81 = *on
+     c                   eval      *in81 = *off
+     c                   eval      *in82 = *on
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+     c                   if        *in82 = *on
+     c                   eval      *in82 = *off
+     c                   eval      *in80 = *on
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+     c                   endif
+      *
+      * Søking
+      *
+     c                   if        b2ogrp <> 0 or
+     c                             b2hgrp <> 0 or
+     c                             b2ugrp <> 0 or
+     c                             b2stek <> *blank
+     c                   exsr      sØk
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Posisjonering
+      *
+     c                   if        b2tek1 <> *blank or
+     c                             b2vare <> 0 or
+     c                             b2nobb <> 0 or
+     c                             b2lvar <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2taga
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'O'
+     c     vvarl6_key    setll     vvarl6
+     c                   when      w_seqe = 'H'
+     c     vvarl7_key    setll     vvarl7
+     c                   when      w_seqe = 'U'
+     c     vvarl8_key    setll     vvarl8
+     c                   when      w_seqe = 'SO' or
+     c                             w_seqe = 'SH' or
+     c                             w_seqe = 'SU' or
+     c                             w_seqe = 'S '
+     c                   eval      b_open_sok = *on
+     c                   when      w_seqe = 'V'
+     c                   eval      vvarl1_vare = b1vare
+     c     vvarl1_key    setll     vvarl1
+     c                   when      w_seqe = 'N'
+     c                   eval      vvarl3_nobb = b1nobb
+     c     vvarl3_key    setll     vvarl3
+     c                   when      w_seqe = 'L'
+     c                   eval      vvarl4_lvar = b1lvar
+     c     vvarl4_key    setll     vvarl4
+     c                   other
+     c                   eval      vvarl2_tek1 = b1tek1
+     c     vvarl2_key    setll     vvarl2
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for søking i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sØk           begsr
+      *
+      * Validering av varegruppe
+      *
+     c                   if        b2ogrp = 0 and
+     c                             b2hgrp <> 0
+     c                   eval      *in31 = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        b2hgrp = 0 and
+     c                             b2ugrp <> 0
+     c                   eval      *in32 = *on
+     c                   leavesr
+     c                   endif
+      *
+      * Tar vare på søk
+      *
+     c                   eval      s_ogrp = b2ogrp
+     c                   eval      s_hgrp = b2hgrp
+     c                   eval      s_ugrp = b2ugrp
+     c                   eval      s_stek = b2stek
+      *
+      * Søk via søketekst
+      *
+     c                   if        b2stek <> *blank
+      *
+     c                   eval      b_open_sok = *on
+      *
+     c                   select
+     c                   when      b2ogrp = 0 and
+     c                             b2hgrp = 0 and
+     c                             b2ugrp = 0
+     c                   eval      w_seqe = 'S '
+     c                   when      b2ogrp <> 0 and
+     c                             b2hgrp = 0 and
+     c                             b2ugrp = 0
+     c                   eval      w_seqe = 'SO'
+     c                   when      b2ogrp <> 0 and
+     c                             b2hgrp <> 0 and
+     c                             b2ugrp = 0
+     c                   eval      w_seqe = 'SH'
+     c                   when      b2ogrp <> 0 and
+     c                             b2hgrp <> 0 and
+     c                             b2ugrp <> 0
+     c                   eval      w_seqe = 'SU'
+     c                   endsl
+      *
+      * Utleder søketekster ut av søketekst
+      *
+     c                   call      'AS700R'
+     c                   parm                    b2stek
+     c                   parm                    w_ste1
+     c                   parm                    w_ste2
+     c                   parm                    w_ste3
+     c                   parm                    w_ste4
+     c                   parm                    w_ste5
+      *
+     c                   goto      end_sØk
+      *
+     c                   endif
+      *
+      * Søk på overgruppe
+      *
+     c                   if        b2ogrp <> 0 and
+     c                             b2hgrp =  0 and
+     c                             b2ugrp =  0
+     c                   eval      w_seqe = 'O'
+     c                   eval      vvarl6_ogrp = b2ogrp
+     c     vvarl6_key    setll     vvarl6
+     c                   goto      end_sØk
+     c                   endif
+      *
+      * Søk på hovedgruppe
+      *
+     c                   if        b2ogrp <> 0 and
+     c                             b2hgrp <> 0 and
+     c                             b2ugrp =  0
+     c                   eval      w_seqe = 'H'
+     c                   eval      vvarl7_ogrp = b2ogrp
+     c                   eval      vvarl7_hgrp = b2hgrp
+     c     vvarl7_key    setll     vvarl7
+     c                   goto      end_sØk
+     c                   endif
+      *
+      * Søk på undergruppe
+      *
+     c                   if        b2ogrp <> 0 and
+     c                             b2hgrp <> 0 and
+     c                             b2ugrp <> 0
+     c                   eval      w_seqe = 'U'
+     c                   eval      vvarl8_ogrp = b2ogrp
+     c                   eval      vvarl8_hgrp = b2hgrp
+     c                   eval      vvarl8_ugrp = b2ugrp
+     c     vvarl8_key    setll     vvarl8
+     c                   goto      end_sØk
+     c                   endif
+      *
+     c     end_sØk       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. søk
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker søkefelt
+      *
+     c                   eval      b2ogrp = 0
+     c                   eval      b2hgrp = 0
+     c                   eval      b2ugrp = 0
+     c                   eval      b2stek = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjonerer på varetekst
+      *
+     c                   if        b2tek1 <> *blank
+     c                   eval      w_seqe = *blank
+     c                   eval      vvarl2_tek1 = b2tek1
+     c     vvarl2_key    setll     vvarl2
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjonerer på varenummer
+      *
+     c                   if        b2vare <> 0
+     c                   eval      w_seqe = 'V'
+     c                   eval      *in80 = *on
+     c                   eval      *in81 = *off
+     c                   eval      *in82 = *off
+     c                   movel     b2vare        vvarl1_vare
+     c     vvarl1_key    setll     vvarl1
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjonerer på nobb-nummer
+      *
+     c                   if        b2nobb <> 0
+     c                   eval      w_seqe = 'N'
+     c                   eval      *in80 = *off
+     c                   eval      *in81 = *on
+     c                   eval      *in82 = *off
+     c                   eval      vvarl3_nobb = b2nobb
+     c     vvarl3_key    setll     vvarl3
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjonerer på lev. varenummer
+      *
+     c                   if        b2lvar <> *blank
+     c                   eval      w_seqe = 'L'
+     c                   eval      *in80 = *off
+     c                   eval      *in81 = *off
+     c                   eval      *in82 = *on
+     c                   eval      vvarl4_lvar = b2lvar
+     c     vvarl4_key    setll     vvarl4
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2tek1 = *blank
+     c                   eval      b2vare = 0
+     c                   eval      b2nobb = 0
+     c                   eval      b2lvar = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+     c                   movel     b1vare        w_vare
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   movel     b1vare        c1vare
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+6.33  * sjekk farge
+6.33 c                   eval      w_jvqvnr = b1vare
+6.33 c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Kopier
+      *
+     c                   if        b1valg = 3
+     c                   movel     b1vare        k1vare
+     c                   exsr      xk1win
+     c                   eval      b1valg = 0
+6.33  * sjekk farge
+6.33 c                   eval      w_jvqvnr = b1vare
+6.33 c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1vare = b1vare
+     c                   exsr      xd1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   call      'VV510R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   eval      b1valg = 0
+6.33  * sjekk farge
+6.33 c                   eval      w_jvqvnr = b1vare
+6.33 c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vedlikehold av søketekst
+      *
+     c                   if        b1valg = 7
+     c                   call      'VS100R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   eval      b1valg = 0
+6.33  * sjekk farge
+6.33 c                   eval      w_jvqvnr = b1vare
+6.33 c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vedlikehold av EAN-nummer
+      *
+     c                   if        b1valg = 8
+     c                   call      'VE515R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   eval      b1valg = 0
+6.33  * sjekk farge
+6.33 c                   eval      w_jvqvnr = b1vare
+6.33 c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+6.12  *
+6.12  * Vedlikehold av språktekster
+6.12  *
+6.12 c                   if        b1valg = 9
+6.12 c                   call      'VV126R'
+6.12 c                   parm                    w_vare
+6.12 c                   eval      b1valg = 0
+6.33  * sjekk farge
+6.33 c                   eval      w_jvqvnr = b1vare
+6.33 c                   exsr      finn_logivar
+6.12 c                   update    b1sfl
+6.12 c                   iter
+6.12 c                   endif
+6.24  *
+6.24  * Se alle lager
+6.24  *
+6.24 c                   if        b1valg = 98
+6.24 c                   call      'LL100R'
+6.24 c                   parm                    w_vare
+6.24 c                   eval      b1valg = 0
+6.33  * sjekk farge
+6.33 c                   eval      w_jvqvnr = b1vare
+6.33 c                   exsr      finn_logivar
+6.24 c                   update    b1sfl
+6.24 c                   iter
+6.24 c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      b_oppr = *on
+     c                   eval      b_forn = *off
+      *
+     c                   eval      c1vare = b2vare
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_c1bld
+     c                   endsl
+      *
+     c                   if        c1vare = 0
+     c                   goto      end_c1bld
+     c                   endif
+      *
+     c                   movel     c1vare        vvasl1_vare
+     c     vvasl1_key    chain     vvasl1                             90
+      *
+      * Det kan ikke opprettes nye 8-siffers varenummer
+      *
+     c                   if        *in90 = *on and
+     c                             c1vare >= 10000000
+     c                   eval      *in32 = *on
+     c                   goto      c1taga
+     c                   endif
+      *
+      * Sender melding dersom varen er en slettet vare
+      *
+     c                   if        *in90 = *off
+     c                   exfmt     c2msg
+     c                   if        *inkc or *inkl
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * Sender opp informasjonsbilde dersom rad finnes fra før
+      *
+     c                   movel     c1vare        vvarlr_vare
+     c     vvarlr_key    chain     vvarlr
+     c                   if        %found
+     c                   exsr      xc1msg
+     c                   if        b_anul = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   exsr      xc2bld
+      *
+     c                   eval      c1vare = 0
+      *
+     c                   goto      c1taga
+      *
+     c     end_c1bld     tag
+      *
+     c                   eval      b_oppr = *off
+     c                   eval      b2vare = 0
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   if        b1valg <> 0
+     c                   eval      w_valg = b1valg
+     c                   else
+     c                   eval      w_valg = 1
+     c                   endif
+      *
+     c                   movel     c1vare        w_vare
+     c                   movel     k1vare        w_vare_kopi
+      *
+     c                   call      'VV101R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    w_valg
+     c                   parm                    w_vare_kopi
+      *
+      * Oppdater subfile
+      *
+     c                   if        b1valg = 2
+      *
+     c                   eval      vvarlr_vare = w_vare
+     c     vvarlr_key    chain     vvarlr
+      *
+     c                   eval      b1vare = vvvare
+     c                   eval      b1nobb = vvnobb
+     c                   eval      b1lvar = vvlvar
+     c                   eval      b1tek1 = vvtek1
+     c                   eval      b1kpri = vvkpri
+     c                   eval      b1vtyp = vvvtyp
+     c                   eval      b1navn = *blank
+     c                   eval      *in83 = *off
+      *
+     c                   select
+     c                   when      *in80 = *on
+     c                   eval      b1nypo = vvvare
+     c                   when      *in81 = *on
+     c                   eval      b1nypo = %editc(vvnobb : 'Z')
+     c                   when      *in82 = *on
+6.31 c*                  eval      b1nypo = vvlvar
+6.31 c                   movel     vvlvar        b1nypo
+     c                   endsl
+     c                   eval      *in50 = *off
+      *
+6.20  *   Hent utg.dato fra subprogram
+6.20 c                   call      'VL720R'
+6.20 c                   parm                    w_firm
+6.20 c                   parm                    vvvare
+6.20 c                   parm                    w_lage
+6.20 c                   parm                    w_udat
+6.20 c                   parm                    b_inlr
+6.23 c                   if        w_udat <> *loval
+6.23 c                   if        w_udat <= w_ddat
+     c                   eval      b1tek1 = %subst(vvtek1:1:22) +
+     c                                      ' ** UTGÅTT **'
+6.23 c                   else
+6.23 c                   eval      b1tek1 = %subst(vvtek1:1:22) +
+6.23 c                                      ' ** UTGÅR  **'
+6.23 c                   endif
+6.21 c                   endif
+6.23 c                   if        vvnuda <> *loval and
+6.23 c                             vvnuda <= w_ddat
+6.23 c                   eval      b1tek1 = %subst(vvtek1:1:22) +
+6.23 c                                      ' **NOBB.UTG**'
+6.23 c                   endif
+6.21 c                   exsr      sjekk_vsor
+6.21 c                   if        b_sent = *on
+6.22 c                   if        faafsl = 1
+6.21 c                   eval      *in50 = *on
+6.22 c                   endif
+6.21 c                   endif
+      *
+     c                   eval      rlevl1_levr = vvldor
+     c     rlevl1_key    chain     rlevl1
+     c                   if        %found
+     c                   eval      b1navn = rlnavn
+     c                   endif
+      *
+     c                   eval      b1nota = *blank
+     c                   eval      anotl1_syst = 'VVAR'
+     c                   eval      anotl1_noid = vvvare
+     c     anotl1_key    chain     anotl1
+     c                   if        %found
+     c                   eval      *in83 = *on
+     c                   eval      b1nota = 'N'
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      vvarlr_vare = d1vare
+     c     vvarlr_key    chain     vvarlr
+      *
+     c     d1tagb        tag
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+      * F13=Ordrer med vare
+      *
+     c                   if        *inkm
+     c                   call      'FO514R'
+     c                   parm                    w_retu
+     c                   parm                    w_otyp
+     c                   parm                    w_firm
+     c                   parm                    vvvare
+     c                   parm                    vvtek1
+     c                   goto      d1tagb
+     c                   endif
+6.30  *
+6.30  * F18=NOBB informasjon
+6.30  *
+6.30 c                   if        *inks = *on
+6.30 c                   exsr      vis_nobb
+6.30 c                   goto      d1tagb
+6.30 c                   endif
+      *
+      * Kaller program for å sjekke om en vare kan slettes eller ikke
+      *
+     c                   eval      w_vare = d1vare
+     c                   eval      b_inlr = *off
+      *
+     c                   call      'VV490R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    b_inlr
+     c                   parm                    b_ordr
+     c                   parm                    b_lagr
+      *
+      * Vare som finnes i ordre kan ikke slettes
+      *
+     c                   if        b_ordr = *on
+     c                   eval      *in31 = *on
+     c                   goto      d1tagb
+     c                   endif
+      *
+      * Dersom vare har lagerbeholding må brukeren bekrefte sletting av vare
+      *
+     c                   if        b_lagr = *on
+     c                   exsr      xd1msg
+     c                   if        b_slet = *off
+     c                   goto      d1tagb
+     c                   endif
+     c                   endif
+      *
+      * Kaller program for sletting av vare m/relasjoner og for
+      * oppretting av vare i register over slettede varer.
+      *
+      *
+     c                   call      'VV400R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    b_inlr
+      *
+     c                   eval      b_forn = *on
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet m/melding om aktivt lager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1msg        begsr
+      *
+     c                   eval      b_slet = *off
+      *
+     c     d1tagm        tag
+      *
+     c                   exfmt     d1msg
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   leavesr
+     c                   when      *inkm
+     c                   call      'LL502R'
+     c                   parm                    w_firm
+     c                   parm                    d1vare
+     c                   goto      d1tagm
+     c                   when      *inkx
+     c                   eval      b_slet = *on
+     c                   leavesr
+     c                   endsl
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle kopierings-bildet (K1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xk1win        begsr
+      *
+      * Tar vare på nøkkel til rad det skal kopieres fra
+      *
+     c                   movel     k1vare        w_vare
+      *
+      * Fyller kopierings-bildet
+      *
+     c                   movel     k1vare        vvarlr_vare
+     c     vvarlr_key    chain     vvarlr
+      *
+     c     k1taga        tag
+      *
+     c                   exfmt     k1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+      * Sjekk om utfylt
+      *
+     c                   if        k1vare = 0
+     c                   eval      *in31 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Sjekker om rad finnes fra før
+      *
+     c                   movel     k1vare        vvarlr_vare
+     c     vvarlr_key    chain     vvarlr                             90
+     c                   if        *in90 = *on
+     c                   movel     k1vare        vvasl1_vare
+     c     vvasl1_key    chain     vvasl1                             90
+     c                   endif
+      *
+     c                   if        *in90 = *off
+     c                   eval      *in32 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Varenummer er for stort
+      *
+     c                   if        k1vare >= 10000000
+     c                   eval      *in33 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   movel     w_vare        c1vare
+     c                   exsr      xc2bld
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+      * Initierer SQL for søk
+      *
+     c                   if        b_open_sok = *on
+      *
+     c                   select
+     c                   when      w_seqe = 'SO'
+     c/exec sql
+     c+                  declare sok_o cursor for
+     c+                  select vvsfir,
+     c+                         vvsogr,
+     c+                         vvstek,
+     c+                         vvsvar
+     c+                  from   vvsopf
+     c+                  where  vvsfir = :w_firm and
+     c+                         vvsogr = :b2ogrp and
+     c+                         vvstek like :w_ste1
+     c+                  order by vvsfir, vvsogr, vvstek
+     c+                  for read only
+     c/end-exec
+     c/exec sql
+     c+                  close sok_o
+     c/end-exec
+     c/exec sql
+     c+                  open sok_o
+     c/end-exec
+      *
+     c                   when      w_seqe = 'SH'
+     c/exec sql
+     c+                  declare sok_h cursor for
+     c+                  select vvsfir,
+     c+                         vvsogr,
+     c+                         vvshgr,
+     c+                         vvstek,
+     c+                         vvsvar
+     c+                  from   vvsopf
+     c+                  where  vvsfir = :w_firm and
+     c+                         vvsogr = :b2ogrp and
+     c+                         vvshgr = :b2hgrp and
+     c+                         vvstek like :w_ste1
+     c+                  order by vvsfir, vvsogr, vvshgr, vvstek
+     c+                  for read only
+     c/end-exec
+     c/exec sql
+     c+                  close sok_h
+     c/end-exec
+     c/exec sql
+     c+                  open sok_h
+     c/end-exec
+      *
+     c                   when      w_seqe = 'SU'
+     c/exec sql
+     c+                  declare sok_u cursor for
+     c+                  select vvsfir,
+     c+                         vvsogr,
+     c+                         vvshgr,
+     c+                         vvsugr,
+     c+                         vvstek,
+     c+                         vvsvar
+     c+                  from   vvsopf
+     c+                  where  vvsfir = :w_firm and
+     c+                         vvsogr = :b2ogrp and
+     c+                         vvshgr = :b2hgrp and
+     c+                         vvsugr = :b2ugrp and
+     c+                         vvstek like :w_ste1
+     c+                  order by vvsfir, vvsogr, vvshgr, vvsugr, vvstek
+     c+                  for read only
+     c/end-exec
+     c/exec sql
+     c+                  close sok_u
+     c/end-exec
+     c/exec sql
+     c+                  open sok_u
+     c/end-exec
+      *
+     c                   when      w_seqe = 'S '
+     c/exec sql
+     c+                  declare sok cursor for
+     c+                  select vvsfir,
+     c+                         vvstek,
+     c+                         vvsvar
+     c+                  from   vvsopf
+     c+                  where  vvsfir = :w_firm and
+     c+                         vvstek like :w_ste1
+     c+                  order by vvsfir, vvstek
+     c+                  for read only
+     c/end-exec
+     c/exec sql
+     c+                  close sok
+     c/end-exec
+     c/exec sql
+     c+                  open sok
+     c/end-exec
+      *
+     c                   endsl
+      *
+     c                   endif
+      *
+      * Fyller opp subfile
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = 'O'
+     c     vvarl6_key    reade     vvarl6                                 15
+     c                   when      w_seqe = 'H'
+     c     vvarl7_key    reade     vvarl7                                 15
+     c                   when      w_seqe = 'U'
+     c     vvarl8_key    reade     vvarl8                                 15
+     c                   when      w_seqe = 'SO'
+     c/exec sql
+     c+                  fetch next
+     c+                  from  sok_o
+     c+                  into  :vvsfir,
+     c+                        :vvsogr,
+     c+                        :vvstek,
+     c+                        :vvsvar
+     c/end-exec
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c                   eval      *in15 = *on
+     c                   endif
+      *
+     c                   when      w_seqe = 'SH'
+     c/exec sql
+     c+                  fetch next
+     c+                  from  sok_h
+     c+                  into  :vvsfir,
+     c+                        :vvsogr,
+     c+                        :vvshgr,
+     c+                        :vvstek,
+     c+                        :vvsvar
+     c/end-exec
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c                   eval      *in15 = *on
+     c                   endif
+      *
+     c                   when      w_seqe = 'SU'
+     c/exec sql
+     c+                  fetch next
+     c+                  from  sok_u
+     c+                  into  :vvsfir,
+     c+                        :vvsogr,
+     c+                        :vvshgr,
+     c+                        :vvsugr,
+     c+                        :vvstek,
+     c+                        :vvsvar
+     c/end-exec
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c                   eval      *in15 = *on
+     c                   endif
+      *
+     c                   when      w_seqe = 'S '
+     c/exec sql
+     c+                  fetch next
+     c+                  from  sok
+     c+                  into  :vvsfir,
+     c+                        :vvstek,
+     c+                        :vvsvar
+     c/end-exec
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c                   eval      *in15 = *on
+     c                   endif
+      *
+     c                   when      w_seqe = 'V'
+     c                   read      vvarl1                                 15
+     c                   when      w_seqe = 'N'
+     c                   read      vvarl3                                 15
+     c                   when      w_seqe = 'L'
+     c                   read      vvarl4                                 15
+     c                   other
+     c                   read      vvarl2                                 15
+     c                   endsl
+      *
+     c                   if        *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   if        w_seqe = 'SO' or
+     c                             w_seqe = 'SH' or
+     c                             w_seqe = 'SU' or
+     c                             w_seqe = 'S '
+      *
+     c                   if        w_ste2 <> *blank
+      *
+     c                   eval      w_posi = %scan(%trim(w_ste2):%trim(vvstek))
+     c                   if        w_posi = 0
+     c                   iter
+     c                   endif
+      *
+     c                   if        w_ste3 <> *blank
+     c                   eval      w_posi = %scan(%trim(w_ste3):%trim(vvstek))
+     c                   if        w_posi = 0
+     c                   iter
+     c                   endif
+     c                   endif
+      *
+     c                   if        w_ste4 <> *blank
+     c                   eval      w_posi = %scan(%trim(w_ste4):%trim(vvstek))
+     c                   if        w_posi = 0
+     c                   iter
+     c                   endif
+     c                   endif
+      *
+     c                   if        w_ste5 <> *blank
+     c                   eval      w_posi = %scan(%trim(w_ste5):%trim(vvstek))
+     c                   if        w_posi = 0
+     c                   iter
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   eval      vvarlr_vare = vvsvar
+     c     vvarlr_key    chain     vvarlr                             91
+     c                   if        *in91 = *on
+     c                   iter
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   if        vvfirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+6.20  *   Hent utg.dato fra subprogram
+6.20 c                   call      'VL720R'
+6.20 c                   parm                    w_firm
+6.20 c                   parm                    vvvare
+6.20 c                   parm                    w_lage
+6.20 c                   parm                    w_udat
+6.20 c                   parm                    b_inlr
+     c                   if        *in84
+6.20 c                   if        w_udat <> *loval and
+6.20 c                             w_udat <= w_ddat
+     c                   else
+     c                   iter
+     c                   endif
+     c                   endif
+      *
+      * Skriver til subfile
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'V'
+     c                   eval      vvarl1_vare = vvvare
+     c                   when      w_seqe = 'N'
+     c                   eval      vvarl3_nobb = vvnobb
+     c                   when      w_seqe = 'L'
+     c                   eval      vvarl4_lvar = vvlvar
+     c                   other
+     c                   eval      vvarl2_tek1 = vvtek1
+     c                   endsl
+      *
+     c                   eval      b1vare = vvvare
+     c                   eval      b1nobb = vvnobb
+     c                   eval      b1lvar = vvlvar
+     c                   eval      b1tek1 = vvtek1
+     c                   eval      b1kpri = vvkpri
+     c                   eval      b1vtyp = vvvtyp
+     c                   eval      b1navn = *blank
+     c                   eval      b1nota = *blank
+     c                   eval      *in83  = *off
+     c                   eval      *in50  = *off
+      *
+6.20  *   Hent utg.dato fra subprogram
+6.20 c                   call      'VL720R'
+6.20 c                   parm                    w_firm
+6.20 c                   parm                    vvvare
+6.20 c                   parm                    w_lage
+6.20 c                   parm                    w_udat
+6.20 c                   parm                    b_inlr
+6.23 c                   if        w_udat <> *loval
+6.23 c                   if        w_udat <= w_ddat
+     c                   eval      b1tek1 = %subst(vvtek1:1:22) +
+     c                                      ' ** UTGÅTT **'
+6.23 c                   else
+6.23 c                   eval      b1tek1 = %subst(vvtek1:1:22) +
+6.23 c                                      ' ** UTGÅR  **'
+6.23 c                   endif
+6.25 c                   endif
+6.23 c                   if        vvnuda <> *loval and
+6.23 c                             vvnuda <= w_ddat
+6.23 c                   eval      b1tek1 = %subst(vvtek1:1:22) +
+6.23 c                                      ' **NOBB.UTG**'
+6.23 c                   endif
+6.25  *
+6.21 c                   exsr      sjekk_vsor
+6.21 c                   if        b_sent = *on
+     c                   eval      *in50  = *on
+6.21 c                   endif
+      *
+     c                   select
+     c                   when      *in80 = *on
+     c                   eval      b1nypo = vvvare
+     c                   when      *in81 = *on
+     c                   eval      b1nypo = %editc(vvnobb : 'Z')
+     c                   when      *in82 = *on
+6.31 c*                  eval      b1nypo = vvlvar
+6.31 c                   movel     vvlvar        b1nypo
+     c                   endsl
+      *
+     c                   eval      rlevl1_levr = vvldor
+     c     rlevl1_key    chain     rlevl1
+     c                   if        %found
+     c                   eval      b1navn = rlnavn
+     c                   endif
+      *
+     c                   eval      anotl1_syst = 'VVAR'
+     c                   eval      anotl1_noid = vvvare
+     c     anotl1_key    chain     anotl1
+     c                   if        %found
+     c                   eval      b1nota = 'N'
+     c                   eval      *in83 = *on
+     c                   endif
+      *
+6.33  * sjekk farge
+6.33 c                   eval      w_jvqvnr = vvvare
+6.33 c                   exsr      finn_logivar
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   eval      b_open_sok = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        w_seqe = 'O'  or
+     c                             w_seqe = 'H'  or
+     c                             w_seqe = 'U'  or
+     c                             w_seqe = 'SO' or
+     c                             w_seqe = 'SH' or
+     c                             w_seqe = 'SU' or
+     c                             w_seqe = 'S '
+     c                   exsr      forny
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        *in15
+     c                   select
+     c                   when      w_seqe = 'V'
+     c     vvarl1_key    setgt     vvarl1
+     c                   readp     vvarl1
+     c                   when      w_seqe = 'N'
+     c     vvarl3_key    setgt     vvarl3
+     c                   readp     vvarl3
+     c                   when      w_seqe = 'L'
+     c     vvarl4_key    setgt     vvarl4
+     c                   readp     vvarl4
+     c                   other
+     c     vvarl2_key    setgt     vvarl2
+     c                   readp     vvarl2
+     c                   endsl
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   select
+     c                   when      w_seqe = 'V'
+     c                   readp     vvarl1
+     c                   when      w_seqe = 'N'
+     c                   readp     vvarl3
+     c                   when      w_seqe = 'L'
+     c                   readp     vvarl4
+     c                   other
+     c                   readp     vvarl2
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             vvfirm <> w_firm
+     c                   leave
+     c                   endif
+6.20  *   Hent utg.dato fra subprogram
+6.20 c                   call      'VL720R'
+6.20 c                   parm                    w_firm
+6.20 c                   parm                    vvvare
+6.20 c                   parm                    w_lage
+6.20 c                   parm                    w_udat
+6.20 c                   parm                    b_inlr
+      *
+     c                   if        *in84
+6.20 c                   if        w_udat <> *loval and
+6.20 c                             w_udat <= w_ddat
+     c                   else
+     c                   iter
+     c                   endif
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'V'
+     c                   eval      vvarl1_vare = vvvare
+     c                   when      w_seqe = 'N'
+     c                   eval      vvarl3_nobb = vvnobb
+     c                   when      w_seqe = 'L'
+     c                   eval      vvarl4_lvar = vvlvar
+     c                   other
+     c                   eval      vvarl2_tek1 = vvtek1
+     c                   endsl
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c                   select
+     c                   when      w_seqe = 'V'
+     c     vvarl1_key    setll     vvarl1
+     c                   when      w_seqe = 'N'
+     c     vvarl3_key    setll     vvarl3
+     c                   when      w_seqe = 'L'
+     c     vvarl4_key    setll     vvarl4
+     c                   other
+     c     vvarl2_key    setll     vvarl2
+     c                   endsl
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av spørring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     spØrring      begsr
+      *
+      * Overgruppe
+      *
+     c                   if        w_afld = 'B2OGRP'
+     c                   eval      b2hgrp = 0
+     c                   eval      b2ugrp = 0
+     c                   call      'VG510R'
+     c                   parm                    w_firm
+     c                   parm                    b2ogrp
+     c                   parm                    w_otxt
+     c                   leavesr
+     c                   endif
+      *
+      * Hovedgruppe
+      *
+     c                   if        w_afld = 'B2HGRP'
+     c                   eval      b2ugrp = 0
+     c                   call      'VG511R'
+     c                   parm                    w_firm
+     c                   parm                    b2ogrp
+     c                   parm                    b2hgrp
+     c                   parm                    w_htxt
+     c                   leavesr
+     c                   endif
+      *
+      * Undergruppe
+      *
+     c                   if        w_afld = 'B2UGRP'
+     c                   call      'VG512R'
+     c                   parm                    w_firm
+     c                   parm                    b2ogrp
+     c                   parm                    b2hgrp
+     c                   parm                    b2ugrp
+     c                   parm                    w_utxt
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandling av scanning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     scanning      begsr
+      *
+     c                   eval      e1eann = *blank
+      *
+     c     e1taga        tag
+      *
+     c                   exfmt     e1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+      * EAN-nummer må oppgis
+      *
+     c                   if        e1eann = *blank
+     c                   eval      *in31 = *on
+     c                   goto      e1taga
+     c                   endif
+      *
+      * Sjekk om vare finnes for EAN-nummer
+      *
+     c                   eval      w_leng = %len(%trim(e1eann))
+6.11 c                   eval      w_eanx = %subst(c_null:1:14-w_leng) +
+     c                                      e1eann
+      *
+6.11 c                   move      w_eanx        w_eann
+6.11 c                   call      'VE710R  '
+6.11 c                   parm                    w_firm
+6.11 c                   parm                    w_eann
+6.11 c                   parm                    w_eava
+6.11 c                   parm                    w_eaen
+6.11 c                   parm                    w_east
+6.11 c                   if        w_east = *blank
+     c                   eval      *in32 = *on
+     c                   goto      e1taga
+     c                   endif
+      *
+      * Vedlikehold av vare
+      *
+6.11 c                   movel     w_eava        c1vare
+      *
+     c                   exsr      xc2bld
+      *
+     c                   eval      e1eann = *blank
+      *
+     c                   goto      e1taga
+      *
+     c                   endsr
+6.21  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.21  * Subrutine for å sjekke om varen er i sortiment for C - sentrallagervarer
+6.21  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.21  *
+6.21 c     sjekk_vsor    begsr
+6.21  *
+6.21 c                   eval      b_sent = *off
+6.21  * sjekker sentral-lager-vare
+6.21  *
+6.21 c                   call      'VD771R'
+6.21 C                   parm                    w_firm
+6.21 C                   parm                    w_lage
+6.21 C                   parm                    vvvare
+6.21 C                   parm                    b_sent
+6.21 C                   parm                    b_inlr
+6.21  *
+6.21 c                   endsr
+      *
+      *
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  * Vis NOBB informasjon for varen. Samme prinsipp som preview av utskrifter
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  *
+6.30 c     vis_nobb      begsr
+6.30 c
+6.30 c                   eval      p_nobb = %char(vvnobb)
+6.30 c                   call      'AP633R'
+6.30 c                   parm                    p_nobb
+6.30  *
+6.30 c                   endsr
+6.33  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.33  * Finn info om logistikkvare for riktig prisgiver
+6.33  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.33  *
+6.33 c     finn_logivar  begsr
+6.33  *
+6.33 c                   eval      *in51 = *off
+6.33 c                   eval      *in52 = *off
+6.33 c
+6.33 c                   if        %trim(w_jvqvnr) = ''
+6.33 c                   leavesr
+6.33 c                   endif
+6.33 c
+6.33 c                   eval      w_logl = ''
+6.33 c                   eval      w_undv = 0
+     c                   movel     w_jvqvnr      w_jvquno
+6.33 c/exec sql
+6.33 c+                  select jvquno, jvqvnr
+6.33 c+                  into :w_undv, :w_logl
+6.33 c+                  from jvklpf
+6.33 c+                  where (jvquno = :w_jvquno or
+6.33 c+                  jvqvnr = :w_jvqvnr)
+6.33 c+                  and jvqfir = :w_firm
+6.33 c+                  fetch first 1 rows only
+6.33 c/end-exec
+6.33 c                   if        w_logl = w_jvqvnr
+6.33 c                   eval      *in52 = *on
+6.33 c                   elseif    w_undv > 0
+6.33 c                   eval      *in51 = *on
+6.33 c                   endif
+6.33 c
+6.33 c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for oppslag på vare
+      *
+     c     vvarlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarlr_vare
+      *
+      * Key for posisjonering på varenummer
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for posisjonering på varetekst
+      *
+     c     vvarl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl2_tek1
+      *
+      * Key for posisjonering på nobb-nummer
+      *
+     c     vvarl3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl3_nobb
+      *
+      * Key for posisjonering på leverandørs varenummer
+      *
+     c     vvarl4_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl4_lvar
+      *
+      * Key for søk på overgruppe
+      *
+     c     vvarl6_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl6_ogrp
+      *
+      * Key for søk på overgruppe/hovedgruppe
+      *
+     c     vvarl7_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl7_ogrp
+     c                   kfld                    vvarl7_hgrp
+      *
+      * Key for søk på overgruppe/hovedgruppe/undergruppe
+      *
+     c     vvarl8_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl8_ogrp
+     c                   kfld                    vvarl8_hgrp
+     c                   kfld                    vvarl8_ugrp
+      *
+      * Key for oppslag på slettet vare
+      *
+     c     vvasl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvasl1_vare
+6.22  *
+6.22  * Key for oppslag på status-register
+6.22  *
+6.22 c     fstsl1_key    klist
+6.22 c                   kfld                    w_firm
+      *
+      *
+      * Key for oppslag på leverandør
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+      *
+      * Key for oppslag på notat
+      *
+     c     anotl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    anotl1_syst
+     c                   kfld                    anotl1_noid
+      *
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+6.20 c                   eval      w_lage = l_lage
+      *
+      * Henter dagens dato
+      *
+6.20 c                   time                    w_ddat
+6.22  *
+6.22  * leser status
+6.22  *
+6.22 c     fstsl1_key    chain     fstsl1r                            90
+      *
+      * Initierer skjermbildet
+      *
+     c                   eval      *in22 = *on
+     c                   eval      *in80 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c     vvarl2_key    setll     vvarl2
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

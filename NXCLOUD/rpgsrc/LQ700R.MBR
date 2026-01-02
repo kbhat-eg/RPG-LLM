@@ -1,0 +1,408 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  System  . . . . : ASLAGR
+      *  Program . . . . : LQ700R
+      *  Beskrivelse . . : Oppdatering av lager utfra lagertransaksjoner
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Spesialversjon. :
+      *  Tilpasset for . :
+      *
+      *  Referanse  Dato   Endringsbeskrivelse                     Sign.
+      * --------- ------  -------------------------------------------------
+      * V5.50     221102  Lagt ut årsakskode i feltet hlrefr       KOB
+5.70  *  PRGR     021208  Utvidet med prisgruppe                   bof
+      *  6.10     220909 ASK  Nye parametre til VL001R
+ 6.11 *  6.10     110610 bof  Justert i utvidelse av parm VL001R
+ 6.12 *  6.10     030111 bof  Hvis årsakskode = blank, legges tekst inn
+ 6.13 *  6.10     110211 bof  Godta 0 i antall hvis Justering.
+6.21  *  6.20     190511 bof  Utvidet vl710r med div. info
+6.nu  *  6.30     040614 bof  Utvidelser vedr. nummerutvidelse
+6.30  * 6.30  170918 bkv  Utvidet med trelast sortiment
+7.01  * 7.00  191219 bsa  Kaller program for omberegning av disponibelsituasjon
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flstsl1    if   e           k disk    rename(lstspfr:lstsl1r)
+     fllhel1    if   e           k disk    rename(llhepfr:llhel1r)
+     flldtl1    if   e           k disk    rename(lldtpfr:lldtl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvenl1    if   e           k disk    rename(vvenpfr:vvenl1r)
+6.30 fvvlel1    if   e           k disk    rename(vvlepfr:vvlel1r)
+7.01 fvhislr    if   e           k disk    rename(vhispfr:vhislrr)
+      *
+      * Datastruktur for input-parametre
+      *
+     d                 ds
+     d d_prec                        64
+6.nu d  d_numm                        8  0 overlay(d_prec)
+6.nu d  d_kode                        1    overlay(d_prec:9)
+6.nu d  d_peri                        6  0 overlay(d_prec:10)
+     d  d_dato                       10d   datfmt(*iso)
+6.nu d                                     overlay(d_prec:16)
+6.nu d  d_dumm                        1    overlay(d_prec:26) inz('x')
+7.01  *
+7.01 d                 ds
+7.01 d d_lrec                        64
+7.01 d  d_lage                        2  0 overlay(d_lrec)
+7.01 d  d_ldat                       10d   datfmt(*iso)
+7.01 d                                     overlay(d_lrec:3)
+7.01 d  d_lvar                        8  0 overlay(d_lrec:13)
+      *
+      * Datastruktur for lageroppdatering
+      *
+     d                 ds
+6.nu d hlrec                        128
+     d  hlvare                       15    overlay(hlrec)
+     d  hllage                        2  0 overlay(hlrec:16)
+     d  hldato                         d   overlay(hlrec:18) datfmt(*iso)
+     d  hltime                         t   overlay(hlrec:28) timfmt(*iso)
+     d  hlotyp                        2    overlay(hlrec:36)
+     d  hlltyp                        2    overlay(hlrec:38)
+     d  hlanta                       11  3 overlay(hlrec:40)
+     d  hlkopr                        9  2 overlay(hlrec:51)
+     d  hlrefr                       20    overlay(hlrec:60)
+     d  hlsyst                        1    overlay(hlrec:80)
+     d  hlaltk                        2    overlay(hlrec:81)
+     d  hlrest                        1    overlay(hlrec:83)
+     d  hltype                        1    overlay(hlrec:84)
+     d  hlenhe                        3    overlay(hlrec:85)
+     d  hlinlr                        1    overlay(hlrec:88)
+     d  hllety                        1    overlay(hlrec:89)
+6.nu d  hlonum                        8  0 overlay(hlrec:90)
+6.nu d  hlolin                        4  0 overlay(hlrec:98)
+      *
+      * Local Data Area
+      *
+     d                uds
+     d l_firm                944    946  0
+      *
+      * Definering av parametre ut
+      *
+     d p_firm          s                   like(lsfirm)
+     d p_vare          s                   like(lsvare)
+     d p_anta          s                   like(lsanta)
+     d p_ipny          s                   like(lskpny)
+     d p_kplj          s                   like(laalik)
+      *
+      * Definering av variable i nøkler
+      *
+     d lldtl1_numm     s                   like(lsnumm)
+     d llhel1_numm     s                   like(lqnumm)
+     d vvarl1_vare     s                   like(vvvare)
+     d vvenl1_vare     s                   like(vevare)
+7.01 d vhislr_lage     s                   like(vhlage)
+7.01 d vhislr_vare     s                   like(vhvare)
+7.01 d vhislr_dato     s                   like(vhdato)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(laafir)
+6.NU d*w_hrec          s            100
+6.NU d w_hrec          s            128
+     d w_001r          s              1
+     d w_anta          s                   like(lsanta)
+     d w_omrl          s                   like(veomre)
+     d w_omrs          s                   like(veomre)
+     d w_parm          s             64
+7.01 d w_lrec          s             64
+5.70 d w_vtyp          s                   like(vvvtyp)
+6.21 d w_utda          s                   like(vvudat)
+6.21 d w_ldor          s                   like(vvldor)
+6.21 d b_inlr          s              1    inz(*off)
+6.30 d w_lv_nobb       s                   like(vvlnob)
+6.30 d w_lv_modn       s                   like(vvlmod)
+6.30 d w_lv_lldo       s                   like(vvlnle)
+6.30 d w_lv_llva       s                   like(vvllva)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Hent inn opplysninger fra LAGERBUNT-HODE-REGISTER
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     llhel1_key    chain     llhel1
+      *
+      *  Lese linje-register og oppdatere lager
+      *
+     c     lldtl1_key    setll     lldtl1
+     c     lldtl1_key    reade     lldtl1
+      *
+B001 c                   dow       not %eof
+ 001  *
+ 001  *  Legger inn overliggende type dersom blank-type
+ 001  *
+B002 c                   if        lstype = *blank
+ 002 c                   eval      lstype = lqtype
+E002 c                   endif
+ 001  *
+ 001  *  Legger inn overliggende lager, dersom lager ikke angitt
+ 001  *
+B002 c                   if        lslage = 0
+ 002 c                   eval      lslage = lqlage
+E002 c                   endif
+ 001  *
+ 001  *  Legger inn overliggende lager til, dersom ikke angitt
+ 001  *
+B002 c                   if        lslast = 0
+ 002 c                   eval      lslast = lqlast
+E002 c                   endif
+ 001  *
+ 001  *  Kun linjer som ikke er tekstlinjer skal oppdatere lager
+ 001  *  Ikke oppsatering dersom antall er null
+ 001  *
+B002 c                   if        lstype <> 'TX'
+6.13 c                   if        lsanta <> 0 or
+6.13 c                             (lsanta = 0 and
+6.13 c                              lqtype = 'J')
+ 003  *
+     c                   exsr      omr_antall
+ 003  *
+ 003  *  Spesial-behandling ved overføring
+ 003  *
+B004 c                   if        lstype = 'OF' or
+B004 c                             lstype = 'O '
+ 004 c                   eval      lstype = 'U '
+ 004 c                   exsr      opplag
+ 004 c                   eval      lstype = 'I '
+ 004 c                   eval      lslage = lslast
+E004 c                   endif
+ 003  *
+ 003  *  Kaller opp subrutine for oppdatering av lager
+      *
+ 003 c                   exsr      opplag
+ 003  *
+E003 c                   endif
+E002 c                   endif
+ 001  *
+     c     lldtl1_key    reade     lldtl1
+E001 c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xslutt        tag
+      *
+     c                   eval      *inlr = *on
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Oppdatering av Lager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     opplag        begsr
+      *
+      *  Legger over verdier i overførings-felter
+      *
+     c                   eval      hlvare = lsvare
+     c                   eval      hllage = lslage
+     c                   eval      hlaltk = lstype
+      *
+     c                   eval      hlenhe = vvenhl
+     c                   eval      hldato = lqdate
+     c                   eval      hltime = lqtime
+     c                   eval      hlotyp = *blank
+     c                   eval      hlltyp = *blank
+      *
+     c                   eval      hlanta = w_anta
+     c                   eval      hlkopr = lskpny
+      *
+E5.50c                   eval      hlrefr = 'Årsakskode: ' + lsxrko
+6.12 c                   if        lsxrko = *blank
+6.12 c                   eval      hlrefr = lqtext
+6.12 c                   endif
+     c                   eval      hlsyst = 'L'
+     c                   eval      hlrest = *blank
+     c                   eval      hllety = *blank
+     c                   eval      hlonum = 0
+     c                   eval      hlolin = 0
+      *
+     c                   eval      p_vare = lsvare
+     c                   eval      p_anta = lsanta
+     c                   eval      p_ipny = lskpny
+     c                   eval      p_kplj = laalik
+      *
+      *  Kaller opp kostprisendring/gjennomsnittsberegning
+      *
+B001 c                   if        laalik <> 0
+B002 c                   if        lskpny <> 0
+ 002 c                   call      'VL002R'
+ 002 c                   parm                    p_firm
+ 002 c                   parm                    p_vare
+ 002 c                   parm                    p_anta
+ 002 c                   parm                    p_ipny
+ 002 c                   parm                    p_kplj
+E002 c                   endif
+E001 c                   endif
+      *
+      *  Kaller opp lageroppdaterings-program
+      *
+     c                   eval      w_hrec= hlrec
+     c                   call      'VL001R'
+     c                   parm                    w_001r
+     c                   parm                    w_hrec
+7.01  *
+7.01  * Så bør vi reberegne saldo for varen. Finn siste dato før lager-
+7.01  * tellingen, så vi vet når vi skal reberegne fra.
+7.01  *
+7.01 c                   eval      d_lage = lslage
+7.01 c                   movel     lsvare        d_lvar
+7.01 c                   eval      d_ldat = lqdate
+7.01  *
+7.01 c                   eval      vhislr_lage = lslage
+7.01 c                   eval      vhislr_vare = lsvare
+7.01 c                   eval      vhislr_dato = lqdate
+7.01 c     vhislr_key    setll     vhislr
+7.01 c     vhislr_key2   readpe    vhislr
+7.01 c                   if        %found(vhislr)
+7.01 c                   eval      d_ldat = vhdato
+7.01 c                   endif
+7.01  *
+7.01 c                   eval      w_lrec = d_lrec
+7.01 c                   call      'LA962R'
+7.01 c                   parm                    w_lrec
+7.01  *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for omregning av antall fra registrert til lagerenhet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     omr_antall    begsr
+      *
+      * Finn lagerenhet på vareregister
+      *
+     c                   eval      vvarl1_vare = lsvare
+     c     vvarl1_key    chain     vvarl1r
+     c                   if        not %found
+     c                   eval      w_anta = lsanta
+     c                   eval      vvenhl = lsenh1
+     c                   goto      end_omr
+     c                   endif
+      *
+      * Dersom opptalt enhet er lik lagerenhet eller diversevare
+      * beholdes antall som registrert
+      *
+     c                   if        lsenh1 = vvenhl
+     c                   eval      w_anta = lsanta
+     c                   goto      end_omr
+     c                   endif
+      *
+      * henter varetype
+      *
+5.70 c                   call      'VL710R'
+5.70 c                   parm                    w_firm
+5.70 c                   parm                    lsvare
+5.70 c                   parm                    lslage
+5.70 c                   parm                    w_vtyp
+6.21 c                   parm                    w_utda
+6.21 c                   parm                    w_ldor
+6.21 c                   parm                    b_inlr
+6.30 c                   parm                    w_lv_nobb
+6.30 c                   parm                    w_lv_modn
+6.30 c                   parm                    w_lv_lldo
+6.30 c                   parm                    w_lv_llva
+      *
+     c                   if        w_vtyp = 'D'
+     c                   goto      end_omr
+     c                   endif
+      *
+      * Finner omregningsfaktor volum for lagerenhet og for opptalt enhet
+      * Antall regnes om etter forholdet mellom disse
+      *
+     c                   eval      vvenl1_vare = lsvare
+     c     vvenl1_key    setll     vvenl1
+     c     vvenl1_key    reade     vvenl1
+     c                   dow       not %eof
+     c                   if        lsenh1 = veenhe
+     c                   eval      w_omrl = veomre
+     c                   endif
+     c                   if        vvenhl = veenhe
+     c                   eval      w_omrs = veomre
+     c                   endif
+     c     vvenl1_key    reade     vvenl1
+     c                   enddo
+      *
+     c                   if        w_omrs = 0
+     c                   eval      w_omrs = 1
+     c                   endif
+      *
+     c                   if        w_omrl <> 0
+     c                   eval      w_anta = lsanta * w_omrl / w_omrs
+     c                   else
+     c                   eval      w_anta = 0
+     c                   endif
+      *
+     c     end_omr       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Tar inn parameter fra forrige program
+      *
+     c     *entry        plist
+     c                   parm                    w_parm
+      *
+     c                   eval      d_prec = w_parm
+      *
+      *
+      *  Key for statusregister
+      *
+     c     lstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      *  Key for LAGERBUNT-HODE-REGISTER
+      *
+     c     llhel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    llhel1_numm
+      *
+      *  Key for LAGERBUNT-LINJE-REGISTER
+      *
+     c     lldtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lldtl1_numm
+      *
+      *  Key for les av VARE
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for les av vare-enhet
+      *
+     c     vvenl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl1_vare
+7.01  *
+7.01  * Key for les av historisk lagerbok
+7.01  *
+7.01 c     vhislr_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    vhislr_lage
+7.01 c                   kfld                    vhislr_vare
+7.01 c                   kfld                    vhislr_dato
+7.01  *
+7.01  * Key for les av historisk lagerbok
+7.01  *
+7.01 c     vhislr_key2   klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    vhislr_lage
+7.01 c                   kfld                    vhislr_vare
+      *
+      *  Legge inn opplysninger i nøklene
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      llhel1_numm = d_numm
+     c                   eval      lldtl1_numm = d_numm
+      *
+     c                   eval      hltype = 'R'
+      *
+      *  Hent opplysninger fra LAGER-STATUS-KODER
+      *
+     c     lstsl1_key    chain     lstsl1r
+      *
+     c                   endsr

@@ -1,0 +1,64 @@
+             PGM        PARM(&BPMEBR &BPPARM &BPVALG)
+/*                                                                   */
+             DCL        VAR(&BPMEBR)  TYPE(*CHAR) LEN(10)
+             DCL        VAR(&BPPARM)  TYPE(*CHAr) LEN(256)
+             DCL        VAR(&BPVALG)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&BPTIME)  TYPE(*CHAR) LEN(10)
+             DCL        VAR(&w_job)   type(*char) LEN(10)
+             DCL        VAR(&usr)     type(*char) LEN(10)
+             DCL        VAR(&txt)     type(*char) LEN(40)
+             DCL        VAR(&fgr)     type(*char) LEN(3)
+             DCL        VAR(&scedule) type(*char) LEN(7)
+             DCL        VAR(&kode)    type(*dec)  len(2 0)
+             DCL        VAR(&onof)    type(*dec)  len(1 0)
+/*                                                                   */
+/*           Henter inn verdi i tidsvaribalen                        */
+/*                                                                   */
+             CHGVAR     VAR(&BPTIME) VALUE(%SST(&BPPARM 202 6))
+             rtvdtaara  dtaara(*LDA (931 3)) rtnvar(&fgr)
+/*                                                                   */
+/*           BPVALG=2 (Jobben startes på ett bestemt klokkeslett     */
+/*                                                                   */
+             IF         COND(&BPVALG *EQ '2') THEN(SBMJOB CMD(CALL +
+                          PGM(BO122C) PARM(&BPMEBR &BPPARM)) +
+                          JOB(BUTIKK) JOBQ(QS36EVOKE) SCDTIME(&BPTIME))
+/*                                                                   */
+/*           BPVALG=1 (F4=Jobbkø) Jobben skal kjøres i batch         */
+/*                                                                   */
+             IF         COND(&BPVALG *EQ '1') THEN(SBMJOB CMD(CALL +
+                          PGM(BO122C) PARM(&BPMEBR &BPPARM)) +
+                          JOB(BUTIKK))
+/*                                                                   */
+/*           BPVALG=0 Jobben skal kjøres i interaktivt               */
+/*                                                                   */
+             IF         COND(&BPVALG *EQ '0') THEN(do)
+                CALL PGM(BO122C) +
+                        PARM(&BPMEBR &BPPARM)
+                RTVDTAARA  DTAARA(*LDA (1 7)) RTNVAR(&SCEDULE)
+                if         cond(&scedule *eq 'SCEDULE') then(do)
+                   call    pgm(bo130c)      /*  Oppdatere økonomi  */
+                enddo
+                /*  Fjerne flagg om at rutine er aktiv             */
+                chgvar     var(&kode)   value(03)
+                chgvar     var(&onof)   value(0)
+                call       pgm(FA720R)  parm(&kode &onof)
+             enddo
+/*                                                                   */
+/*                                                                   */
+/*           BPVALG=3 Jobben skal hertter kjøres fra Jobbplan        */
+/*                                                                   */
+             IF         COND(&BPVALG *EQ '3') THEN(do)
+             chgvar     var(&w_job) value('B' *cat &fgr *cat '_DagOp')
+             chgvar     var(&usr)   value('ASP_' *cat &fgr)
+             chgvar     var(&txt)   value('Daglig dagsoppgjør for ' +
+                                    *cat &fgr)
+             addjobscde job(&w_job) cmd(call pgm(AABATCH) +
+                          parm((&fgr) ('BO123C') ('1'))) +
+                          frq(*weekly) scddate(*none) scdday(*mon +
+                          *tue *wed *thu *fri *sat) +
+                          scdtime(&bptime) save(*no) user(&usr) +
+                          Text(&txt)
+
+             Enddo
+/*                                                                   */
+             ENDPGM

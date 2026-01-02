@@ -1,0 +1,118 @@
+             PGM
+/*                           Inkassosaker til Lindorff               */
+
+/* Definerer variable                                                */
+
+             DCL        VAR(&MLD1)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD2)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&WALI)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO)  TYPE(*DEC)  LEN(2 0)
+
+/*FTP*/
+             DCL        VAR(&OVRF) TYPE(*CHAR) LEN(10) +
+                          VALUE('LINDFAKTU ')
+             DCL        VAR(&FILN)  TYPE(*CHAR) LEN(20)
+             DCL        VAR(&STAT)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&SMSG)  TYPE(*CHAR) LEN(1) VALUE('1')
+
+/*IFS*/
+             DCL        VAR(&WPSMTP) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&QPATH) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&WPFILE) TYPE(*CHAR) LEN(6)
+
+/*SFTP*/
+             DCL        VAR(&DTAQ) TYPE(*CHAR) LEN(10) VALUE(SFTPSEND)
+             DCL        VAR(&DTAQLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&FLDLEN) TYPE(*DEC) LEN(4 0) VALUE(2000)
+             DCL        VAR(&FIELD) TYPE(*CHAR) LEN(2000)
+             DCL        VAR(&WTIM)  TYPE(*DEC) LEN(5 0) VALUE(30)
+             DCL        VAR(&KLEN)  TYPE(*DEC) LEN(3 0) VALUE(10)
+             DCL        VAR(&SLEN)  TYPE(*DEC) LEN(3 0) VALUE(0)
+             DCL        VAR(&KEY) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&STAT) TYPE(*CHAR)  LEN(1)
+
+             RTVJOBA    JOB(&KEY) CURLIB(&DTAQLIB)
+
+/* Bygger filnavn og kataloger                                       */
+
+             CHGVAR     VAR(&WPFILE) VALUE('RCNSPF')
+             CHGVAR     VAR(&WPSMTP) VALUE('/home/' *TCAT &DTAQLIB +
+                          *TCAT '/rcnspf.file')
+             CHGVAR     VAR(&QPATH) VALUE('/qsys.lib/' *TCAT +
+                          &DTAQLIB *TCAT +
+                          '.lib/rcnspfs.file/RCNSPFS.mbr')
+
+/* Overfører til IFS                                                 */
+
+             CRTPF      FILE(*CURLIB/RCNSPFS) RCDLEN(2000)
+             MONMSG     MSGID(CPF0000)
+             CLRPFM     FILE(RCNSPFS)
+             CPYF       FROMFILE(RCNSPF) TOFILE(RCNSPFS) +
+                          MBROPT(*REPLACE) FMTOPT(*NOCHK)
+             CPYTOSTMF  FROMMBR(&QPATH) TOSTMF(&WPSMTP) +
+                          STMFOPT(*REPLACE)
+
+/* Overfører saker med åpen FTP med unikt filnavn                    */
+
+     /*      CALL       PGM(RC762R) PARM(&FILN)                      */
+
+     /*      CALL       PGM(AF700C) PARM(&OVRF &STAT &FILN &SMSG)    */
+
+/* Overfører saker med secure FTP                                    */
+
+/* Legge inn fil i datakø                                           */
+
+             CHGVAR     VAR(&FIELD) VALUE(&KEY *CAT ';' *TCAT &WPSMTP)
+
+             CALL       PGM(QSNDDTAQ) PARM(&DTAQ &DTAQLIB &FLDLEN +
+                          &FIELD)
+
+/* Vente på svar                                                     */
+
+             CHGVAR     VAR(&DTAQ) VALUE('SFTPSENDR')
+             CALL       PGM(QRCVDTAQ) PARM(&DTAQ &DTAQLIB &FLDLEN +
+                          &FIELD &WTIM 'EQ' &KLEN &KEY +
+                          &SLEN '')
+
+             IF         COND(&FLDLEN *EQ 0) THEN(GOTO CMDLBL(ERROR)) +
+                          /* 'Ikke noe svar innen timeout. Anta +
+                          feil.' */
+
+             CHGVAR     VAR(&STAT) VALUE(%SUBSTRING(&FIELD 1 1))
+             IF         COND(&STAT *EQ '1') THEN(GOTO CMDLBL(ERROR)) +
+
+/* Varselbilde OK                                                    */
+
+             CHGVAR     VAR(&WALI) VALUE(4)
+             CHGVAR     VAR(&WAPO) VALUE(2)
+             CHGVAR     VAR(&MLD1) VALUE('Overføring til Lindorff  ')
+             CHGVAR     VAR(&MLD2) VALUE('**** OVERFØRING OK! **** ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+
+             DLYJOB     DLY(000003)
+
+/* Tømmer overføringsfile for poster etter å ha tatt backup          */
+
+             DLTF       FILE(RCNSPF_BAC)
+             MONMSG     MSGID(CPF2105)
+
+             CPYF       FROMFILE(*LIBL/RCNSPF) +
+                          TOFILE(*CURLIB/RCNSPF_BAC) MBROPT(*ADD) +
+                          CRTFILE(*YES) FMTOPT(*NOCHK)
+
+             CLRPFM     FILE(*LIBL/RCNSPF) MBR(RCNSPF)
+             GOTO       CMDLBL(END)
+
+ ERROR:
+
+/* Varselbilde FEIL                                                  */
+
+             CHGVAR     VAR(&WALI) VALUE(4)
+             CHGVAR     VAR(&WAPO) VALUE(2)
+             CHGVAR     VAR(&MLD1) VALUE('Overføring til Lindorff   ')
+             CHGVAR     VAR(&MLD2) VALUE('**** OVERFØRING FEIL **** ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+
+             DLYJOB     DLY(000005)
+
+ END:        ENDPGM

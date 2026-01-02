@@ -1,0 +1,1046 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Prrglam . . . . : JA200R
+      * Beskrivelse . . : Avrudningsnøkkel, Vedlikehold
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       210114 sst  Nytt prrglam
+6.30  *       120214 bof  Justering på filter
+7.xx  * 7.00  010816 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt prrglam
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjav3lr    if   e           k disk    rename(jav3pfr:jav3lrr)
+     fjav3lu    uf a e           k disk    rename(jav3pfr:jav3lur)
+     fjav3l1    if   e           k disk    rename(jav3pfr:jav3l1r)
+     fjav3l2    if   e           k disk    rename(jav3pfr:jav3l2r)
+     fjav2l1    if   e           k disk    rename(jav2pfr:jav2l1r)
+      *
+     fja202d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variable i nøkler
+      *
+     d jav3lr_regl     s                   like(jaregl)
+     d jav3lr_frpr     s                   like(jafrpr)
+     d jav3lu_regl     s                   like(jaregl)
+     d jav3lu_frpr     s                   like(jafrpr)
+     d jav3l1_regl     s                   like(jaregl)
+     d jav3l1_frpr     s                   like(jafrpr)
+     d jav3l2_frpr     s                   like(jafrpr)
+     d jav3l2_regl     s                   like(jaregl)
+     d jav2l1_regl     s                   like(ja2rgl)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_forn          s              1    inz(*off)
+     d b_oppr          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+     d b_inlr          s              1    inz(*off)
+      *
+     d w_firm          s                   like(jafirm)
+     d w_regl          s                   like(jaregl)
+     d w_frpr          s                   like(jafrpr)
+     d w_rtxt          s                   like(ja2txt)
+     d w_txt30         s                   like(ja2txt)
+      *
+     d s_regl          s                   like(jaregl)
+     d s_frpr          s                   like(jafrpr)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(13)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meldingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      b2tagb
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Filter
+      *
+     c                   if        *inka
+     c                   exsr      filter
+     c                   goto      b2taga
+     c                   endif
+      *
+      * Posisjonering
+      *
+     c                   if        b2regl <> 0 or
+     c                             b2frpr <> 0
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt prrglam
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'H'
+     c                   eval      jav3l2_frpr = b1frpr
+     c                   eval      jav3l2_regl = b1regl
+     c     jav3l2_key    setll     jav3l2
+     c                   other
+     c                   eval      jav3l1_regl = b1regl
+     c                   eval      jav3l1_frpr = b1frpr
+     c     jav3l1_key    setll     jav3l1
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjoner startverdi på overgruppe
+      *
+     c                   if        b2regl <> 0
+     c                   eval      w_seqe = 'O'
+     c                   eval      jav3l1_regl = b2regl
+     c                   eval      jav3l1_frpr = b2frpr
+     c     jav3l1_key    setll     jav3l1
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på hovedgruppe
+      *
+     c                   if        b2frpr <> 0
+     c                   eval      w_seqe = 'H'
+     c                   eval      jav3l2_frpr = b2frpr
+     c                   eval      jav3l2_regl = b2regl
+     c     jav3l2_key    setll     jav3l2
+     c                   goto      end_pos
+     c                   endif
+      *
+      *
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2regl = 0
+     c                   eval      b2frpr = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   eval      c1regl = b1regl
+     c                   eval      c1frpr = b1frpr
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Kopier
+      *
+     c                   if        b1valg = 3
+     c                   eval      k1regl = b1regl
+     c                   eval      k1frpr = b1frpr
+     c                   exsr      xk1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1regl = b1regl
+     c                   eval      d1frpr = b1frpr
+     c                   exsr      xd1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1regl = b1regl
+     c                   eval      c1frpr = b1frpr
+     c                   eval      *in49  = *on
+     c                   exsr      xc2bld
+     c                   eval      *in49  = *off
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      b_oppr = *on
+     c                   eval      b_forn = *off
+      *
+     c                   eval      c1regl = 0
+     c                   eval      c1frpr = 0
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_c1bld
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      c1taga
+     c                   endsl
+      *
+     c                   if        c1regl = 0 and
+     c                             c1frpr = 0
+     c                   goto      end_c1bld
+     c                   endif
+      *
+      * Sjekker input
+      *
+     c                   eval      w_regl = c1regl
+     c                   eval      w_frpr = c1frpr
+     c                   exsr      sjekk_input
+     c                   if        b_feil = *on
+     c                   goto      c1taga
+     c                   endif
+      *
+      * Sender opp informasjonsbildet dersom rad finnes fra før
+      *
+     c                   eval      jav3lr_regl = c1regl
+     c                   eval      jav3lr_frpr = c1frpr
+     c     jav3lr_key    chain     jav3lr                             90
+     c                   if        *in90 = *off
+     c                   exsr      xc1msg
+     c                   if        b_anul = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+     c                   exsr      hent_info
+      *
+      * Kaller vedlikeholdsprrglam
+      *
+     c                   exsr      xc2bld
+      *
+     c                   eval      c1regl = 0
+     c                   eval      c1frpr = 0
+      *
+     c                   eval      c1rtxt = *blank
+     c                   eval      c2rtxt = *blank
+     c                   goto      c1taga
+      *
+     c     end_c1bld     tag
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   eval      b_oppr = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   goto      end_c1msg
+     c                   endif
+      *
+     c     end_c1msg     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * C2BLD Behandle bilde for ny - endring - vise
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      jav3lr_regl = c1regl
+     c                   eval      jav3lr_frpr = c1frpr
+     c     jav3lr_key    chain     jav3lr                             90
+      *
+     c                   if        *in90 = *off
+      *
+     c                   eval      c2okni = jaokni
+     c                   eval      c2avrp = jaavrp
+     c                   eval      jav2l1_regl = jaregl
+     c     jav2l1_key    chain     jav2l1
+     c                   if        %found(jav2l1)
+     c                   eval      c2rtxt = ja2txt
+     c                   else
+     c                   eval      c2rtxt = *blank
+     c                   endif
+     c                   eval      c2eusr = jaeusr
+      *
+     c     *dmy          move      jaodat        c2odat
+     c     *dmy          move      jaedat        c2edat
+      *
+     c                   else
+      *
+     c                   eval      c2okni = 0
+     c                   eval      c2avrp = 0
+     c                   eval      c2odat = 0
+     c                   eval      c2edat = 0
+     c                   eval      c2eusr = *blank
+      *
+     c                   endif
+      *
+     c                   eval      c2regl = c1regl
+     c                   eval      c2frpr = c1frpr
+      *
+     c                   if        b1valg = 3
+     c                   eval      c2okni = k1okni
+     c                   eval      c2avrp = k1avrp
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30 = *on
+     c                   endif
+      *
+      * Henter beskrivelse av nivå
+      *
+     c                   exsr      hent_info
+      *
+     c     c2tagb        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+     c                   if        *inkd
+     c                   exsr      spØrring
+     c                   endif
+      *sven
+      *
+      * Validering av input
+      *
+      *  Regel
+      *
+     c     tstrgl        tag
+     c                   if        c2regl <> 0
+     c                   eval      jav2l1_regl = c2regl
+     c     jav2l1_key    chain     jav2l1
+     c                   if        not %found(jav2l1)
+     c                   exfmt     nyregel
+     c                   call      'JA201R  '
+     c                   parm                    w_firm
+     c                   parm                    c2regl
+     c                   parm                    c2rtxt
+     c                   if        *inkc = *on
+     c                   goto      c2tagb
+     c                   endif
+     c                   goto      c2tagb
+     c                   endif
+     c                   endif
+      *
+      * Oppdatering av rabattmatrise
+      *
+     c                   clear                   jav3lur
+      *
+     c                   eval      jav3lu_regl = c1regl
+     c                   eval      jav3lu_frpr = c1frpr
+     c     jav3lu_key    chain     jav3lur
+      *
+     c                   eval      jaregl = c2regl
+     c                   eval      jafrpr = c2frpr
+     c                   eval      jaokni = c2okni
+     c                   eval      jaavrp = c2avrp
+     c                   eval      jaeusr = l_user
+      *
+     c                   time                    jaetim
+     c                   time                    jaedat
+      *
+     c                   if        %found(jav3lu)
+     c                   time                    jaedat
+     c                   time                    jaetim
+     c                   eval      jaeusr = l_user
+     c                   update    jav3lur
+     c                   else
+     c                   eval      jafirm = w_firm
+     c                   eval      jaregl = c1regl
+     c                   eval      jafrpr = c1frpr
+     c                   time                    jaodat
+     c                   eval      jaousr = l_user
+     c                   time                    jaedat
+     c                   time                    jaetim
+     c                   eval      jaeusr = l_user
+     c                   write     jav3lur
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      jav3lr_regl = d1regl
+     c                   eval      jav3lr_frpr = d1frpr
+     c     jav3lr_key    chain     jav3lr                             90
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_d1win
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter rabattmatrise-nivå
+      *
+     c                   eval      jav3lu_regl = d1regl
+     c                   eval      jav3lu_frpr = d1frpr
+     c     jav3lu_key    chain     jav3lur                            90
+     c                   delete    jav3lur
+      *
+     c     end_d1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle kopierings-bildet (K1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xk1win        begsr
+      *
+      * Tar vare på nøkkel til rad det skal kopieres fra
+      *
+     c                   eval      s_regl = k1regl
+     c                   eval      s_frpr = k1frpr
+      *
+      * Fyller kopierings-bildet
+      *
+     c                   eval      jav3lr_regl = k1regl
+     c                   eval      jav3lr_frpr = k1frpr
+     c     jav3lr_key    chain     jav3lr                             90
+     c                   if        %found(jav3lr)
+     c                   eval      k1okni = jaokni
+     c                   eval      k1avrp = jaavrp
+     c                   endif
+      *
+     c     k1tagb        tag
+      *
+     c                   exfmt     k1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_k1win
+     c                   endif
+      *
+      * Spørring
+      *
+     c                   if        *inkd = *on
+     c                   exsr      spØrring
+     c                   goto      k1tagb
+     c                   endif
+      *
+      * Sjekker om rad finnes fra før
+      *
+     c                   eval      jav3lr_regl = k1regl
+     c                   eval      jav3lr_frpr = k1frpr
+     c     jav3lr_key    chain     jav3lr                             90
+     c                   if        *in90 = *off
+     c                   eval      *in32 = *on
+     c                   goto      k1tagb
+     c                   endif
+      *
+      * Sjekker input
+      *
+     c                   eval      w_regl = k1regl
+     c                   eval      w_frpr = k1frpr
+     c                   exsr      sjekk_input
+     c                   if        b_feil = *on
+     c                   goto      k1tagb
+     c                   endif
+      *
+      * Kaller vedlikeholdsprrglam
+      *
+     c                   eval      c1regl = k1regl
+     c                   eval      c1frpr = k1frpr
+      *
+     c                   exsr      xc2bld
+      *
+     c     end_k1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Fyll opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = 'H'
+     c                   read      jav3l2
+     c                   other
+     c                   read      jav3l1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             jafirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   if        f1regl <> 0 and
+     c                             jaregl <> f1regl
+     c                   iter
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'H'
+     c                   eval      jav3l2_frpr = jafrpr
+     c                   eval      jav3l2_regl = jaregl
+     c                   other
+     c                   eval      jav3l1_regl = jaregl
+     c                   eval      jav3l1_frpr = jafrpr
+     c                   endsl
+      *
+     c                   eval      b1regl = jaregl
+     c                   eval      b1frpr = jafrpr
+     c                   eval      b1okni = jaokni
+     c                   eval      b1avrp = jaavrp
+      *
+     c                   eval      jav2l1_regl = jaregl
+     c     jav2l1_key    chain     jav2l1
+     c                   if        %found(jav2l1)
+     c                   eval      b1rtxt = ja2txt
+     c                   else
+     c                   eval      b1rtxt = *blank
+     c                   endif
+      *
+     c                   write     b1sfl
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c                   select
+     c                   when      w_seqe = 'H'
+     c     jav3l2_key    setgt     jav3l2
+     c                   readp     jav3l2
+     c                   other
+     c     jav3l1_key    setgt     jav3l1
+     c                   readp     jav3l1
+     c                   endsl
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   select
+     c                   when      w_seqe = 'H'
+     c                   readp     jav3l2
+     c                   other
+     c                   readp     jav3l1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             jafirm <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   if        f1regl <> 0 and
+     c                             jaregl <> f1regl
+     c                   iter
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'H'
+     c                   eval      jav3l2_frpr = jafrpr
+     c                   eval      jav3l2_regl = jaregl
+     c                   other
+     c                   eval      jav3l1_regl = jaregl
+     c                   eval      jav3l1_frpr = jafrpr
+     c                   endsl
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c                   select
+     c                   when      w_seqe = 'H'
+     c     jav3l2_key    setll     jav3l2
+     c                   other
+     c     jav3l1_key    setll     jav3l1
+     c                   endsl
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av spørring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     spØrring      begsr
+      *
+      * Avrundingsregel
+      *
+     c                   if        w_afld = 'C2REGL'
+     c                   call      'JA201R'
+     c                   parm                    w_firm
+     c                   parm                    c2regl
+     c                   parm                    c2rtxt
+     c                   leavesr
+     c                   endif
+      *
+      * Avrundingsregel
+      *
+     c                   if        w_afld = 'B2regl'
+     c                   call      'JA201R'
+     c                   parm                    w_firm
+     c                   parm                    b2regl
+     c                   parm                    w_txt30
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        w_afld = 'C1REGL'
+     c                   call      'JA201R'
+     c                   parm                    w_firm
+     c                   parm                    c1regl
+     c                   parm                    c1rtxt
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        w_afld = 'K1REGL'
+     c                   call      'JA201R'
+     c                   parm                    w_firm
+     c                   parm                    k1regl
+     c                   parm                    w_txt30
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Filter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     filter        begsr
+      *
+     c     f1tagb        tag
+      *
+     c                   exfmt     f1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+      * Spørring
+      *
+     c                   if        *inkd
+      *
+     c                   if        w_afld = 'F1REGL'
+     c                   call      'JA201R'
+     c                   parm                    w_firm
+     c                   parm                    f1regl
+     c                   parm                    f1rtxt
+     c                   goto      f1tagb
+     c                   endif
+      *
+     c                   endif
+      *
+      * Validering
+      *
+     c                   if        f1regl <> 0
+     c                   eval      jav2l1_regl = f1regl
+     c     jav2l1_key    chain     jav2l1                             31
+     c                   if        *in31 = *on
+     c                   goto      f1tagb
+     c                   endif
+     c                   eval      f1rtxt = ja2txt
+     c                   endif
+      *
+      *
+      * Henter verdier til liste-bildet
+      *
+     c                   eval      b2frgl = f1regl
+      *
+      * Nullstiller og avbryter dersom regel ikke er utfylt
+      *
+     c                   if        f1regl = 0
+     c                   eval      f1rtxt = *blank
+     c                   goto      end_filter
+     c                   endif
+      *
+      * Blanker subfile, og fyller opp i.h.t. filter
+      *
+     c     end_filter    tag
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   eval      w_seqe = *blank
+      *
+6.30 c                   eval      jav3l1_regl  = 0
+6.30 c                   eval      jav3l1_frpr  = 0
+     c     jav3l1_key    setll     jav3l1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker inntastede verdier, og henter beskrivelser
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_input   begsr
+      *
+     c                   eval      b_feil = *off
+      *
+     c                   eval      w_rtxt = *blank
+      *
+     c*                  if        w_modn <> 0
+     c*                  if        w_regl <> 0 or
+     c*                            w_ldor <> 0 or
+     c*                            w_vare <> *blank
+     c*                  eval      *in34 = *on
+     c*                  eval      b_feil = *on
+     c*                  leavesr
+     c*                  endif
+     c*                  endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Henter beskrivelse
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_info     begsr
+      *
+      *
+      *
+      * Regel avrunding
+      *
+     c                   if        c1regl <> 0
+     c                   eval      jav2l1_regl = c1regl
+     c     jav2l1_key    chain     jav2l1
+     c                   if        %found
+     c                   eval      c1rtxt = ja2txt
+     c                   eval      c2rtxt = ja2txt
+     c                   endif
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av prrglam
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for oppslag på avrundings nøkkel
+      *
+     c     jav3lr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jav3lr_regl
+     c                   kfld                    jav3lr_frpr
+      *
+      * Key for oppdatering av avrundings nøkkel
+      *
+     c     jav3lu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jav3lu_regl
+     c                   kfld                    jav3lu_frpr
+      *
+      * Key for posisjonering på overgruppe
+      *
+     c     jav3l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jav3l1_regl
+     c                   kfld                    jav3l1_frpr
+      *
+      * Key for posisjonering på hovedgruppe
+      *
+     c     jav3l2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jav3l2_frpr
+     c                   kfld                    jav3l2_regl
+      *
+     c     jav2l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jav2l1_regl
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Initierer skjermbilde
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c     jav3l1_key    setll     jav3l1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

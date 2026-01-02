@@ -1,0 +1,884 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VL001R
+      * Beskrivelse . . : Lager, oppdaterer lager og historisk lagerbok
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      * R3.10 220300 AMD  Leveringstype 1 skal ikke oppdatere lager
+      *                   Referansefelt er utvidet fra 6 til 10 posisjoner
+      *                   Oppdateres i historisk lagerbok
+      * R3.10 280400 ASK  Oppdaterer siste salgsdato på beh.kode 3 og 4
+      *       051100 HKO  Legger inn lagerenhet ved opprettelse av vare
+      *                   i lager
+      * R3.31 040402 AMD  Avslutt program dersom vare ikke ligger i
+      *                   eget vareregister.
+      * R3.32 160502 AMD  Filen vhispf er endret til vhislu + lagt om fra
+      *                   output add til update add med key
+5.01  * R5.01 241002 AMD  Lagt om rutiner for oppdatering av lager
+5.60  * R5.60 311007 bof  Oppdaterer ant. tellet fra pr. vare
+5.61  * R5.60 160310 bof  Tar en clear på VLAGPF/VHISPF før write
+5.62  * R5.60 230310 bof  Sjekker om gyldig lager, hvis ikke så skrives
+5.62  *                   en linje til logg og programmet avsluttes
+5.70  * PRGR  231008 sst  Prisgruppe
+      * 6.10  260609 BSA  Oppdatert med sporingsinformasjon
+      * 6.10  220909 ASK  Endret parameterliste og oppdatering av lagerbok
+6.11  * 6.10  051109 bof  Hvis oppr. lager settes VTYP = 'L'
+6.12  * 6.10  191109 bsa  Lager en ny runde slik at vi aldri skal få dubletter (
+      *                   hvilken transaksjon som kommer)
+6.13  * 6.10  041010 bof  Justeringstrans - skal justere til antall som kommer
+6.14  * 6.10  261010 bof  Justering i år - oppdateres med abs.verdi av avviket
+6.15  * 6.10  271010 bof  Justering i år - rettelse 6.14, justeres med verdi av avvik
+6.21  * 6.20  190511 bø   Utvidet vl710r med div. info
+6.22  * 6.20  270511 bsa  Logger transaksjoner hvor en vare går fra S->L. Egen
+6.22  *                   transaksjonstype 'SL'
+6.23  * 6.20  010414 ask  Lagt inn 'EVAL(H)' på avrunding ved bruk av omr.faktor.
+6.nu  * 6.30  360514 bof  Utvidelse i hht. nummerutvidelse
+6.30  * 6.30  170918 bkv  Utvidet med trelast sortiment
+      *
+8.01  * 8.00  250722 sst  Oppdatere tilleggsregister fra MalProff  NX:MALPROFF
+8.01s * 8.00  150323 sst  Tatt bort oppdatering av NXLOPF vedr Malproff
+8.02  * 8.00  200922 sst  Div justeringer hos Mestergruppen
+8.03  *PRG2   150622 bsa  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvugrl1    if   e           k disk    rename(vugrpfr:vugrl1r)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     fvltyl1    if   e           k disk    rename(vltypfr:vltyl1r)
+     fvvenl1    if   e           k disk    rename(vvenpfr:vvenl1r)
+5.62 fra10l1    if   e           k disk    rename(ra10pfr:ra10l1r)
+     fvlaglu    uf a e           k disk    rename(vlagpfr:vlaglur)
+3.32 fvhislu    uf a e           k disk    rename(vhispfr:vhislur)
+5.62 fvlwwpf    uf a e           k disk    rename(vlwwpfr:vlwwpfr)
+6.30 fvvlel1    if   e           k disk    rename(vvlepfr:vvlel1r)
+8.00 frmpil1    if   e           k disk    rename(rmpipfr:rmpil1r)
+8.00 f                                     prefix(rmm:3)
+8.00 f                                     usropn
+8.00 frmpilu    uf a e           k disk    rename(rmpipfr:rmpilur)
+8.00 f                                     usropn
+8.00 f*   For commitment control se VL001S i NXKORRTEMP  Commit(COMFLAG)
+      *
+      * Definering av parametre
+      *
+6.nu d p_lrec          s            128
+     d p_stat          s              1
+     *
+5.70 d p_vtyp          s                   like(vvvtyp)
+6.21 d w_udat          s                   like(vvudat)
+6.21 d w_ldor          s                   like(vvldor)
+6.21 d b_inlr          s              1    inz(*off)
+6.30 d w_lv_nobb       s                   like(vvlnob)
+6.30 d w_lv_modn       s                   like(vvlmod)
+6.30 d w_lv_lldo       s                   like(vvlnle)
+6.30 d w_lv_llva       s                   like(vvllva)
+      *
+      * Definering av Local data area (LDA)
+      *
+     d                uds
+     d l_user                911    920
+8.00 d l_filg                931    933
+     d l_firm                944    946  0
+      *
+      * Datastruktur
+      *
+     d                 ds
+6.nu d hlrec                        128
+     d  hlvare                       15    overlay(hlrec)
+     d  hllage                        2  0 overlay(hlrec:16)
+     d  hldato                         d   overlay(hlrec:18) datfmt(*iso)
+     d  hltime                         t   overlay(hlrec:28) timfmt(*iso)
+     d  hlotyp                        2    overlay(hlrec:36)
+     d  hlltyp                        2    overlay(hlrec:38)
+     d  hlanta                       11  3 overlay(hlrec:40)
+     d  hlkopr                        9  2 overlay(hlrec:51)
+     d  hlrefr                       20    overlay(hlrec:60)
+     d  hlsyst                        1    overlay(hlrec:80)
+     d  hlaltk                        2    overlay(hlrec:81)
+     d  hlrest                        1    overlay(hlrec:83)
+     d  hltype                        1    overlay(hlrec:84)
+     d  hlenhe                        3    overlay(hlrec:85)
+     d  hlinlr                        1    overlay(hlrec:88)
+3.10 d  hllety                        1    overlay(hlrec:89)
+6.nu d  hlonum                        8  0 overlay(hlrec:90)
+6.nu d  hlolin                        4  0 overlay(hlrec:98)
+6.nu d  w_feil                       10    overlay(hlrec:102)
+      *
+      * Definering av variable i nøkler
+      *
+     d vvarl1_vare     s                   like(vvvare)
+     d vugrl1_uogr     s                   like(vguogr)
+     d vugrl1_uhgr     s                   like(vguhgr)
+     d vugrl1_uugr     s                   like(vguugr)
+     d votyl1_otyp     s                   like(vaotyp)
+     d vltyl1_ltyp     s                   like(valtyp)
+     d vvenl1_vare     s                   like(vevare)
+     d vlaglu_vare     s                   like(vlvare)
+     d vlaglu_lage     s                   like(vllage)
+     d vhislu_lage     s                   like(vhlage)
+     d vhislu_vare     s                   like(vhvare)
+     d vhislu_dato     s                   like(vhdato)
+     d vhislu_time     s                   like(vhtime)
+     d vhislu_sekv     s                   like(vhsekv)
+5.62 d ra10l1_jkod     s                   like(rajkod)
+8.00 d rmpil1_fir      s                   like(rmpfir)
+8.00 d rmpil1_lag      s                   like(rmplag)
+8.00 d rmpil1_var      s                   like(rmpvar)
+8.00 d rmpil1_dat      s                   like(rmpdat)
+8.00 d rmpil1_tim      s                   like(rmptim)
+8.00 d rmpil1_sek      s                   like(rmpsek)
+8.00 d rmpilu_fir      s                   like(rmpfir)
+8.00 d rmpilu_lag      s                   like(rmplag)
+8.00 d rmpilu_var      s                   like(rmpvar)
+8.00 d rmpilu_dat      s                   like(rmpdat)
+8.00 d rmpilu_tim      s                   like(rmptim)
+8.00 d rmpilu_sek      s                   like(rmpsek)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(vvfirm)
+5.70 d w_lage          s                   like(vllage)
+     d w_tell          s                   like(vltell)
+6.14 d w_avvi          s                   like(vlbehl)
+     d w_type          s                   like(vhtype)
+     d w_omrl          s                   like(veomre)
+     d w_omrs          s                   like(veomre)
+     d w_sekv          s                   like(vhsekv)
+8.01 d w_seks          s             03    inz('001')
+8.01 d w_text          s            200
+8.01 d w_jobb          s             10    inz('MalProff:')
+8.01 d w_prog          s             10    inz('VL001R')
+      *
+      *
+8.01  * Eksternt program
+8.01   dcl-s co402_verdi1  char(1);
+8.01   dcl-s co402_verdi2  char(2048);
+8.01   DCL-PR CO402R EXTPGM('CO402R');
+8.01     p_filgrp            char(3)     const;
+8.01     p_firm              packed(3:0) const;
+8.01     p_lager             packed(2:0) const;
+8.01     p_nokkel            char(50)    const;
+8.01     p_verdi1            char(1);
+8.01     p_verdi2            char(2048);
+8.01   END-PR;
+8.01 d w_mp            s              1    inz(*off)
+      *
+      *---------------------------------------------------------------------
+      * Henter og initierer parametre
+      *---------------------------------------------------------------------
+      *
+     c                   eval      hlrec = p_lrec
+     c                   eval      p_stat = *on
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Sjekker om transdato og klokkeslett følger transaksjonen
+      * - legger inn systemdato og klokke hvis ikke utfylt.
+      *
+     c                   if        hldato = *loval
+     c                   time                    hldato
+     c                   endif
+      *
+     c                   if        hltime = *loval
+     c                   time                    hltime
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Tester om gyldig ordretype eller behandlingskode og styrer den
+      * videre behandling.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Hvis ordretype og alternativ behandlingskode er blank blir
+      * programmet avsluttet.
+      *
+     c                   if        hlotyp = *blanks
+     c                             and hlaltk = *blanks
+8.00 c                   eval      w_feil = 'Otyp/Altk'
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Henter vareinformasjon
+      *
+     c                   eval      vvarl1_vare = hlvare
+     c     vvarl1_key    chain     vvarl1r                            90
+3.31  *
+3.31  * Avbryter dersom vare ikke ble funnet i vareregister
+3.31  *
+3.31 c                   if        *in90 = *on
+8.00 c                   eval      w_feil = 'Ukj.Vare '
+3.31 c                   goto      avslutt
+3.31 c                   endif
+5.62  *
+5.62  * Sjekker om lager er gyldig
+5.62  *
+5.62 c                   eval      ra10l1_jkod = hllage
+5.62 c     ra10l1_key    chain     ra10l1r
+5.62 c                   if        not %found(ra10l1)
+5.62 c                   eval      vlwlog = hlrec
+5.62 c                   write     vlwwpfr
+8.00 c                   eval      w_feil = 'Ukj.Lager'
+5.62 c                   goto      avslutt
+5.62 c                   endif
+      *
+5.70 *
+5.70 * Kaller program for henting av varetype
+5.70 *
+5.70 c                   eval      w_lage = hllage
+5.70 c                   call      'VL710R'
+5.70 c                   parm                    w_firm
+5.70 c                   parm                    vvvare
+5.70 c                   parm                    w_lage
+5.70 c                   parm                    p_vtyp
+6.21 c                   parm                    w_udat
+6.21 c                   parm                    w_ldor
+6.21 c                   parm                    b_inlr
+6.3x c                   parm                    w_lv_nobb
+6.3x c                   parm                    w_lv_modn
+6.3x c                   parm                    w_lv_lldo
+6.3x c                   parm                    w_lv_llva
+      *
+      * Avbryter dersom vare ikke er lagervare
+      *
+6.22 c                   if        hlaltk <> 'SL'
+     c                   if        p_vtyp <> 'L'
+8.00 c                   eval      w_feil = 'vtyp<>L'
+     c                   goto      avslutt
+     c                   endif
+6.22 c                   endif
+3.10  *
+3.10  * Avbryter dersom leveringstype = 1
+3.10  *
+3.10 c                   if        hllety = '1'
+8.00 c                   eval      w_feil = 'lety=1'
+3.10 c                   goto      avslutt
+3.10 c                   endif
+      *
+      * Henter informasjon på undergruppe
+      *
+     c                   eval      vugrl1_uogr = vvogrp
+     c                   eval      vugrl1_uhgr = vvhgrp
+     c                   eval      vugrl1_uugr = vvugrp
+     c     vugrl1_key    chain     vugrl1r                            90
+      *
+      * Avbryter dersom undergruppe ikke skal lagerstyres
+      *
+     c                   if        vgulag = 1
+8.00 c                   eval      w_feil = 'ulag=1'
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Dersom lagerenhet ikke finnes på vare, hentes lagerenhet fra
+      * undergruppe. Dersom lagerenhet ikke finnes på undergruppe, settes
+      * lagerenhet lik solgt enhet
+      *
+     c                   if        vvenhl = *blank
+     c                   eval      vvenhl = vguenl
+     c                   endif
+      *
+     c                   if        vvenhl = *blank
+     c                   eval      vvenhl = hlenhe
+     c                   endif
+      *
+      * Leser lagerrecord - hvis gyldig lager ikke er angitt
+      * blir lager opprettet.
+      *
+     c                   eval      vlaglu_vare = hlvare
+     c                   eval      vlaglu_lage = hllage
+     c     vlaglu_key    chain     vlaglur                            90
+     c                   if        *in90 = *on
+     c                   exsr      oppr_lager
+     c                   endif
+      *
+      * Hvis alternativ behandlingskode er angitt, blir ikke
+      * ordre/linjetype brukt i oppdateringen.
+      *
+     c                   if        hlaltk <> *blank
+     c                   goto      xaltbe
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Henter opplysninger om ordre og linjetypen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Leser først linjetypen, hvis ikke oppdatering av lager er valgt
+      * avsluttes programmet.
+      *
+     c                   eval      vltyl1_ltyp = hlltyp
+     c     vltyl1_key    chain     vltyl1                             90
+     c                   if        *in90 = *on or
+     c                             vallag = 0
+8.00 c                   eval      w_feil = 'ltyp/llag'
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Leser ordretypen, hvis lager ikke skal oppdateres
+      * avsluttes programmet.
+      *
+     c                   eval      votyl1_otyp = hlotyp
+     c     votyl1_key    chain     votyl1                             90
+     c                   if        *in90 = *on or
+     c                             vaolag = 0
+8.00 c                   eval      w_feil = 'otyp/olag'
+     c                   goto      avslutt
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppdateringen er styrt av:
+      *     - Akkumulator på ordretype
+      *     - Fortegn på ordretype
+      *     - Fortegn på linjetype
+      *     - Systembokstav
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Hvis akkumulator er 0 eller 5  - ingen oppdatering.
+      *
+     c                   if        vaoakk = 0 or
+     c                             vaoakk = 5
+8.00 c                   eval      w_feil = 'oakk=0/5'
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Kaller opp subrutine for omregning av antall til lagerenhet
+      *
+     c                   exsr      omr_antall
+      *
+      * Setter fortegn på transantall avhengig av ordre/linjetype
+      *
+     c                   if        vaokre = '-'
+     c                   eval      hlanta = hlanta * -1
+     c                   endif
+      *
+     c                   if        valkre = '-'
+     c                   eval      hlanta = hlanta * -1
+     c                   endif
+      *
+      * Styrer behandling avhengig av systembokstav.
+      *
+     c                   select
+     c                   when      hlsyst = 'F' or
+     c                             hlsyst = 'B'
+     c                   goto      xsystf
+     c                   when      hlsyst = 'L'
+     c                   goto      xsystb
+     c                   endsl
+      *
+8.00 c                   eval      w_feil = 'sys<>F/B/L'
+     c                   goto      avslutt
+      *
+      *- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandler transer fra system F (Fakturering) og B (Butikk)
+      *- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xsystf        tag
+      *
+      * Oppdatering hvis restkode er spesifisert.
+      *
+     c                   if        hlrest = 'R'
+     c                   eval      vlores = vlores + hlanta
+     c                   exsr      oppd_lager
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Oppdatering hvis akkumulatortype = 1.
+      *
+     c                   if        vaoakk = 1
+     c                   eval      vloord = vloord + hlanta
+     c                   exsr      oppd_lager
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Oppdatering hvis akkumulatortype = 2.
+      *
+5.01  *gml               if        vaoakk = 2
+5.01  *gml               eval      vlpakk = vlpakk + hlanta
+5.01  *gml               exsr      oppd_lager
+5.01  *gml               goto      avslutt
+5.01  *gml               endif
+5.01  *
+5.01 c                   if        hltype = *blank
+5.01 c                   if        vaoakk = 2
+5.01 c                   eval      vlsalg = vlsalg + hlanta
+5.01 c                   eval      vlbehl = vlbehl - hlanta
+5.01 c                   eval      vltrda = hldato
+5.01 c                   eval      vlsdat = hldato
+5.01 c                   eval      w_type = 'U'
+5.01 c                   eval      vlbeve = vlbeve + 1
+5.01 c                   exsr      oppd_lager
+5.01 c                   exsr      oppr_hist
+5.01 c                   goto      avslutt
+5.01 c                   endif
+5.01 c                   endif
+      *
+      * Oppdatering hvis akkumulatortype = 3 eller 4
+      *
+     c                   if        hltype = *blank
+     c                   if        vaoakk = 3
+     c                             or vaoakk = 4
+     c                   eval      vlsalg = vlsalg + hlanta
+     c                   eval      vlbehl = vlbehl - hlanta
+     c                   eval      vltrda = hldato
+     c                   eval      vlsdat = hldato
+     c                   eval      w_type = 'U'
+     c                   eval      vlbeve = vlbeve + 1
+     c                   exsr      oppd_lager
+     c                   exsr      oppr_hist
+     c                   goto      avslutt
+     c                   endif
+     c                   endif
+      *
+     c                   goto      avslutt
+      *
+      *- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandler transer fra system L (Lager/innkjøp)
+      *- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xsystb        tag
+      *
+      *  Oppdatering hvis restkode er spesifisert.
+      *
+     c                   if        hlrest = 'R'
+     c                   eval      vlbres = vlbres + hlanta
+     c                   exsr      oppd_lager
+     c                   goto      avslutt
+     c                   endif
+      *
+      *  Oppdatering hvis akkumulatortype = 1.
+      *
+     c                   if        vaoakk = 1
+     c                   eval      vlbbes = vlbbes + hlanta
+     c                   exsr      oppd_lager
+     c                   goto      avslutt
+     c                   endif
+      *
+      *  Oppdatering hvis akkumulatortype = 2.
+      *
+     c                   if        vaoakk = 2
+      ***                  SUB  HLANTA    VLBBES
+     c                   eval      vlinng = vlinng + hlanta
+     c                   eval      vlbehl = vlbehl + hlanta
+     c                   eval      vltrda = hldato
+     c                   eval      w_type = 'I'
+     c                   eval      vlbeve = vlbeve + 1
+     c                   exsr      oppd_lager
+     c                   exsr      oppr_hist
+     c                   goto      avslutt
+     c                   endif
+      *
+      *  Oppdatering hvis akkumulatortype = 3.
+      *
+     c                   if        vaoakk = 3
+      ***                  SUB  HLANTA    VLBBES
+     c                   eval      vlinng = vlinng + hlanta
+     c                   eval      vlbehl = vlbehl + hlanta
+     c                   eval      vltrda = hldato
+     c                   eval      w_type = 'I'
+     c                   eval      vlbeve = vlbeve + 1
+     c                   exsr      oppd_lager
+     c                   exsr      oppr_hist
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   goto      avslutt
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppdaterer ut i fra alternativ behandlingskode.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xaltbe        tag
+      *
+      * Kode for lagerinngang valgt.
+      *
+     c                   if        hlaltk = 'I '
+     c                   eval      vlinng = vlinng + hlanta
+     c                   eval      vlbehl = vlbehl + hlanta
+     c                   eval      vltrda = hldato
+     c                   eval      hlotyp = 'I '
+     c                   eval      w_type = 'I'
+     c                   eval      vlbeve = vlbeve + 1
+      *
+     c                   exsr      oppd_lager
+     c                   exsr      oppr_hist
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Kode for lageruttak valgt.
+      *
+     c                   if        hlaltk = 'U '
+     c                   eval      vlutta = vlutta + hlanta
+     c                   eval      vlbehl = vlbehl - hlanta
+     c                   eval      vltrda = hldato
+     c                   eval      hlotyp = 'U '
+     c                   eval      w_type = 'U'
+     c                   eval      vlbeve = vlbeve + 1
+      *
+     c                   exsr      oppd_lager
+     c                   exsr      oppr_hist
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Kode for lagerjustering valgt.
+      *
+     c                   if        hlaltk = 'J '
+6.15 c                   eval      w_avvi = vlbehl - hlanta
+6.14 c                   eval      vljust = vljust + w_avvi
+6.13 c                   eval      vlbehl = hlanta
+     c                   eval      vltrda = hldato
+     c                   eval      hlotyp = 'J '
+     c                   eval      w_type = 'I'
+     c                   eval      vlbeve = vlbeve + 1
+      *
+     c                   exsr      oppd_lager
+     c                   exsr      oppr_hist
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Kode for lagertelling valgt.
+      * Telleavvik blir beregnet og oppdatert.
+      *
+     c                   if        hlaltk = 'T '
+      *
+     c                   eval      w_tell = hlanta - vlbehl
+      *
+     c                   eval      vltell = vltell + w_tell
+     c                   eval      vlbehl = hlanta
+     c                   eval      vlopda = hldato
+     c                   eval      vlatel = vlatel + 1
+     c                   eval      hlotyp = 'T '
+     c                   eval      w_type = 'I'
+      *
+     c                   exsr      oppd_lager
+     c                   exsr      oppr_hist
+     c                   goto      avslutt
+     c                   endif
+6.22  *
+6.22  * Kode for lagerjustering valgt.
+6.22  *
+6.22 c                   if        hlaltk = 'SL'
+6.22 c                   eval      w_avvi = 0
+6.22 c                   eval      vljust = 0
+6.22 c                   eval      vlbehl = 0
+6.22 c                   eval      vltrda = hldato
+6.22 c                   eval      hlotyp = 'SL'
+6.22 c                   eval      w_type = 'I'
+6.22 c                   eval      vlbeve = 0
+6.22  *
+6.22 c                   exsr      oppd_lager
+6.22 c                   exsr      oppr_hist
+6.22 c                   goto      avslutt
+6.22 c                   endif
+6.22  *
+     c                   goto      avslutt
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   if        hlinlr <> *on
+     c                   eval      *inlr = *on
+8.00 c                   if        w_mp = *on
+8.00 c                   close     rmpil1
+8.00 c                   close     rmpilu
+8.00 c                   endif
+8.01 c                   eval      p_lrec = hlrec
+8.01 c                   eval      w_text = hlrec
+8.01sc*                  call      'RMP97C'
+8.01sc*                  parm                    w_jobb
+8.01sc*                  parm                    w_prog
+8.01sc*                  parm                    w_seks
+8.01sc*                  parm                    w_text
+     c                   endif
+      *
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppretting av ny post i lagerregister
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppr_lager    begsr
+      *
+5.61 c                   clear                   vlaglur
+      *
+     c                   eval      vlfirm = w_firm
+     c                   eval      vlvare = hlvare
+     c                   eval      vllage = hllage
+     c                   eval      vlenhl = vvenhl
+6.11 c                   eval      vlvtyp = 'L'
+      *
+6.10 c                   time                    vlodat
+6.10 c                   time                    vlotim
+6.10 c                   eval      vlousr = l_user
+6.10 c                   time                    vledat
+6.10 c                   time                    vletim
+6.10 c                   eval      vleusr = l_user
+     c                   write     vlaglur
+      *
+     c     vlaglu_key    chain     vlaglur                            90
+     c                   if        *in90 = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppdatering av post i lagerregister.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppd_lager    begsr
+      *
+6.10 c                   time                    vledat
+6.10 c                   time                    vletim
+6.10 c                   eval      vleusr = l_user
+     c                   update    vlaglur
+     c                   eval      p_stat = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppretting av transakajon i historisk lagerbok
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppr_hist     begsr
+      *
+5.61 c                   clear                   vhislur
+      *
+      * Redigerer data og skriver transaksjon til hist. lagerbok.
+      *
+     c                   eval      w_sekv = 1
+      *
+     c                   eval      vhislu_lage = hllage
+     c                   eval      vhislu_vare = hlvare
+     c                   eval      vhislu_dato = hldato
+     c                   eval      vhislu_time = hltime
+6.12 c     sekv_les      tag
+     c                   eval      vhislu_sekv = w_sekv
+     c     vhislu_key    chain     vhislur
+     c                   if        %found
+     c                   eval      w_sekv = w_sekv + 1
+6.12 c                   goto      sekv_les
+     c                   endif
+      *
+     c                   eval      vhfirm = l_firm
+     c                   eval      vhvare = hlvare
+     c                   eval      vhlage = hllage
+     c                   eval      vhdato = hldato
+     c                   eval      vhtime = hltime
+     c                   eval      vhsekv = w_sekv
+     c                   eval      vhuser = l_user
+     c                   eval      vhsyst = hlsyst
+     c                   eval      vhkode = hlotyp
+     c                   eval      vhtype = w_type
+     c                   eval      vhrefr = hlrefr
+     c                   eval      vhbehl = vlbehl
+     c                   eval      vhanta = hlanta
+     c                   eval      vhkpri = hlkopr
+     c                   eval      vhenhl = vvenhl
+     c                   eval      vhonum = hlonum
+     c                   eval      vholin = hlolin
+      *
+6.10 c                   time                    vhodat
+6.10 c                   time                    vhotim
+6.10 c                   eval      vhousr = l_user
+6.10 c                   time                    vhedat
+6.10 c                   time                    vhetim
+6.10 c                   eval      vheusr = l_user
+     c                   write     vhislur
+8.01  *   Oppdatere tilleggsregister MalProff dersom dette er en MalProff oppdatering
+8.01  *
+8.01 c                   if        w_mp = *on
+8.02 c                             and hlotyp = 'MP'
+8.01 c                   eval      rmpil1_fir = 999
+8.01 c                   eval      rmpil1_lag = 99
+8.01 c                   eval      rmpil1_var = 'MIDLERTIDIG    '
+8.01 c                   eval      rmpil1_dat = *loval
+8.01 c                   eval      rmpil1_tim = *loval
+8.01 c                   eval      rmpil1_sek = *zero
+8.01 c     rmpil1_key    chain     rmpil1
+8.01 c                   if        %found(rmpil1)
+8.01 c                   eval      rmpilu_fir = vhfirm
+8.01 c                   eval      rmpilu_lag = vhlage
+8.01 c                   eval      rmpilu_var = vhvare
+8.01 c                   eval      rmpilu_dat = vhdato
+8.01 c                   eval      rmpilu_tim = vhtime
+8.01 c                   eval      rmpilu_sek = vhsekv
+8.01 c     rmpilu_key    chain     rmpilu
+8.01 c                   if        not %found(rmpilu)
+8.01 c                   eval      rmpfir = vhfirm
+8.01 c                   eval      rmplag = vhlage
+8.01 c                   eval      rmpvar = vhvare
+8.01 c                   eval      rmpkda = vhdato
+8.01 c                   eval      rmpkti = vhtime
+8.01 c                   eval      rmpdat = rmmdat
+8.01 c                   eval      rmptim = rmmtim
+8.01 c                   eval      rmpsek = vhsekv
+8.01 c                   eval      rmponr = rmmonr
+8.01 c                   eval      rmplin = rmmlin
+8.01 c                   eval      rmpknr = rmmknr
+8.01 c                   eval      rmpfda = rmmfda
+8.01 c                   eval      rmpkun = rmmkun
+8.01 c                   eval      rmpavd = rmmavd
+8.01 c                   eval      rmpref = rmmref
+8.01 c                   time                    rmpeda
+8.01 c                   time                    rmpeti
+8.01 c                   write     rmpilur
+8.01 c                   endif
+8.01  *
+8.01 c                   endif
+8.01  *
+8.01 c                   endif
+8.01  *
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for omregning av antall i forhold til lagerenhet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     omr_antall    begsr
+      *
+      * Dersom solgt enhet er lik lagerenhet beholdes antall
+      *
+     c                   if        hlenhe = vvenhl
+     c                   goto      end_omr
+     c                   endif
+      *
+      * Finner omregningsfaktor volum for lagerenhet og for solgt enhet
+      * Antall regnes om etter forholdet mellom disse
+      *
+     c                   eval      vvenl1_vare = hlvare
+     c     vvenl1_key    setll     vvenl1
+     c     vvenl1_key    reade     vvenl1                                 90
+     c                   dow       *in90 = *off
+     c                   if        hlenhe = veenhe
+     c                   eval      w_omrs = veomre
+     c                   endif
+     c                   if        vvenhl = veenhe
+     c                   eval      w_omrl = veomre
+     c                   endif
+     c     vvenl1_key    reade     vvenl1                                 90
+     c                   enddo
+      *
+     c                   if        w_omrs = 0
+     c                   eval      w_omrs = 1
+     c                   endif
+      *
+     c                   if        w_omrl = 0
+     c                   eval      w_omrl = 1
+     c                   endif
+      *
+6.23 c                   eval(h)   hlanta = hlanta * w_omrs / w_omrl
+      *
+     c     end_omr       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_stat
+     c                   parm                    p_lrec
+      *
+      * Key for oppslag på vare-register
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for oppslag på undergruppe-register
+      *
+     c     vugrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vugrl1_uogr
+     c                   kfld                    vugrl1_uhgr
+     c                   kfld                    vugrl1_uugr
+      *
+      * Key for oppslag på ordretype-register
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      * Key for oppslag på linjetype-register
+      *
+     c     vltyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltyl1_ltyp
+      *
+      * Key for les på vare-enhet-register
+      *
+     c     vvenl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl1_vare
+      *
+      * Key for oppdatering av lager-register
+      *
+     c     vlaglu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlaglu_vare
+     c                   kfld                    vlaglu_lage
+      *
+      * Key for oppdatering av lagerbok
+      *
+     c     vhislu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vhislu_lage
+     c                   kfld                    vhislu_vare
+     c                   kfld                    vhislu_dato
+     c                   kfld                    vhislu_time
+     c                   kfld                    vhislu_sekv
+5.62  *
+5.62  * Key for les av gyldige lager
+5.62  *
+5.62 c     ra10l1_key    klist
+5.62 c                   kfld                    w_firm
+5.62 c                   kfld                    ra10l1_jkod
+      *
+8.00  *
+8.00  * Key for les av MalProff tilleggsopplsyninger
+8.00  *
+8.00 c     rmpil1_key    klist
+8.00 c                   kfld                    rmpil1_fir
+8.00 c                   kfld                    rmpil1_lag
+8.00 c                   kfld                    rmpil1_var
+8.00 c                   kfld                    rmpil1_dat
+8.00 c                   kfld                    rmpil1_tim
+8.00 c                   kfld                    rmpil1_sek
+8.00  *
+8.00 c     rmpilu_key    klist
+8.00 c                   kfld                    rmpilu_fir
+8.00 c                   kfld                    rmpilu_lag
+8.00 c                   kfld                    rmpilu_var
+8.00 c                   kfld                    rmpilu_dat
+8.00 c                   kfld                    rmpilu_tim
+8.00 c                   kfld                    rmpilu_sek
+8.00  *
+8.00  *
+8.00  * Endring 8.00
+8.00  *
+8.00   CallP CO402R(l_filg:w_firm:0:'MALPROFF':
+8.00                    co402_verdi1:co402_verdi2);
+8.00   if co402_verdi1 = '1';
+8.00     w_mp  = *on;
+7.02   endif;
+7.04  *
+8.00 c                   if        w_mp = *on
+8.00 c                   open      rmpil1
+8.00 c                   open      rmpilu
+8.00 c                   endif
+      *
+     c                   endsr

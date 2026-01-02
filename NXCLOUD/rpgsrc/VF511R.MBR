@@ -1,0 +1,495 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VF511R
+      * Beskrivelse . . : Alternativ undergruppe, spørring
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       210699 HKO  Nytt program
+7.xx  * 7.00  300916 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvaugl1    if   e           k disk    rename(vaugpfr:vaugl1r)
+     fvaugl3    if   e           k disk    rename(vaugpfr:vaugl3r)
+     fvaugl2    if   e           k disk    rename(vaugpfr:vaugl2r)
+      *
+     fvf511d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(vfufir)
+     d p_hgrp          s                   like(vfuhgr)
+     d p_ugrp          s                   like(vfuugr)
+     d p_utxt          s                   like(vfutxt)
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d vaugl1_uhgr     s                   like(vfuhgr)
+     d vaugl1_uugr     s                   like(vfuugr)
+     d vaugl3_uugr     s                   like(vfuugr)
+     d vaugl2_utxt     s                   like(vfutxt)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_valg_ok       s              1    inz(*off)
+      *
+     d w_firm          s                   like(vfufir)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(8)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2uhgr <> 0 or
+     c                             b2uugr <> 0 or
+     c                             b2utxt <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+     c                   if        b_valg_ok = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'U'
+     c                   eval      vaugl3_uugr = b1uugr
+     c     vaugl3_key    setll     vaugl3
+     c                   when      w_seqe = 'B'
+     c                   eval      vaugl2_utxt = b1utxt
+     c     vaugl2_key    setll     vaugl2
+     c                   other
+     c                   eval      vaugl1_uugr = b1uugr
+     c     vaugl1_key    setll     vaugl1
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Hovedgruppe
+      *
+     c                   if        b2uhgr <> 0
+     c                   eval      w_seqe = ' '
+     c                   eval      vaugl1_uhgr = b2uhgr
+     c                   eval      vaugl1_uugr = b2uugr
+     c     vaugl1_key    setll     vaugl1
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Undergruppe
+      *
+     c                   if        b2uugr <> 0
+     c                   eval      w_seqe = 'U'
+     c                   eval      vaugl3_uugr = b2uugr
+     c     vaugl3_key    setll     vaugl3
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på beskrivelse
+      *
+     c                   if        b2utxt <> *blank
+     c                   eval      w_seqe = 'B'
+     c                   eval      vaugl2_utxt = b2utxt
+     c     vaugl2_key    setll     vaugl2
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2uhgr = 0
+     c                   eval      b2uugr = 0
+     c                   eval      b2utxt = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Velge post
+      *
+     c                   if        b1valg = 1
+     c                   eval      p_hgrp = b1uhgr
+     c                   eval      p_ugrp = b1uugr
+     c                   eval      p_utxt = b1utxt
+     c                   eval      b_valg_ok = *on
+     c                   leave
+     c                   endif
+      *
+     c                   enddo
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = 'U'
+     c                   read      vaugl3
+     c                   when      w_seqe = 'B'
+     c                   read      vaugl2
+     c                   other
+     c                   read      vaugl1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             vfufir <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'U'
+     c                   eval      vaugl3_uugr = vfuugr
+     c                   when      w_seqe = 'B'
+     c                   eval      vaugl2_utxt = vfutxt
+     c                   other
+     c                   eval      vaugl1_uhgr = vfuhgr
+     c                   eval      vaugl1_uugr = vfuugr
+     c                   endsl
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1uhgr = vfuhgr
+     c                   eval      b1uugr = vfuugr
+     c                   eval      b1utxt = vfutxt
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c                   select
+     c                   when      w_seqe = 'U'
+     c     vaugl3_key    setgt     vaugl3
+     c                   readp     vaugl3
+     c                   when      w_seqe = 'B'
+     c     vaugl2_key    setgt     vaugl2
+     c                   readp     vaugl2
+     c                   other
+     c     vaugl1_key    setgt     vaugl1
+     c                   readp     vaugl1
+     c                   endsl
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   select
+     c                   when      w_seqe = 'U'
+     c                   readp     vaugl3
+     c                   when      w_seqe = 'B'
+     c                   readp     vaugl2
+     c                   other
+     c                   readp     vaugl1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             vfufir <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'U'
+     c                   eval      vaugl3_uugr = vfuugr
+     c                   when      w_seqe = 'B'
+     c                   eval      vaugl2_utxt = vfutxt
+     c                   other
+     c                   eval      vaugl1_uhgr = vfuhgr
+     c                   eval      vaugl1_uugr = vfuugr
+     c                   endsl
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c                   select
+     c                   when      w_seqe = 'U'
+     c     vaugl3_key    setll     vaugl3
+     c                   when      w_seqe = 'B'
+     c     vaugl2_key    setll     vaugl2
+     c                   other
+     c     vaugl1_key    setll     vaugl1
+     c                   endsl
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_hgrp
+     c                   parm                    p_ugrp
+     c                   parm                    p_utxt
+      *
+      * Key for posisjonering på hovedgruppe/undergruppe
+      *
+     c     vaugl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vaugl1_uhgr
+     c                   kfld                    vaugl1_uugr
+      *
+      * Key for posisjonering på undergruppe
+      *
+     c     vaugl3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vaugl3_uugr
+      *
+      * Key for posisjonering på beskrivelse
+      *
+     c     vaugl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vaugl2_utxt
+      *
+      *
+      * Henter parametre, og initierer skjermbildet
+      *
+     c                   eval      w_firm = p_firm
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      vaugl1_uhgr = p_hgrp
+     c                   eval      vaugl1_uugr = 0
+     c     vaugl1_key    setll     vaugl1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

@@ -1,0 +1,1594 @@
+     h option(*nodebugio : *srcstmt) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : NEXSTEP
+      * Program . . . . : RF500R
+      * Beskrivelse . . : Oversikt over logg på regnskapstransaksjoner
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       240720 ASK  Nytt program
+8.01  * 800   240921 ask  Lagt inn rutiner for direkte oppdatering mot ekst. øk.
+8.02  * 800   021121 ask  Lagt inn kontroll mot egen kode i bruker register
+      *                   Kontroll på flere funksjoner
+8.03  * 800   101121 ask  Lagt inn tilgangskontroll på hele rutinen
+8.04  * 800   091221 ask  Henter hvilket regnskapssystem som kjøres
+      *                   Styrer omkjøring etter det.
+8.05  * 800   100122 ask  Lagt inn nullstilling av posisjonering etter filtervalg
+8.06  * 800   190422 ask  Lagt inn filter på "overførte"
+8.07  * 800   130522 ask  Utvidet filtersjekk på "omkjørt" til å sjekke bilag.
+8.08  * 800   160522 ask  Lagt inn omkjøring på Visma Global lager
+8.09  * 800   161122 ask  Sletter ikke omkjøringsfiler ved omkjøring Nexstep økonomi
+8.09  *                   Håndteres manuelt.
+8.10  * 800   140323 ask  Håndterer omkjæring av betalingstranser til POG spesielt
+8.11  * 800   151123 ask  Endringer i forb. beløpslogg omkjøring
+8.12  * 800   031224 ask  Lagt in kontroll om bilagsnummer finnes i overføringsfiler NXS-20521
+8.13  * 800   141025 ask  Endret funksjon for overføring av transaksjoner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frlohi1    if   e           k disk    rename(rlohst:rlohi1r)
+     frlohir    if   e           k disk    rename(rlohst:rlohirr)
+     frlodi1    if   e           k disk    rename(rlodst:rlodi1r)
+      *
+     frf500d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d rlohi1_hts1     s                   like(rlhts1)
+     d rlohir_hts1     s                   like(rlhts1)
+     d rlodi1_dts1     s                   like(rldts1)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_firm          s                   like(rlhfir)
+8.10 d w_dato          s               d   datfmt(*iso)
+8.10 d w_timo          s               t   timfmt(*iso)
+     d w_tmst          s               z
+     d w_logg          s               z
+     d w_curt          s               z
+     d w_datt          s               d
+     d w_dati          s               d
+     d w_date          s              8
+     d w_data          s              8
+     d w_time          s              5
+     d w_tim6          s              8
+     d w_tsch          s             20
+     d w_sumbel        s             11  2
+8.11 d w_dsum          s             12  2
+8.11 d w_ksum          s             12  2
+     d w_dumtim        s               z
+     d w_dumsum        s             11  2
+     d w_dumusr        s             10
+     d w_dumant        s              5  0
+     d w_dumd20        s              2  0
+     d w_dumerr        s              2
+     d w_ovfok         s              1  0
+     d w_lintel        s              8  0
+     d w_biln          s              8  0
+8.07 d w_bila          s              8  0
+8.04 d w_okon          s              2  0
+8.04 d w_oko3          s              1  0
+8.04 d w_oko8          s              1  0
+8.04 d w_oktx          s             20
+8.13 d w_prog          s             10
+     d w_omkj          s              1
+     d b_feil          s              1    inz(*off)
+     d b_biln          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_strt          s              1    inz(*off)
+8.07 d b_ombi          s              1    inz(*off)
+8.12 d b_ovef          s              1    inz(*off)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(19)
+8.03 d c_meld          s             50
+8.01
+     C/Exec SQL
+     C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR,
+     C+             commit=*none
+     C/End-Exec
+
+8.03  *
+8.03  * Sjekker om bruker har tilgang til rutinen
+8.03  *
+8.03 c                   if        w_ovfok = 0
+8.03 c                   eval      c_meld = 'Bruker har ikke tilgang +
+8.03 c                                       til denne rutinen'
+8.03 c                   call      'AA005R'
+8.03 c                   parm                    c_meld
+8.03 c                   goto      avslutt
+8.03 c                   endif
+8.03  *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   eval      b_strt = *on
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   endsl
+      *
+      * F1=Filter
+      *
+     c                   if        *inka
+     c                   exsr      xh1win
+8.05 c                   eval      b_strt = *on
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+     c                   goto      b2tagb
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   if        b_strt = *on
+     c                   eval      rlohi1_hts1 = *hival
+     c                   else
+     c                   eval      rlohi1_hts1 = b1tmst
+     c                   endif
+     c     rlohi1_key    setll     rlohi1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+     c                   eval      b_strt = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      b_forn = *off
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      rlohir_hts1 = b1tmst
+     c                   exsr      xb4win
+     c                   eval      b_forn = *on
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      rlohir_hts1 = b1tmst
+     c                   exsr      xb3win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis bilag
+      *
+     c                   if        b1valg = 7
+     c                   eval      w_omkj = ' '
+     c                   call      'RF501R'
+     c                   parm                    b1tmst
+     c                   parm                    w_omkj
+     c                   if        w_omkj = '1'
+     c                   eval      b_strt = *on
+     c                   endif
+8.11 c                   eval      b_forn = *on
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis linjedetaljer
+      *
+     c                   if        b1valg = 8
+     c                   eval      w_biln = 0
+     c                   call      'RF502R'
+     c                   parm                    b1tmst
+     c                   parm                    w_biln
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Omkjøring av bunt
+      *
+     c                   if        b1valg = 9
+     c                   eval      rlohir_hts1 = b1tmst
+     c                   exsr      xb8win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  H1 Behandle bilde for filter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xh1win        begsr
+      *
+      * Henter inn filterinformasjon
+      *
+     c                   exfmt     h1win
+      *
+      * F3=Avslutt subrutinen
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  B3 Behandle bilde for detaljinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb3win        begsr
+      *
+      * Henter inn opplysninger fra logg
+      *
+     c     rlohir_key    chain     rlohirr
+      *
+     c                   eval      b3trty = rlhtyp
+     c                   eval      w_tmst = rlhts1
+     c                   exsr      cvrt_tmst
+     c                   eval      b3dat1 = w_date
+     c                   eval      b3tim1 = w_tim6
+     c                   eval      b3sum1 = rlhbs1
+     c                   eval      b3usr1 = rlhbr1
+      *
+     c                   if        rlhts2 > *loval
+     c                   eval      w_tmst = rlhts2
+     c                   exsr      cvrt_tmst
+     c                   eval      b3dat2 = w_date
+     c                   eval      b3tim2 = w_tim6
+     c                   eval      b3sum2 = rlhbs2
+     c                   eval      b3usr2 = rlhbr2
+     c                   else
+     c                   eval      b3dat2 = ' '
+     c                   eval      b3tim2 = ' '
+     c                   eval      b3sum2 = 0
+     c                   eval      b3usr2 = ' '
+     c                   endif
+      *
+     c                   if        rlhts3 > *loval
+     c                   eval      w_tmst = rlhts3
+     c                   exsr      cvrt_tmst
+     c                   eval      b3dat3 = w_date
+     c                   eval      b3tim3 = w_tim6
+     c                   eval      b3sum3 = rlhbs3
+     c                   eval      b3usr3 = rlhbr3
+     c                   else
+     c                   eval      b3dat3 = ' '
+     c                   eval      b3tim3 = ' '
+     c                   eval      b3sum3 = 0
+     c                   eval      b3usr3 = ' '
+     c                   endif
+      *
+     c                   if        rlhts4 > *loval
+     c                   eval      w_tmst = rlhts4
+     c                   exsr      cvrt_tmst
+     c                   eval      b3dat4 = w_date
+     c                   eval      b3tim4 = w_tim6
+     c                   eval      b3sum4 = rlhbs4
+     c                   eval      b3usr4 = rlhbr4
+     c                   else
+     c                   eval      b3dat4 = ' '
+     c                   eval      b3tim4 = ' '
+     c                   eval      b3sum4 = 0
+     c                   eval      b3usr4 = ' '
+     c                   endif
+      *
+     c                   if        rlhts5 > *loval
+     c                   eval      w_tmst = rlhts5
+     c                   exsr      cvrt_tmst
+     c                   eval      b3dat5 = w_date
+     c                   eval      b3tim5 = w_tim6
+     c                   eval      b3usr5 = rlhbr5
+     c                   else
+     c                   eval      b3dat5 = ' '
+     c                   eval      b3tim5 = ' '
+     c                   eval      b3usr5 = ' '
+     c                   endif
+      *
+     c                   if        rlhts6 > *loval
+     c                   eval      w_tmst = rlhts6
+     c                   exsr      cvrt_tmst
+     c                   eval      b3dat6 = w_date
+     c                   eval      b3tim6 = w_tim6
+     c                   eval      b3usr6 = rlhbr6
+     c                   else
+     c                   eval      b3dat6 = ' '
+     c                   eval      b3tim6 = ' '
+     c                   eval      b3usr6 = ' '
+     c                   endif
+      *
+      * Sett fargekode på feil
+      *
+     c                   eval      *in54 = *off
+     c                   eval      *in55 = *off
+     c                   eval      *in56 = *off
+      *
+     c                   if        b3sum2 > 0 and
+     c                             b3sum2 <> b3sum1
+     c                   eval      *in54 = *on
+     c                   endif
+      *
+     c                   if        b3sum3 > 0 and
+     c                             b3sum3 <> b3sum1
+     c                   eval      *in55 = *on
+     c                   endif
+      *
+     c                   if        b3sum4 > 0 and
+     c                             b3sum4 <> b3sum1
+     c                   eval      *in56 = *on
+     c                   endif
+      *
+     c                   exfmt     b3win
+      *
+      * F3=Avslutt subrutinen
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  B4 Behandle bilde for sletting logg trans
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb4win        begsr
+8.02  *
+8.02  * Sjekker om bruker er autorisert til sletting
+8.02  *
+8.02 c                   if        w_ovfok <> 2
+8.02 c                   exfmt     b14msg1
+8.02 c                   leavesr
+8.02 c                   endif
+      *
+      * Henter inn opplysninger fra logg
+      *
+     c     rlohir_key    chain     rlohirr
+     c                   eval      b4trty = rlhtyp
+     c                   eval      w_tmst = rlhts1
+     c                   exsr      cvrt_tmst
+     c                   eval      b4date = w_date
+     c                   eval      b4time = w_tim6
+
+     c                   eval      b4bsum = rlhbs1
+     c                   eval      b4user = rlhbr1
+      *
+     c     b4tagc        tag
+     c                   exfmt     b4win
+      *
+      *  Avslutt subrutinen
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      b4tag1
+     c                   endif
+      *
+      /FREE
+
+      // Markerer denne loggposten som slettet
+            w_curt = %timestamp();
+            exec sql
+            update rlohst
+              set rlhts6 = :w_curt, rlhbr6 = :l_user
+              where rlhfir = :w_firm and rlhts1 = :b1tmst;
+
+      // Markerer loggposter på bilagsnummer som slettet
+            exec sql
+            update rlobst
+              set rlbts6 = :w_curt, rlbbr6 = :l_user, rlbslt = 'S'
+              where rlbfir = :w_firm and rlbts1 = :b1tmst;
+      /END-FREE
+      *
+     c     b4tag1        tag
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  B8 Behandle bilde for omkjøring av loggtrans
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb8win        begsr
+8.02  *
+8.02  * Sjekker om bruker er autorisert til omkjøring
+8.02  *
+8.02 c                   if        w_ovfok <> 2
+8.02 c                   exfmt     b18msg3
+8.02 c                   leavesr
+8.02 c                   endif
+      *
+      * Henter inn opplysninger fra logg
+      *
+     c     rlohir_key    chain     rlohirr
+     c                   eval      b8trty = rlhtyp
+     c                   eval      w_tmst = rlhts1
+     c                   exsr      cvrt_tmst
+     c                   eval      b8date = w_date
+     c                   eval      b8time = w_tim6
+
+     c                   eval      b8bsum = rlhbs1
+     c                   eval      b8user = rlhbr1
+8.04 c                   eval      b8okon = w_oktx
+      *
+     c     b8tagc        tag
+     c                   exfmt     b8win
+      *
+      *  Avslutt subrutinen
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      b8tag1
+     c                   endif
+      *
+      *  Sjekker om post er godkjent for omkjøring
+      *
+     c                   if        rlhts6 > *loval
+     c                   exfmt     b18msg1
+     c                   goto      b8tag1
+     c                   endif
+      *
+     c                   if        rlhts5 > *loval
+     c                   exfmt     b18msg2
+     c                   goto      b8tag1
+     c                   endif
+8.12  *
+8.12  *  Sjekker om bilag ligger i overføring
+8.12  *
+8.12 c                   exsr      sjk_ovf
+8.12 c                   if        b_ovef = *on
+8.12 c                   exfmt     b18msg4
+8.12 c                   leavesr
+8.12 c                   endif
+      *
+      *  Legger ut nye posteringslinjer
+      *
+     c                   time                    w_logg
+8.10 c                   if        b1trty = 'BETR'
+8.10 c                   exsr      mrk_omkj
+8.10 c                   exsr      bet_omkj
+8.10 c                   else
+8.04 c                   if        w_okon = 0
+8.04 c                   exsr      trans_nxtp
+8.04 c                   else
+8.04 c                   exsr      trans_ekst
+8.04 c                   endif
+8.10 c                   exsr      mrk_omkj
+     c                   exsr      logg_bilag
+     c                   exsr      logg_hode
+8.01 c                   exsr      trans_overf
+8.10 c                   endif
+      *
+     c                   eval      b_forn = *on
+     c                   eval      b_strt = *on
+      *
+     c     b8tag1        tag
+      *
+     c                   endsr
+8.10  *
+8.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.10  * Subrutine for merking av omkjørte logg poster
+8.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.10  *
+8.10 c     mrk_omkj      begsr
+      *
+      /FREE
+      // Oppdaterer status på transaksjonshode
+            exec sql
+            update rlohst
+              set rlhts5 = :w_logg, rlhbr5 = :l_user
+              where rlhfir = :w_firm and rlhts1 = :b1tmst;
+
+      // Markerer loggposter på bilagsnummer som omkjørt
+            exec sql
+            update rlobst
+              set rlbts5 = :w_logg, rlbbr5 = :l_user, rlbomk = 'O'
+              where rlbfir = :w_firm and rlbts1 = :b1tmst;
+      /END-FREE
+      *
+8.10 c                   endsr
+8.10  *
+8.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.10  * Subrutine for omkjøring av betalingstranser
+8.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.10  *
+8.10   begsr bet_omkj;
+8.10
+8.10   // Legger ut transer til posteringsfil
+8.10
+8.10        w_dato = %date();
+8.10        w_timo = %time();
+8.10
+8.10        exec sql
+8.10         insert into ipogst
+8.10          (iifirm,iibiln,iibdat,iifdat,iibilk,iitext,iidavd,
+8.10           iidkto,iidsps,iidmom,iicavd,iickto,iicsps,iicmom,
+8.10           iibelp,iikund,iikref,iikidi,iivalk,iivalb,iiproj,
+8.10           iiakti,iisfak,iiodat,iiotim,iiousr,iiboda,iiupro,
+8.10           iitype,iibetb,iiflag,iiremi)
+8.10           select
+8.10            rldfir,rldbin,rldbda,rldfda,rldbko,rldbtx,rlddav,
+8.10            rlddko,rlddsp,rlddmv,rldkav,rldkko,rldksp,rldkmv,
+8.10            rldbel,rldres,rldkrf,rldlki,rldvko,rldvbe,rldpro,
+8.10            rldpra,rldsfa,:w_dato,:w_timo,:l_user,rldbda,rldpru,
+8.10            rldtty,rldbet,' ',rldrem
+8.10          from rlodst
+8.10          where rldfir = :w_firm and rldts1 = :b1tmst
+8.10          order by rldlin;
+8.10
+8.10   // Legger ut poster til logg-hode
+8.10
+8.10
+8.10        exec sql
+8.10        insert into rlohst
+8.10          (rlhfir,rlhtyp,rlhts1,rlhbs1,rlhbr1,
+8.10           rlhts2,rlhbs2,rlhbr2,
+8.10           rlhts3,rlhbs3,rlhbr3,
+8.10           rlhts4,rlhbs4,rlhbr4,
+8.10           rlhts5,rlhbr5,
+8.10           rlhts6,rlhbr6)
+8.10           select
+8.10           rlhfir,rlhtyp,:w_logg,:rlhbs1,:l_user,
+8.10           :w_dumtim,:w_dumsum,:w_dumusr,
+8.10           :w_dumtim,:w_dumsum,:w_dumusr,
+8.10           :w_dumtim,:w_dumsum,:w_dumusr,
+8.10           :w_dumtim,:w_dumusr,
+8.10           :w_dumtim,:w_dumusr
+8.10          from rlohst
+8.10          where rlhfir = :w_firm and rlhts1 = :b1tmst;
+8.10
+8.10   // Legger ut poster til logg-bilag
+8.10
+8.10        exec sql
+8.10         insert into rlobst
+8.10          (rlbfir, rlbbil, rlbts1,rlban1,rlbsd1,rlbsk1,rlbbr1,
+8.10           rlbts2,rlban2,rlbsd2,rlbsk2,rlbbr2,rlbff2,rlbft2,
+8.10           rlbts3,rlban3,rlbsd3,rlbsk3,rlbbr3,rlbff3,rlbft3,
+8.10           rlbts4,rlban4,rlbsd4,rlbsk4,rlbbr4,rlbff4,rlbft4,
+8.10           rlbts5, rlbbr5, rlbts6, rlbbr6)
+8.10           select
+8.10            rlbfir,rlbbil,:w_logg,rlban1,rlbsd1,rlbsk1,:l_user,
+8.10            :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+8.10            :w_dumusr, ' ', ' ',
+8.10            :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+8.10            :w_dumusr, ' ', ' ',
+8.10            :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+8.10            :w_dumusr, ' ', ' ',
+8.10            :w_dumtim, :w_dumusr, :w_dumtim, :w_dumusr
+8.10          from rlobst
+8.10          where rlbfir = :w_firm  and rlbts1 = :b1tmst
+8.10          order by rlbbil ;
+8.10
+8.10   // Legger ut poster til logg-linjer
+8.10
+8.10        exec sql
+8.10        insert into rlodst
+8.10          (rldfir,rldtyp,rldts1,rldlin,rldper,
+8.10           rldbun,rldbin,rldbli,rldbda,rldfda,
+8.10           rldbko,rldbtx,rlddav,rlddko,rlddsp,
+8.10           rlddmv,rldbel,rldmvg,rldkav,rldkko,
+8.10           rldksp,rldkmv,rldpro,rldpra,rldpru,
+8.10           rldpao,rldkrf,rldres,rldlki,rldkki,
+8.10           rldkkk,rldaki,rldvko,rldvbe,rldmko,
+8.10           rldmen,rldsal,rldsfa,rldtty,rldbet,rldrem)
+8.10           select
+8.10            rldfir,rldtyp,:w_logg,rldlin,
+8.10               rldper,rldbun,rldbin,rldbli,
+8.10               rldbda,rldfda,rldbko,rldbtx,
+8.10               rlddav,rlddko,rlddsp,rlddmv,
+8.10               rldbel,rldmvg,rldkav,rldkko,
+8.10               rldksp,rldkmv,rldpro,rldpra,
+8.10               rldpru,rldpao,rldkrf,rldres,
+8.10               rldlki,rldkki,rldkkk,rldaki,
+8.10               rldvko,rldvbe,rldmko,rldmen,
+8.10               rldsal,rldsfa,rldtty,rldbet,rldrem
+8.10          from rlodst
+8.10          where rldfir = :w_firm  and rldts1 = :b1tmst
+8.10          order by rldlin ;
+8.10
+8.10   endsr;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14  = *on
+     c                   write     b2ctl
+     c                   eval      *in14  = *off
+      *
+     c                   eval      *in15  = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+     c                   read      rlohi1
+     c                   if        %eof  or
+     c                             rlhfir <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+      *  Sjekk filter
+      *
+8.06 c                   if        h1ovfd = ' ' and
+8.06 c                             rlhts2 > *loval
+8.06 c                   iter
+8.06 c                   endif
+8.06  *
+     c                   if        h1oppd = ' ' and
+     c                             rlhts4 > *loval
+     c                   iter
+     c                   endif
+      *
+8.07 c                   if        h1omkj = ' '
+8.07 c                   eval      b_ombi = *off
+8.07 c                   exsr      sjekk_ombi
+8.07 c                   if        rlhts5 > *loval or
+8.07 c                             b_ombi = *on
+     c                   iter
+     c                   endif
+8.07 c                   endif
+      *
+     c                   if        h1type <> '  ' and
+     c                             rlhtyp <> h1type
+     c                   iter
+     c                   endif
+      *
+     c                   if        h1dato <> 0
+     c                   eval      w_tmst = rlhts1
+     c                   exsr      cvrt_tmst
+     c                   eval      w_datt = %date(h1dato:*dmy)
+     c                   eval      w_dati = %date(%dec(w_data:6:0):*dmy)
+     c                   if        w_dati > w_datt
+     c                   iter
+     c                   endif
+     c                   endif
+      *
+     c                   if        h1slet = ' ' and
+     c                             rlhts6 > *loval
+     c                   iter
+     c                   endif
+      *
+     c                   if        h1feil <> ' '
+     c                   exsr      feil_sjekk
+     c                   if        b_feil = *off
+     c                   iter
+     c                   endif
+     c                   endif
+      *
+     c                   if        h1biln <> 0
+     c                   exsr      biln_sjekk
+     c                   if        b_biln = *off
+     c                   iter
+     c                   endif
+     c                   endif
+      *
+      * Fyll opp subfile
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1tmst = rlhts1
+     c                   eval      b1trty = rlhtyp
+     c                   eval      b1bsum = rlhbs1
+     c                   eval      w_tmst = rlhts1
+     c                   exsr      cvrt_tmst
+     c                   eval      b1dat1 = w_date
+     c                   eval      b1tim1 = w_time
+      *
+     c                   if        rlhts2 > *loval
+     c                   eval      w_tmst = rlhts2
+     c                   exsr      cvrt_tmst
+     c                   eval      b1dat2 = w_date
+     c                   eval      b1tim2 = w_time
+     c                   else
+     c                   eval      b1dat2 = '  '
+     c                   eval      b1tim2 = '  '
+     c                   endif
+      *
+     c                   if        rlhts3 > *loval
+     c                   eval      w_tmst = rlhts3
+     c                   exsr      cvrt_tmst
+     c                   eval      b1dat3 = w_date
+     c                   eval      b1tim3 = w_time
+     c                   else
+     c                   eval      b1dat3 = '  '
+     c                   eval      b1tim3 = '  '
+     c                   endif
+      *
+     c                   if        rlhts4 > *loval
+     c                   eval      w_tmst = rlhts4
+     c                   exsr      cvrt_tmst
+     c                   eval      b1dat4 = w_date
+     c                   eval      b1tim4 = w_time
+     c                   else
+     c                   eval      b1dat4 = '  '
+     c                   eval      b1tim4 = '  '
+     c                   endif
+      *
+     c                   if        rlhts5 > *loval
+     c                   eval      w_tmst = rlhts5
+     c                   exsr      cvrt_tmst
+     c                   eval      b1dat5 = w_date
+     c                   eval      b1tim5 = w_time
+     c                   else
+     c                   eval      b1dat5 = '  '
+     c                   eval      b1tim5 = '  '
+     c                   endif
+      *
+     c                   if        rlhts6 > *loval
+     c                   eval      w_tmst = rlhts6
+     c                   exsr      cvrt_tmst
+     c                   eval      b1dat6 = w_date
+     c                   eval      b1tim6 = w_time
+     c                   else
+     c                   eval      b1dat6 = '  '
+     c                   eval      b1tim6 = '  '
+     c                   endif
+      *
+      * Sjekk feilstatus - sett farge
+      *
+     c                   exsr      feil_sjekk
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     rlohi1_key    setll     rlohi1
+     c                   readp     rlohi1
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     rlohi1
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      rlohi1_hts1 = rlhts1
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     rlohi1_key    setll     rlohi1
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12  = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      w_virn = w_virn
+     c                   eval      *in13  = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12  = *off
+     c                   eval      *in13  = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for omkjøring av transaksjonsbunt NEXSTEP
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+8.04 c     trans_nxtp    begsr
+      *
+     c                   eval      w_lintel = 0
+      *
+     c                   eval      rlodi1_dts1 = b1tmst
+     c     rlodi1_key    setll     rlodi1
+     c     rlodi1_key    reade     rlodi1
+     c                   dow       not %eof(rlodi1)
+      /Free
+          if b1trty = 'FAKT';
+            exec sql
+8.04        insert into fovfpf
+              (fffirm,ffperi,ffbunt,ffbiln,ffbill,
+               ffbdat,fffdat,ffbilk,fftext,ffdavd,
+               ffdkto,ffdsps,ffdmom,ffbelp,ffmvag,
+               ffcavd,ffckto,ffcsps,ffcmom,ffproj,
+               ffakti,ffkref,ffkund,ffkidi,ffkidr,
+               ffksif,ffkid2,ffvalk,ffvalb,ffmngk,
+               ffmngd,ffautx,ffupro,ffarbo,fflogg)
+              values(:rldfir,:rldper,:rldbun,:rldbin,:rldbli,
+                   :rldbda,:rldfda,:rldbko,:rldbtx,:rlddav,
+                   :rlddko,:rlddsp,:rlddmv,:rldbel,:rldmvg,
+                   :rldkav,:rldkko,:rldksp,:rldkmv,:rldpro,
+                   :rldpra,:rldkrf,:rldres,:rldlki,:rldkki,
+                   :rldkkk,:rldaki,:rldvko,:rldvbe,:rldmko,
+                   :rldmen,:rldsal,:rldpru,:rldpao,:w_logg);
+
+            exsr logg_linjer;
+
+          endif;
+
+          if b1trty = 'INKJ';
+            exec sql
+8.04        insert into lovfpf
+              (lgfirm,lgperi,lgbunt,lgbiln,lgbill,
+               lgbdat,lgfdat,lgbilk,lgtext,lgdavd,
+               lgdkto,lgdsps,lgdmom,lgbelp,lgmvag,
+               lgcavd,lgckto,lgcsps,lgcmom,lgproj,
+               lgakti,lgkref,lgkund,lgvalk,lgvalb,
+               lgmngk,lgmngd,lgautx,lgkidi,lgsfak,
+               lgupro,lgarbo,lglogg)
+            values(:rldfir,:rldper,:rldbun,:rldbin,:rldbli,
+                   :rldbda,:rldfda,:rldbko,:rldbtx,:rlddav,
+                   :rlddko,:rlddsp,:rlddmv,:rldbel,:rldmvg,
+                   :rldkav,:rldkko,:rldksp,:rldkmv,:rldpro,
+                   :rldpra,:rldkrf,:rldres,:rldvko,:rldvbe,
+                   :rldmko,:rldmen,:rldsal,:rldlki,:rldsfa,
+                   :rldpru,:rldpao,:w_logg);
+
+            exsr logg_linjer;
+
+          endif;
+
+          if b1trty = 'SHOP';
+            exec sql
+8.04        insert into bovfpf
+              (bffirm,bfperi,bfbunt,bfbiln,bfbill,
+               bfbdat,bffdat,bfbilk,bftext,bfdavd,
+               bfdkto,bfdsps,bfdmom,bfbelp,bfmvag,
+               bfcavd,bfckto,bfcsps,bfcmom,bfproj,
+               bfakti,bfkref,bfkund,
+               bfvalk,bfvalb,bfmngk,
+               bfmngd,bfautx,bflogg)
+            values(:rldfir,:rldper,:rldbun,:rldbin,:rldbli,
+                   :rldbda,:rldfda,:rldbko,:rldbtx,:rlddav,
+                   :rlddko,:rlddsp,:rlddmv,:rldbel,:rldmvg,
+                   :rldkav,:rldkko,:rldksp,:rldkmv,:rldpro,
+                   :rldpra,:rldkrf,:rldres,
+                   :rldvko,:rldvbe,:rldmko,
+                   :rldmen,:rldsal,:w_logg);
+
+            exsr logg_linjer;
+
+          endif;
+      /END-FREE
+     c     rlodi1_key    reade     rlodi1
+     c                   enddo
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for omkjøring av transaksjonsbunt eksterne
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+8.04 c     trans_ekst    begsr
+      *
+     c                   eval      w_lintel = 0
+      *
+     c                   eval      rlodi1_dts1 = b1tmst
+     c     rlodi1_key    setll     rlodi1
+     c     rlodi1_key    reade     rlodi1
+     c                   dow       not %eof(rlodi1)
+      /Free
+          if b1trty = 'FAKT';
+            exec sql
+8.01        insert into fomkpf
+              (fffirm,ffperi,ffbunt,ffbiln,ffbill,
+               ffbdat,fffdat,ffbilk,fftext,ffdavd,
+               ffdkto,ffdsps,ffdmom,ffbelp,ffmvag,
+               ffcavd,ffckto,ffcsps,ffcmom,ffproj,
+               ffakti,ffkref,ffkund,ffkidi,ffkidr,
+               ffksif,ffkid2,ffvalk,ffvalb,ffmngk,
+               ffmngd,ffautx,ffupro,ffarbo,fflogg)
+              values(:rldfir,:rldper,:rldbun,:rldbin,:rldbli,
+                   :rldbda,:rldfda,:rldbko,:rldbtx,:rlddav,
+                   :rlddko,:rlddsp,:rlddmv,:rldbel,:rldmvg,
+                   :rldkav,:rldkko,:rldksp,:rldkmv,:rldpro,
+                   :rldpra,:rldkrf,:rldres,:rldlki,:rldkki,
+                   :rldkkk,:rldaki,:rldvko,:rldvbe,:rldmko,
+                   :rldmen,:rldsal,:rldpru,:rldpao,:w_logg);
+
+            exsr logg_linjer;
+
+          endif;
+
+          if b1trty = 'INKJ';
+            exec sql
+8.01        insert into lomkpf
+              (lgfirm,lgperi,lgbunt,lgbiln,lgbill,
+               lgbdat,lgfdat,lgbilk,lgtext,lgdavd,
+               lgdkto,lgdsps,lgdmom,lgbelp,lgmvag,
+               lgcavd,lgckto,lgcsps,lgcmom,lgproj,
+               lgakti,lgkref,lgkund,lgvalk,lgvalb,
+               lgmngk,lgmngd,lgautx,lgkidi,lgsfak,
+               lgupro,lgarbo,lglogg)
+            values(:rldfir,:rldper,:rldbun,:rldbin,:rldbli,
+                   :rldbda,:rldfda,:rldbko,:rldbtx,:rlddav,
+                   :rlddko,:rlddsp,:rlddmv,:rldbel,:rldmvg,
+                   :rldkav,:rldkko,:rldksp,:rldkmv,:rldpro,
+                   :rldpra,:rldkrf,:rldres,:rldvko,:rldvbe,
+                   :rldmko,:rldmen,:rldsal,:rldlki,:rldsfa,
+                   :rldpru,:rldpao,:w_logg);
+
+            exsr logg_linjer;
+
+          endif;
+
+          if b1trty = 'SHOP';
+            exec sql
+8.01        insert into bomkpf
+              (bffirm,bfperi,bfbunt,bfbiln,bfbill,
+               bfbdat,bffdat,bfbilk,bftext,bfdavd,
+               bfdkto,bfdsps,bfdmom,bfbelp,bfmvag,
+               bfcavd,bfckto,bfcsps,bfcmom,bfproj,
+               bfakti,bfkref,bfkund,
+               bfvalk,bfvalb,bfmngk,
+               bfmngd,bfautx,bflogg)
+            values(:rldfir,:rldper,:rldbun,:rldbin,:rldbli,
+                   :rldbda,:rldfda,:rldbko,:rldbtx,:rlddav,
+                   :rlddko,:rlddsp,:rlddmv,:rldbel,:rldmvg,
+                   :rldkav,:rldkko,:rldksp,:rldkmv,:rldpro,
+                   :rldpra,:rldkrf,:rldres,
+                   :rldvko,:rldvbe,:rldmko,
+                   :rldmen,:rldsal,:w_logg);
+
+            exsr logg_linjer;
+
+          endif;
+      /END-FREE
+     c     rlodi1_key    reade     rlodi1
+     c                   enddo
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Legger ut poster til loggfil bilag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      /FREE
+       begsr logg_bilag;
+
+         w_sumbel = 0;
+         w_dumtim = *loval;
+         w_dumsum = 0;
+         w_dumant = 0;
+         w_dumusr = '  ';
+         w_dumerr = '  ';
+
+          if b1trty = 'FAKT';
+            exec sql
+             insert into rlobst
+              (RLBFIR, RLBBIL, RLBTS1,RLBAN1,RLBSD1,RLBSK1,RLBBR1,
+               RLBTS2,RLBAN2,RLBSD2,RLBSK2,RLBBR2,RLBFF2,RLBFT2,
+               RLBTS3,RLBAN3,RLBSD3,RLBSK3,RLBBR3,RLBFF3,RLBFT3,
+               RLBTS4,RLBAN4,RLBSD4,RLBSK4,RLBBR4,RLBFF4,RLBFT4,
+               RLBTS5, RLBBR5, RLBTS6, RLBBR6)
+               select
+                fffirm, ffbiln, :w_logg, count(*) ,
+                sum(ffbelp)/2 ,sum(ffbelp)/2, :l_user,
+                :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+                :w_dumusr, ' ', ' ',
+                :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+                :w_dumusr, ' ', ' ',
+                :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+                :w_dumusr, ' ', ' ',
+                :w_dumtim, :w_dumusr, :w_dumtim, :w_dumusr
+              from fomkpf
+              where fffirm = :w_firm and fflogg = :w_logg
+              group by fffirm,ffbiln
+              order by ffbiln ;
+           endif;
+
+          if b1trty = 'INKJ';
+            exec sql
+             insert into rlobst
+              (RLBFIR, RLBBIL, RLBTS1,RLBAN1,RLBSD1,RLBSK1,RLBBR1,
+               RLBTS2,RLBAN2,RLBSD2,RLBSK2,RLBBR2,RLBFF2,RLBFT2,
+               RLBTS3,RLBAN3,RLBSD3,RLBSK3,RLBBR3,RLBFF3,RLBFT3,
+               RLBTS4,RLBAN4,RLBSD4,RLBSK4,RLBBR4,RLBFF4,RLBFT4,
+               RLBTS5, RLBBR5, RLBTS6, RLBBR6)
+               select
+                lgfirm, lgbiln, :w_logg, count(*) ,
+                sum(lgbelp)/2 ,sum(lgbelp)/2, :l_user,
+                :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+                :w_dumusr, ' ', ' ',
+                :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+                :w_dumusr, ' ', ' ',
+                :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+                :w_dumusr, ' ', ' ',
+                :w_dumtim, :w_dumusr, :w_dumtim, :w_dumusr
+              from lomkpf
+              where lgfirm = :w_firm and lglogg = :w_logg
+              group by lgfirm,lgbiln
+              order by lgbiln ;
+           endif;
+
+          if b1trty = 'SHOP';
+            exec sql
+             insert into rlobst
+              (RLBFIR, RLBBIL, RLBTS1,RLBAN1,RLBSD1,RLBSK1,RLBBR1,
+               RLBTS2,RLBAN2,RLBSD2,RLBSK2,RLBBR2,RLBFF2,RLBFT2,
+               RLBTS3,RLBAN3,RLBSD3,RLBSK3,RLBBR3,RLBFF3,RLBFT3,
+               RLBTS4,RLBAN4,RLBSD4,RLBSK4,RLBBR4,RLBFF4,RLBFT4,
+               RLBTS5, RLBBR5, RLBTS6, RLBBR6)
+               select
+                bffirm, bfbiln, :w_logg, count(*) ,
+                sum(bfbelp)/2 ,sum(bfbelp)/2, :l_user,
+                :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+                :w_dumusr, ' ', ' ',
+                :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+                :w_dumusr, ' ', ' ',
+                :w_dumtim, :w_dumant, :w_dumsum, :w_dumsum,
+                :w_dumusr, ' ', ' ',
+                :w_dumtim, :w_dumusr, :w_dumtim, :w_dumusr
+              from bomkpf
+              where bffirm = :w_firm and bflogg = :w_logg
+              group by bffirm,bfbiln
+              order by bfbiln ;
+           endif;
+
+       endsr;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Legger ut post til loggfil hode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      /FREE
+       begsr logg_hode;
+
+         w_sumbel = 0;
+         w_dumtim = *loval;
+         w_dumsum = 0;
+         w_dumusr = '  ';
+
+8.11    exec sql
+8.11      select sum(rlbsd1), sum(rlbsk1)
+8.11        into :w_dsum, :w_ksum
+8.11         from rlobst
+8.11         where rlbts1 = :w_logg;
+8.11
+8.11    w_sumbel = (w_dsum + w_ksum) / 2;
+
+            if w_sumbel > 0;
+            exec sql
+            insert into rlohst
+              (rlhfir,rlhtyp,rlhts1,rlhbs1,rlhbr1,
+               rlhts2,rlhbs2,rlhbr2,
+               rlhts3,rlhbs3,rlhbr3,
+               rlhts4,rlhbs4,rlhbr4,
+               rlhts5,rlhbr5,
+               rlhts6,rlhbr6)
+            values(:w_firm,:b1trty,:w_logg,:w_sumbel,:l_user,
+                   :w_dumtim,:w_dumsum,:w_dumusr,
+                   :w_dumtim,:w_dumsum,:w_dumusr,
+                   :w_dumtim,:w_dumsum,:w_dumusr,
+                   :w_dumtim,:w_dumusr,
+                   :w_dumtim,:w_dumusr);
+
+            endif;
+       endsr;
+      /END-FREE
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Legger ut posteringstrans til loggfil linjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      /Free
+       begsr logg_linjer;
+
+         w_lintel = w_lintel + 1;
+
+            exec sql
+            insert into rlodst
+              (rldfir,rldtyp,rldts1,rldlin,rldper,
+               rldbun,rldbin,rldbli,rldbda,rldfda,
+               rldbko,rldbtx,rlddav,rlddko,rlddsp,
+               rlddmv,rldbel,rldmvg,rldkav,rldkko,
+               rldksp,rldkmv,rldpro,rldpra,rldpru,
+               rldpao,rldkrf,rldres,rldlki,rldkki,
+               rldkkk,rldaki,rldvko,rldvbe,rldmko,
+               rldmen,rldsal,rldsfa,rldtty,rldbet,rldrem)
+            values(:rldfir,:rldtyp,:w_logg,:w_lintel,
+                   :rldper,:rldbun,:rldbin,:rldbli,
+                   :rldbda,:rldfda,:rldbko,:rldbtx,
+                   :rlddav,:rlddko,:rlddsp,:rlddmv,
+                   :rldbel,:rldmvg,:rldkav,:rldkko,
+                   :rldksp,:rldkmv,:rldpro,:rldpra,
+                   :rldpru,:rldpao,:rldkrf,:rldres,
+                   :rldlki,:rldkki,:rldkkk,:rldaki,
+                   :rldvko,:rldvbe,:rldmko,:rldmen,
+                   :rldsal,:rldsfa,:rldtty,:rldbet,:rldrem);
+
+       endsr;
+      /END-FREE
+8.04  *
+8.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.04  * Legger ut transer og rydder opp
+8.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.04  *
+8.13 c     trans_overf   begsr
+8.04
+8.04  //
+8.13       if b1trty = 'FAKT';
+8.13        w_prog = 'ROMF' + %char(%editc(w_okon:'X')) + 'C';
+8.13       endif;
+8.13       if b1trty = 'SHOP';
+8.13        w_prog = 'ROMB' + %char(%editc(w_okon:'X')) + 'C';
+8.13       endif;
+8.13       if b1trty = 'INKJ';
+8.13        w_prog = 'ROML' + %char(%editc(w_okon:'X')) + 'C';
+8.13       endif;
+8.13  //
+8.13 c                   call      w_prog
+8.04
+8.04  // Tømmer omkjøringsfiler
+8.04
+8.09      if w_okon > 0;
+8.04       if b1trty = 'FAKT';
+8.04        exec sql
+8.04        delete from fomkpf;
+8.04       endif;
+8.04
+8.04      if b1trty = 'SHOP';
+8.04        exec sql
+8.04        delete from bomkpf;
+8.04       endif;
+8.04
+8.04       if b1trty = 'INKJ';
+8.04        exec sql
+8.04        delete from lomkpf;
+8.04       endif;
+8.09       endif;
+8.04
+8.13 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for konvertere dato/tid fra timestamp
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      /FREE
+       begsr cvrt_tmst;
+
+           w_tsch = %char(w_tmst);
+
+           w_date = %subst(w_tsch:9:2 ) + '.' + %subst(w_tsch:6:2)
+                    + '.' + %subst(w_tsch:3:2 );
+           w_data = %subst(w_tsch:9:2 ) +  %subst(w_tsch:6:2)
+                    +  %subst(w_tsch:3:2 );
+           w_time = %subst(w_tsch:12:5);
+           w_tim6 = %subst(w_tsch:12:8);
+
+       endsr;
+      /END-FREE
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for sjekk av feilstatus på transaksjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     feil_sjekk    begsr
+      *
+     c                   eval      *in50 = *off
+     c                   eval      b_feil = *off
+      *
+      * Sjekk om avvik på kontrollsum
+      *
+     c                   if        rlhts2 <> *loval and
+     c                             rlhbs1 <> rlhbs2
+     c                   eval      *in50 = *on
+     c                   eval      b_feil = *on
+     c                   endif
+     c                   if        rlhts3 <> *loval and
+     c                             rlhbs1 <> rlhbs3
+     c                   eval      *in50 = *on
+     c                   eval      b_feil = *on
+     c                   endif
+     c                   if        rlhts4 <> *loval and
+     c                             rlhbs1 <> rlhbs4
+     c                   eval      *in50 = *on
+     c                   eval      b_feil = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å finne bunter på valgt bilagsnummer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      /Free
+       begsr biln_sjekk;
+
+         b_biln = *off;
+
+         exec sql
+          declare sok cursor for
+          select rlbts1
+            from rlobst
+            where rlbfir = :w_firm and rlbbil = :h1biln
+          for read only;
+
+         exec sql
+         open sok;
+
+         exec sql
+         fetch next from sok into :w_tmst;
+         dow sqlstate = '00000';
+         if rlhts1 = w_tmst;
+           b_biln = *on;
+         endif;
+         exec sql
+         fetch next from sok into :w_tmst;
+         enddo;
+
+         exec sql
+         close sok;
+
+       endsr;
+      /END-FREE
+8.02  *
+8.02  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.02  * Subrutine for å sjekke om bruker kan gjøre endringer
+8.02  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.02  *
+8.02  /FREE
+8.02   begsr sjk_user;
+8.02
+8.02     w_ovfok = 0;
+8.02     exec sql
+8.02      select fbko11
+8.02       into :w_ovfok
+8.02      from fusrpf
+8.02      where fbfirm = :w_firm and fbuser = :l_user;
+8.02   endsr;
+8.02  /END-FREE
+8.04  *
+8.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.04  * Subrutine for å sjekke hvilket regnskapssystem som kjøres
+8.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.04  *
+8.04  /FREE
+8.04   begsr sjk_okon;
+8.04
+8.04 c                   call      'ROM01R'
+8.04 c                   parm                    w_okon
+8.04
+8.04     if w_okon = 0;
+8.04        w_oktx = 'Nexstep  ';
+8.04     endif;
+8.04     if w_okon = 1;
+8.04        w_oktx = 'Visma Std.';
+8.04     endif;
+8.04     if w_okon = 2;
+8.04        w_oktx = 'Visma Sum';
+8.04     endif;
+8.04     if w_okon = 3;
+8.04        w_oktx = 'Visma Business';
+8.04     endif;
+8.04     if w_okon = 4;
+8.04        w_oktx = 'Zirius ';
+8.04     endif;
+8.04     if w_okon = 5;
+8.04        w_oktx = 'Navisison)';
+8.04     endif;
+8.04     if w_okon = 6;
+8.04        w_oktx = 'CSV-filer';
+8.04     endif;
+8.04     if w_okon = 7;
+8.04        w_oktx = 'Mamut  ';
+8.04     endif;
+8.04     if w_okon = 8;
+8.04        w_oktx = 'Uni Micro';
+8.04     endif;
+8.04     if w_okon = 9;
+8.04        w_oktx = 'Xledger';
+8.04     endif;
+8.04     if w_okon = 10;
+8.04        w_oktx = 'Duett  ';
+8.04     endif;
+8.04     if w_okon = 11;
+8.04        w_oktx = 'Trippeltex';
+8.04     endif;
+8.04     if w_okon = 12;
+8.04        w_oktx = 'Visma Net';
+8.04     endif;
+8.04     if w_okon = 13;
+8.04        w_oktx = 'Busines Cental';
+8.04     endif;
+8.04     if w_okon = 14;
+8.04        w_oktx = 'Microsoft D365';
+8.04     endif;
+8.04     if w_okon = 15;
+8.04        w_oktx = 'SAP';
+8.04     endif;
+8.04     if w_okon = 16;
+8.04        w_oktx = 'Poweroffice';
+8.04     endif;
+8.04     if w_okon = 17;
+8.04        w_oktx = 'Poweroffice fil';
+8.04     endif;
+8.04     if w_okon = 18;
+8.04        w_oktx = 'Trippeltex API';
+8.04     endif;
+8.04     if w_okon = 19;
+8.04        w_oktx = 'Poveroffice comb';
+8.04     endif;
+8.04     if w_okon = 20;
+8.04        w_oktx = 'Zirius/Visma format';
+8.04     endif;
+8.04   endsr;
+8.04  /END-FREE
+8.07  *
+8.07  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.07  * Subrutine for å sjekke om bilag i bunt er omkjørt
+8.07  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.07  *
+8.07   begsr sjekk_ombi;
+8.07
+8.07     exec sql
+8.07      select rlbbil
+8.07       into :w_bila
+8.07      from rlobst
+8.07      where rlbfir = :w_firm
+8.07       and  rlbts1 = :rlhts1
+8.07       and  rlbts5 = '0001-01-01-00.00.00.000000';
+8.07
+8.07     if sqlcod = 100;
+8.07       b_ombi = *on;
+8.07     endif;
+8.07   endsr;
+8.12  *
+8.12  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.12  * Subrutine for å sjekke om bilag i bunt er i overføringsfil
+8.12  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.12  *
+8.12   begsr sjk_ovf;
+8.12
+8.12     b_ovef = *off;
+8.12
+8.12  // Finn føreste bilagsnummer i bunt
+8.12
+8.12     exec sql
+8.12      select rlbbil
+8.12        into :w_biln
+8.12      from rlobst
+8.12      where rlbts1 = :rlhts1
+8.12        fetch first 1 row only;
+8.12
+8.12  // Sjekk i ordretranser
+8.12
+8.12     if b1trty = 'FAKT';
+8.12     exec sql
+8.12      select iobiln
+8.12        into :w_biln
+8.12      from iordst
+8.12      where iofirm = :w_firm
+8.12       and  iobiln = :w_biln
+8.12        fetch first 1 row only;
+8.12       if sqlcod = 0;
+8.12         b_ovef = *on;
+8.12       endif;
+8.12     endif;
+8.12
+8.12  // Sjekk i innkjøpstranser
+8.12
+8.12     if b1trty = 'INKJ';
+8.12     exec sql
+8.12      select iibiln
+8.12        into :w_biln
+8.12      from iinkst
+8.12      where iifirm = :w_firm
+8.12       and  iibiln = :w_biln
+8.12        fetch first 1 row only;
+8.12       if sqlcod = 0;
+8.12         b_ovef = *on;
+8.12       endif;
+8.12     endif;
+8.12
+8.12  // Sjekk i butikk transer
+8.12
+8.12     if b1trty = 'SHOP';
+8.12     exec sql
+8.12      select ibbiln
+8.12        into :w_biln
+8.12      from iibutt
+8.12      where ibfirm = :w_firm
+8.12       and  ibbiln = :w_biln
+8.12        fetch first 1 row only;
+8.12       if sqlcod = 0;
+8.12         b_ovef = *on;
+8.12       endif;
+8.12     endif;
+8.12
+8.12   endsr;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for oppslag på transaksjonslogg
+      *
+     c     rlohir_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlohir_hts1
+      *
+      * Key for posisjonering på transaksjonslogg
+      *
+     c     rlohi1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlohi1_hts1
+      *
+      * Key for posisjonering på transaksjonslogg linjer
+      *
+     c     rlodi1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlodi1_dts1
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+8.02 c                   exsr      sjk_user
+8.04 c                   exsr      sjk_okon
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      rlohi1_hts1 = *hival
+     c     rlohi1_key    setll     rlohi1
+     c                   exsr      crt_subfile
+      *
+      *
+     c                   endsr
+      *

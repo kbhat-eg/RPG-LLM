@@ -1,0 +1,250 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASVADM
+      * Program . . . . : JM700R
+      * Beskrivelse . . : Vedlikehold av kampanjepriser, beregner priser
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       300997 HKO  Nytt program
+6.30  * 6.30  270314 bof  feilretting + test om varepris VA er utgått
+6.31  * 6.30  110714 bof  endret nøkkel i varepris - dato
+6.32  * 6.30  020816 bof  Feilretting vedr. test på til prisdato.
+7.01  * 7.00  251119 bsa  Utvide med prisgr. på kampanje i VA
+8.01  *PRG2   130622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjkavlu    uf a e           k disk    rename(jkavpfr:jkavlur)
+     fjvprl1    if   e           k disk    rename(jvprpfr:jvprl1r)
+      *
+      * Definering av parametre
+      *
+     d p_user          s             10
+     d p_raba          s              4  2
+     d p_rab1          s              4  2
+     d p_rab2          s              4  2
+     d p_pslk          s              4  2
+     d p_psls          s              4  2
+      *
+     d p_firm          s                   like(jmvfir)
+     d p_kamp          s                   like(jmvkam)
+7.01 d p_prgr          s                   like(jmvprg)
+     d p_ldor          s                   like(jmvldo)
+     d p_pldo          s                   like(jmvldo)
+     d p_vkai          s                   like(jmvkai)
+     d p_vkpr          s                   like(jmvkpr)
+     d p_vkaa          s                   like(jmvkaa)
+     d p_vare          s                   like(jmvvar)
+      *
+      * Definering av variabler i nøkler
+      *
+     d jkavlu_vkam     s                   like(jmvkam)
+7.01 d jkavlu_vprg     s                   like(jmvprg)
+     d jkavlu_vvar     s                   like(jmvvar)
+     d jvprl1_ldor     s                   like(jxldor)
+     d jvprl1_vare     s                   like(jxvare)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(jmvfir)
+     d w_pris          s                   like(jmvkai)
+     d w_udat          s                   like(jxtdat)
+6.31 d b_pris          s              1    inz(*off)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram. Oppretter/oppdaterer kampanjevarer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   reset                   jkavlur
+      *
+     c                   eval      jkavlu_vkam = p_kamp
+     c                   eval      jkavlu_vvar = p_vare
+     c     jkavlu_key    chain     jkavlur                            90
+      *
+     c                   eval      jmvkai = 0
+     c                   eval      jmvkpr = 0
+     c                   eval      jmvkaa = 0
+      *
+      * Behandling avhengig av rabatt eller pris
+      *
+     c                   select
+     c                   when      p_rab1 <> 0 or
+     c                             p_rab2 <> 0 or
+     c                             p_pslk <> 0 or
+     c                             p_raba <> 0 or
+     c                             p_psls <> 0
+     c                   exsr      oppd_rab
+     c                   when      p_vkai <> 0
+     c                   exsr      oppd_pris
+     c                   endsl
+      *
+      * Oppdaterer eller oppretter kampanje-vare
+      *
+     c                   eval      jmvkau = 0
+      *
+     c                   eval      jmvldo = p_pldo
+     c                   eval      jmveus = p_user
+      *
+     c                   time                    jmveti
+     c                   time                    jmveda
+      *
+     c                   if        *in90 = *off
+     c                   update    jkavlur
+     c                   else
+     c                   eval      jmvfir = w_firm
+     c                   eval      jmvkam = p_kamp
+7.01 c                   eval      jmvprg = p_prgr
+     c                   eval      jmvvar = p_vare
+     c                   write     jkavlur
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Beregner kampanjepriser i.h.t. valgt rabatt.
+      * Dersom beregningen ikke kan foretas p.g.a. feil eller mangler,
+      * avbrytes rutinen.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppd_rab      begsr
+      *
+      * Finner Nobb-pris
+      *
+6.31 c                   exsr      hent_pris
+6.31 c                   if        b_pris = *off or
+     c                             jxpris = 0
+     c                   goto      end_rab
+     c                   endif
+6.30 c                   if        (jxtdat <> *loval and
+6.32 c                             jxtdat  <= w_udat)
+6.30 c                   goto      end_rab
+6.30 c                   endif
+      *
+     c                   eval      w_pris = jxpris
+     c                   eval      jmvkai = jxpris
+      *
+      * Beregner pris fratrukke rabatt-1 og rabatt-2
+      *
+     c                   if        p_rab1 <> 0
+      *
+     c                   eval      jmvkai = w_pris- (w_pris * p_rab1 / 100)
+      *
+     c                   if        p_rab2 <> 0
+     c                   eval      jmvkai = jmvkai - (jmvkai * p_rab2 / 100)
+     c                   endif
+      *
+     c                   endif
+      *
+      * Beregner kostpris
+      *
+     c                   if        p_pslk <> 0 and jmvkai <> 0
+     c                   eval      jmvkpr = jmvkai + (jmvkai * p_pslk / 100)
+     c                   else
+     c                   eval      jmvkpr = jmvkai
+     c                   endif
+      *
+      * Beregner kampanjepris -ut
+      *
+     c                   if        p_raba <> 0
+     c                   eval      jmvkaa = w_pris- (w_pris* p_raba / 100)
+     c                   endif
+      *
+     c                   if        p_psls <> 0
+     c                   eval      jmvkaa = jmvkpr + (jmvkpr * p_psls / 100)
+     c                   endif
+      *
+     c     end_rab       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Setter kampanjepriser i.h.t. parametre
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppd_pris     begsr
+      *
+     c                   eval      jmvkai = p_vkai
+      *
+     c                   if        p_vkpr <> 0
+     c                   eval      jmvkpr = p_vkpr
+     c                   else
+     c                   eval      jmvkpr = p_vkai
+     c                   endif
+      *
+     c                   eval      jmvkaa = p_vkaa
+      *
+     c     end_pris      endsr
+6.31  *---------------------------------------------------------------------------
+6.31  * Henter siste gyldige pris
+6.31  *---------------------------------------------------------------------------
+6.31  *
+6.31 c     hent_pris     begsr
+6.31  *
+6.31 c                   eval      b_pris = *off
+6.31 c                   eval      jvprl1_vare = p_vare
+6.31 c                   eval      jvprl1_ldor = p_pldo
+6.31 c     jvprl1_key    setll     jvprl1
+6.31 c     jvprl1_key    reade     jvprl1
+6.31 c                   dow       not  %eof(jvprl1)
+6.31 c                   if        w_udat >= jxgdat
+6.31 c                   leavesr
+6.21 c                   endif
+6.31 c     jvprl1_key    reade     jvprl1
+6.31 c                   enddo
+6.31 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_kamp
+7.01 c                   parm                    p_prgr
+     c                   parm                    p_user
+     c                   parm                    p_ldor
+     c                   parm                    p_pldo
+     c                   parm                    p_rab1
+     c                   parm                    p_rab2
+     c                   parm                    p_pslk
+     c                   parm                    p_raba
+     c                   parm                    p_psls
+     c                   parm                    p_vkai
+     c                   parm                    p_vkpr
+     c                   parm                    p_vkaa
+     c                   parm                    p_vare
+      *
+      * Key for oppdatering av kampanje-vare
+      *
+     c     jkavlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jkavlu_vkam
+7.01 c                   kfld                    jkavlu_vprg
+     c                   kfld                    jkavlu_vvar
+      *
+      * Key for oppslag på vare-pris
+      *
+     c     jvprl1_key    klist
+     c                   kfld                    jvprl1_vare
+     c                   kfld                    jvprl1_ldor
+      *
+      *
+     c                   eval      w_firm = p_firm
+6.30 c                   time                    w_udat
+      *
+     c                   endsr

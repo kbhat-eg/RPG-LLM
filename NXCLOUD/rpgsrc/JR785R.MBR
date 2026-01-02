@@ -1,0 +1,597 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASVADM
+      * Program . . . . : JR785R
+      * Beskrivelse . . : Leser fil på recordformat SKYDDA, og oppretter
+      *                   nye varer og oppdaterer priser på eksisterende
+      *                   varer i LVR.
+      *
+      *                   Nye varer opprettes som ny vare i LVR, og ikke
+      *                   som vare under prisgivende leverandør.
+      *
+      *                   Prisoppdatering skjer på bakgrunn av match på
+      *                   leverandørens varenummer.
+      *
+      *                   Innlesing via mal-regneark
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       131103 GRO  Nytt program
+      *       140905 HKO  Byttet program for oppdatering av søktekster
+6.11  *       201009 bof  Oppdaterer ikke ean2 lenger på vare
+6.12  *       081010 bof  Lagt til JVPENH til jvarlu
+6.30  * 6.30  280113 bof  Omskriving i forb. endring pakning VA (fjernet
+6.30  *                   jvpppf)
+6.31  * 6.30  070716 bof  Nytt nivå, JVLEPF + utvidet lvar til 20
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjrvapf    if   e           k disk
+      *
+     fjrapl1    if   e           k disk    rename(jrappfr:jrapl1r)
+     fjvarl8    if   e           k disk    rename(jvarpfr:jvarl8r)
+     fjvarlu    uf a e           k disk    rename(jvarpfr:jvarlur)
+     fjvdtlu    o  a e           k disk    rename(jvdtpfr:jvdtlur)
+     fjstslu    uf   e           k disk    rename(jstspfr:jstslur)
+     fjvpklu    uf a e           k disk    rename(jvpkpfr:jvpklur)
+     fjvprlu    uf a e           k disk    rename(jvprpfr:jvprlur)
+     ffenkl1    if   e           k disk    rename(fenkpfr:fenkl1r)
+     fjrvgl1    if   e           k disk    rename(jrvgpfr:jrvgl1r)
+6.31 fjvlelu    uf a e           k disk    rename(jvlepfr:jvlelur)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+      *
+      * Definering av parametre
+      *
+     d p_list          s             32
+      *
+      * Definering av parameterliste -inn
+      *
+     d                 ds
+     d d_list                        32
+     d  d_firm                        3  0 overlay(d_list)
+     d  d_rapp                        2  0 overlay(d_list:4)
+     d  d_dato                         d   overlay(d_list:6) datfmt(*iso)
+      *
+      * Definering av recordbeskrivelse - SKYDDA
+      *
+     d                 ds
+     d d_inpu                       512
+     d  d_vare                       15    overlay(d_inpu:1)
+     d  d_eann                       15    overlay(d_inpu:16)
+     d  d_tek1                       50    overlay(d_inpu:31)
+     d  d_vgrp                        5    overlay(d_inpu:81)
+     d  d_enhe                        5    overlay(d_inpu:86)
+     d  d_innh                        5    overlay(d_inpu:91)
+     d  d_antp                        8    overlay(d_inpu:96)
+     d  d_brtx                        7    overlay(d_inpu:104)
+     d  d_prgp                        5    overlay(d_inpu:111)
+     d  d_agrk                        5    overlay(d_inpu:116)
+     d  d_brtp                        9    overlay(d_inpu:121)
+     d    d_btrp_kr                   6  0 overlay(d_brtp:1)
+     d    d_btrp_ore                  2  2 overlay(d_brtp:8)
+     d  d_rabp                        8    overlay(d_inpu:130)
+     d  d_netp                        9    overlay(d_inpu:138)
+     d    d_netp_kr                   6  0 overlay(d_netp:1)
+     d    d_netp_ore                  2  2 overlay(d_netp:8)
+      *
+      * Definering av variable i nøkler
+      *
+     d jrapl1_rapp     s                   like(jrrapp)
+     d jvarl8_ldor     s                   like(jvldor)
+     d jvarl8_lvar     s                   like(jvlvar)
+     d jvarlu_vare     s                   like(jvvare)
+     d jvpklu_vare     s                   like(jwvare)
+     d jvprlu_vare     s                   like(jxvare)
+     d fenkl1_enhf     s                   like(feenhf)
+     d jrvgl1_grap     s                   like(jrgrap)
+     d jrvgl1_gvgr     s                   like(jrgvgr)
+6.31 d jvlelu_lvnr     s                   like(jvlvnr)
+6.31 d jvlelu_lldo     s                   like(jvlldo)
+      *
+      * Definering av variable
+      *
+     d b_vare          s              1    inz(*off)
+     d b_inlr          s              1
+      *
+     d w_firm          s              3  0
+     d w_innh          s              5  0
+     d w_antp          s              8  0
+      *
+     d w_eann          s                   like(jvean1)
+     d w_stat          s                   like(jvstat)
+      *
+      * Definering av konstanter
+      *
+     d Lo              c                   'abcdefghijklmnopqrstuvwxyzæøåäö'
+     d Up              c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅÄÖ'
+     d digits          c                   ' 0123456789'
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Henter rapportør-informasjon
+      *
+     c                   eval      jrapl1_rapp = d_rapp
+     c     jrapl1_key    chain     jrapl1
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Leser fil
+      *
+     c                   read      jrvapf
+     c                   dow       not %eof
+     c                   exsr      oppdater
+     c                   read      jrvapf
+     c                   enddo
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av varer/priser
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppdater      begsr
+      *
+     c                   eval      d_inpu = jrvrad
+      *
+     c                   if        d_vare = *blank
+     c                   leavesr
+     c                   endif
+      *
+     c     digits        check     d_vare
+     c                   if        %found
+     c                   leavesr
+     c                   endif
+      *
+      * Oversetter til numerisk verdi
+      *
+     c     ' ':'0'       xlate     d_eann        d_eann
+     c     ' ':'0'       xlate     d_innh        d_innh
+     c     ' ':'0'       xlate     d_antp        d_antp
+     c     ' ':'0'       xlate     d_brtp        d_brtp
+     c     ' ':'0'       xlate     d_rabp        d_rabp
+     c     ' ':'0'       xlate     d_netp        d_netp
+      *
+      * Trimmer og oversetter tekster til ascii
+      *
+     c                   eval      d_vare = %trim(d_vare)
+     c                   eval      d_tek1 = %trim(d_tek1)
+     c                   eval      d_enhe = %trim(d_enhe)
+      *
+     c     X'46':'Æ'     xlate     d_tek1        d_tek1
+     c     X'A0':'æ'     xlate     d_tek1        d_tek1
+     c     X'77':'Ø'     xlate     d_tek1        d_tek1
+     c     X'90':'ø'     xlate     d_tek1        d_tek1
+     c     X'2A':'Å'     xlate     d_tek1        d_tek1
+     c     X'EF':'å'     xlate     d_tek1        d_tek1
+     c     X'20':'Ä'     xlate     d_tek1        d_tek1
+     c     X'CF':'ä'     xlate     d_tek1        d_tek1
+     c     X'75':'Ö'     xlate     d_tek1        d_tek1
+     c     X'E1':'ö'     xlate     d_tek1        d_tek1
+     c     X'74':'Ô'     xlate     d_tek1        d_tek1
+      *
+     c     X'46':'Æ'     xlate     d_enhe        d_enhe
+     c     X'A0':'æ'     xlate     d_enhe        d_enhe
+     c     X'77':'Ø'     xlate     d_enhe        d_enhe
+     c     X'90':'ø'     xlate     d_enhe        d_enhe
+     c     X'2A':'Å'     xlate     d_enhe        d_enhe
+     c     X'EF':'å'     xlate     d_enhe        d_enhe
+     c     X'20':'Ä'     xlate     d_enhe        d_enhe
+     c     X'CF':'ä'     xlate     d_enhe        d_enhe
+     c     X'75':'Ö'     xlate     d_enhe        d_enhe
+     c     X'E1':'ö'     xlate     d_enhe        d_enhe
+     c     X'74':'Ô'     xlate     d_enhe        d_enhe
+      *
+     c     'Ä':'Æ'       xlate     d_tek1        d_tek1
+     c     'ä':'æ'       xlate     d_tek1        d_tek1
+     c     'Ö':'Ø'       xlate     d_tek1        d_tek1
+     c     'ö':'ø'       xlate     d_tek1        d_tek1
+      *
+      * To spes.tegn i varetekst
+     c     '#':'Æ'       xlate     d_tek1        d_tek1
+     c     '@':'Ø'       xlate     d_tek1        d_tek1
+     c     'Ô':'O'       xlate     d_tek1        d_tek1
+      *
+      * Oversetter svenske bokstaver
+     c     'Ä':'Æ'       xlate     d_enhe        d_enhe
+     c     'ä':'æ'       xlate     d_enhe        d_enhe
+     c     'Ö':'Ø'       xlate     d_enhe        d_enhe
+     c     'ö':'ø'       xlate     d_enhe        d_enhe
+      *
+     c     Lo:Up         xlate     d_tek1        d_tek1
+     c     Lo:Up         xlate     d_enhe        d_enhe
+      *
+     c                   move      d_eann        w_eann
+     c                   move      d_innh        w_innh
+     c                   move      d_antp        w_antp
+      *
+      * Konverterer enhet
+      *
+     c                   eval      fenkl1_enhf = d_enhe
+     c     fenkl1_key    chain     fenkl1
+     c                   if        %found
+     c                   eval      d_enhe = feenht
+     c                   endif
+      *
+      * Starter oppdatering
+      *
+     c                   clear                   jvarlur
+     c                   eval      b_vare = *off
+      *
+     c                   eval      jvarl8_ldor = jrldor
+     c                   eval      jvarl8_lvar = d_vare
+     c     jvarl8_key    chain     jvarl8
+     c                   if        %found
+     c                   exsr      endr_vare
+     c                   eval      b_vare = *on
+     c                   else
+     c                   exsr      ny_vare
+     c                   endif
+      *
+     c                   eval      jvarlu_vare = jvvare
+     c     jvarlu_key    chain     jvarlur
+      *
+      * Oppretter eller oppdaterer vare
+      *
+     c                   eval      jvtek1 = %subst(d_tek1:1:35)
+     c                   eval      jvtek2 = %subst(d_tek1:36:15)
+     c                   eval      jvldor = jrldor
+     c                   eval      jvlvar = d_vare
+6.12 c                   eval      jvpenh = d_enhe
+     c                   eval      jvprod = 0
+     c                   eval      jvpvar = *blank
+     c                   eval      jvean1 = w_eann
+     c                   eval      jveusr = l_user
+     c                   time                    jvetim
+     c                   time                    jvedat
+      *
+      * Finner varegruppe på bakgrunn av rapportørens varegruppe
+      *
+     c                   eval      jrvgl1_grap = d_rapp
+     c                   eval      jrvgl1_gvgr = %trim(d_vgrp)
+     c     jrvgl1_key    chain     jrvgl1
+     c                   if        %found
+     c                   eval      jvogrp = jrgogr
+     c                   eval      jvhgrp = jrghgr
+     c                   eval      jvugrp = jrgugr
+     c                   endif
+      *
+      * Oppdaterer eller oppretter vare
+      *
+     c                   if        b_vare = *on
+     c                   eval      jvstat = w_stat
+     c                   update    jvarlur
+     c                   else
+     c                   write     jvarlur
+     c                   endif
+      *
+      * Oppretter vare i vare-detalj-register
+      *
+     c                   if        b_vare = *off
+     c                   clear                   jvdtlur
+     c                   eval      jvdfir = w_firm
+     c                   eval      jvdvar = jvvare
+     c                   eval      jvdhko = 1
+     c                   write     jvdtlur
+     c                   endif
+      *
+      * Oppretter vare-forpakning
+      *
+     c                   exsr      oppd_forpakn
+      *
+      * Oppretter vare-pris
+      *
+     c                   exsr      oppd_pris
+      *
+      * Oppretter/oppdaterer søketekster
+      *
+     c                   eval      b_inlr = *on
+      *
+     c                   call      'JV790R'
+     c                   parm                    w_firm
+     c                   parm                    jvvare
+     c                   parm                    b_inlr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av endret vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Dersom varen allerede finnes i vareregisteret, slettes
+      * eksisterende vare-pakninger og vare-priser
+      *
+     c     endr_vare     begsr
+      *
+      * Dersom varestatus forskjellig fra 0, 1 og 4 beholdes varestatus
+      *
+     c                   if        jvstat = 0 or
+     c                             jvstat = 1 or
+     c                             jvstat = 4
+     c                   eval      w_stat = 1
+     c                   else
+     c                   eval      w_stat = jvstat
+     c                   endif
+      *
+      * Sletter forpakninger som ikke er registert manuelt
+      *
+     c                   eval      jvpklu_vare = jvvare
+     c     jvpklu_key    setll     jvpklu
+     c     jvpklu_key    reade     jvpklur
+     c                   dow       not %eof
+     c                   if        jwrsts = 0
+     c                   delete    jvpklur
+     c                   else
+     c                   unlock    jvpklu
+     c                   endif
+     c     jvpklu_key    reade     jvpklur
+     c                   enddo
+      *
+      * Sletter priser som ikke er registrert manuelt
+      *
+     c                   eval      jvprlu_vare = jvvare
+     c     jvprlu_key    setll     jvprlu
+     c     jvprlu_key    reade     jvprlur
+     c                   dow       not %eof
+     c                   if        jxrsts = 0
+     c                   delete    jvprlur
+     c                   else
+     c                   unlock    jvprlu
+     c                   endif
+     c     jvprlu_key    reade     jvprlur
+     c                   enddo
+      *
+6.31  * sletter jvlepf
+6.31 c                   eval      jvlelu_lvnr = jvvare
+6.31 c                   eval      jvlelu_lldo = jrldor
+6.31 c     jvlelu_key    setll     jvlelu
+6.31 c     jvlelu_key    reade     jvlelur
+6.31 c                   dow       not %eof
+6.31 c                   delete    jvlelur
+6.31 c     jvlelu_key    reade     jvlelur
+6.31 c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av ny vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     ny_vare       begsr
+      *
+     c                   eval      jvstat = 2
+      *
+      * Henter neste ledige varenummer, og oppdaterer statusregisteret
+      *
+     c     jstslu_key    chain     jstslu
+     c                   eval      jaavsi = jaavsi + 1
+     c                   update    jstslur
+      *
+     c                   movel     jaavsi        jvvare
+      *
+      * Initierer varegruppe
+      *
+     c                   eval      jvogrp = 0
+     c                   eval      jvhgrp = 0
+     c                   eval      jvugrp = 0
+      *
+      * Opprettelsesdato
+      *
+     c                   time                    jvodat
+     c                   time                    jvadat
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppretting av vare-forpakning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppd_forpakn  begsr
+      *
+     c                   clear                   jvpklur
+      *
+     c                   eval      jwvare = jvvare
+6.30 c                   eval      jwldor = jrldor
+     c                   eval      jwpakn = '000'
+6.30 c                   eval      jwbest = 1
+     c                   eval      jwenhe = d_enhe
+     c                   eval      jwofak = 1
+     c                   eval      jwrsts = 0
+     c                   eval      jweusr = l_user
+      *
+     c                   time                    jwodat
+     c                   time                    jwedat
+     c                   time                    jwetim
+      *
+     c                   write     jvpklur
+      *
+      *
+      *
+      * Opplegg av enhet-2 basert på innhold, antall/pakn. og "bryts"-kol.
+      *
+      * - Innh.= 1, ant/pakn > 1
+      *
+     c                   if        w_innh = 1
+     c                   if        w_antp > 1
+     c                   if        d_enhe <> 'KRT'
+     c                   eval      jwvare = jvvare
+6.30 c                   eval      jwldor = jrldor
+     c                   eval      jwpakn = '001'
+     c                   eval      jwenhe = 'KRT'
+     c                   eval(h)   jwofak = w_antp
+     c                   eval      jwrsts = 0
+6.30 c                   if        d_brtx <> 'X'
+6.30 c                   eval      jwbest = 1
+6.30 c                   endif
+     c                   write     jvpklur
+      *
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+      * - Innh.> 1, ant/pakn = 1
+      *
+     c                   if        w_antp = 1
+     c                   if        w_innh > 1
+     c                   if        d_enhe <> 'STK'
+     c                   eval      jwvare = jvvare
+6.30 c                   eval      jwldor = jrldor
+     c                   eval      jwpakn = '001'
+     c                   eval      jwenhe = 'STK'
+     c                   eval(h)   jwofak = 1 / w_innh
+     c                   eval      jwrsts = 0
+6.30 c                   if        d_brtx <> 'X'
+6.30 c                   eval      jwbest = 1
+6.30 c                   endif
+     c                   write     jvpklur
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+      * - Innh.> 1, ant/pakn > 1
+      *
+     c                   if        w_antp > 1
+     c                   if        w_innh > 1
+     c                   if        d_enhe <> 'KRT'
+     c                   eval      jwvare = jvvare
+6.30 c                   eval      jwldor = jrldor
+     c                   eval      jwpakn = '001'
+     c                   eval      jwenhe = 'KRT'
+     c                   eval(h)   jwofak = w_antp
+     c                   eval      jwrsts = 0
+6.30 c                   if        d_brtx <> 'X'
+6.30 c                   eval      jwbest = 1
+6.30 c                   endif
+     c                   write     jvpklur
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppretting av vare-pris
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppd_pris     begsr
+      *
+     c                   clear                   jvprlur
+      *
+     c                   eval      jxvare = jvvare
+     c                   eval      jxldor = jvldor
+     c                   eval      jxlvar = jvlvar
+     c                   eval      jxpris = d_netp_kr + d_netp_ore
+     c                   eval      jxvalu = *blank
+     c                   eval      jxgdat = d_dato
+     c                   eval      jxtdat = *loval
+     c                   eval      jxrsts = 0
+     c                   eval      jxeusr = l_user
+      *
+     c                   time                    jxodat
+     c                   time                    jxedat
+     c                   time                    jxetim
+      *
+     c                   write     jvprlur
+6.31  *
+6.31  * Oppretter vare leverandør
+6.31  *
+6.31 c                   clear                   jvlelur
+6.31  *
+6.31 c                   eval      jvlvnr = jvvare
+6.31 c                   movel     jvlvar        jvllva
+6.31 c                   eval      jvlldo = jrldor
+6.31 c                   eval      jvleus = l_user
+6.31 c                   eval      jvlous = l_user
+6.31  *
+6.31 c                   time                    jvloda
+6.31 c                   time                    jvleda
+6.31 c                   time                    jvloti
+6.31 c                   time                    jvleti
+6.31 c                   write     jvlelur
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_list
+      *
+      * Key for oppslag på rapportør-register
+      *
+     c     jrapl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jrapl1_rapp
+      *
+      * Key for oppslag på vare
+      *
+     c     jvarl8_key    klist
+     c                   kfld                    jvarl8_ldor
+     c                   kfld                    jvarl8_lvar
+      *
+      * Key for oppdatering av vare
+      *
+     c     jvarlu_key    klist
+     c                   kfld                    jvarlu_vare
+      *
+      * Key for oppdatering av vare-forpakning
+      *
+     c     jvpklu_key    klist
+     c                   kfld                    jvpklu_vare
+      *
+      * Key for oppdatering av vare-pris
+      *
+     c     jvprlu_key    klist
+     c                   kfld                    jvprlu_vare
+6.31  *
+6.31  * Key for oppdatering av vare-pris
+6.31  *
+6.31 c     jvlelu_key    klist
+6.31 c                   kfld                    jvlelu_lvnr
+6.31 c                   kfld                    jvlelu_lldo
+      *
+      * Key for oppdatering av kode/status
+      *
+     c     jstslu_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på enhet-konvertering
+      *
+     c     fenkl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fenkl1_enhf
+      *
+      * Key for oppslag på rapportør varegruppereferanse-register
+      *
+     c     jrvgl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jrvgl1_grap
+     c                   kfld                    jrvgl1_gvgr
+      *
+      *
+      * Fyller datastruktur fra parameter, og henter firmakode
+      *
+     c                   eval      d_list = p_list
+     c                   eval      w_firm = d_firm
+      *
+     c                   endsr

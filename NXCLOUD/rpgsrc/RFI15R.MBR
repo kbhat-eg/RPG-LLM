@@ -1,0 +1,408 @@
+      /TITLE  Tilrettelegger trans fra Bestilling/Lager/Innkjøp
+     h decedit(',') datedit(*dmy.)
+     h option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * System. . . . . : ASOKON
+      * Program . . . . : RFI15R
+      * Beskrivelse . . : Tilrettelegger trans Best/Lager/Innkjøp
+      *                   Avvikende periode i følge koderegister
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *                   NB! Dette program er en kopi av RFA15R
+      *                   FOVF.. er endret til LOVF..
+      *                   Feltnavn i FOVF.. er endret til feltnavn i LOVF..
+      *       060104 KOB  Lagt inn overføring av mva-grunnlag
+      * V5.30 200404 KOB  Endret beregning av buntsummer
+      * V5.30 240504 KOB  Lagt inn overføring av lev.fakturanr.
+      *
+6.10  * V6.10 291009 NHO  Kun innestående firma skal være på overføring
+6.20  * 6.20  241110 NHO  Legger arb.ordre på rtrapf
+      *                   Aktivitet, prosjekt og underprosjekt
+6.21  * 6.21  270314 sst  Rettet arb.ordre, prosjekt, underpros. i rtra
+6.nu  * 6.30  160614 bof  Gjennomgått mtp. nummerutvidelse
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.10 flovfl1    uf   e           k disk    rename(lovfpfr:lovfl1r)
+6.20 frp4ol1    if   e           k disk
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+     fraa3pf    if   e           k disk
+     frbunlu    uf a e           k disk    rename(rbunpfr:rbunlur)
+     frtrapf    o    e           k disk
+      *
+      * Definering av array's
+610  d                uds
+610  d l_user                911    920
+610  d l_firm                944    946  0
+      *
+     d per             s              2  0 dim(13)
+      *
+      * Definering av variable i nøkler
+      *
+610  d rbunlu_nivo     s                   like(rsnivo)
+610  d rbunlu_memb     s                   like(rsmemb)
+610  d w_memb          s                   like(rsmemb)
+.20  d rp4ol1_arbo     s                   like(rp4ord)
+     d w_firm          s                   like(lgfirm)
+     d lovfl1_peri     s                   like(lgperi)
+     d rbunlu_bunt     s                   like(rsbunt)
+      *
+      * Definering av variable
+      *
+     d w_bunt          s                   like(rtbunt)
+     d w_xper          s              8  0
+     d w_linj          s              8  0
+     d w_arec          s              9  0
+     d w_Årm1          s              2  0
+     d wpe             s              2  0
+     d w_rper          s              2  0
+     d w_raar          s              4  0
+     d w_paar          s              2  0
+      *
+     d w_bsum          s                   like(rsbsum)
+     d w_psum          s                   like(rspsum)
+     d w_pdeb          s                   like(rspdeb)
+     d w_pkre          s                   like(rspkre)
+      *
+      * Definering av save-variable
+      *
+     d s_firm          s                   like(lgfirm)
+     d s_peri          s                   like(lgperi)
+      *
+      *  Statusopplysninger - avvikende perioder
+      *
+     iraa3pfr
+     i              ra3p01                      per(01)
+     i              ra3p02                      per(02)
+     i              ra3p03                      per(03)
+     i              ra3p04                      per(04)
+     i              ra3p05                      per(05)
+     i              ra3p06                      per(06)
+     i              ra3p07                      per(07)
+     i              ra3p08                      per(08)
+     i              ra3p09                      per(09)
+     i              ra3p10                      per(10)
+     i              ra3p11                      per(11)
+     i              ra3p12                      per(12)
+     i              ra3p13                      per(13)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedrutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Les transaksjonsfile til e.o.f.
+      *
+6.10 c                   eval      w_firm = l_firm
+     c                   eval      lovfl1_peri = 0
+     c     lovfl1_key    setll     lovfl1
+     c                   read      lovfl1                                 90
+6.10 c                   if        *in90 = *on
+6.10 c                   goto      slutt1
+6.10 c                   end
+6.10  *
+6.10 c                   if        lgfirm > l_firm
+6.10 c                   goto      slutt1
+6.10 c                   end
+6.10  *
+     c                   eval      w_firm = lgfirm
+     c                   eval      s_firm = lgfirm
+     c                   eval      s_peri = lgperi
+     c                   exsr      nytt_firma
+     c                   exsr      ny_periode
+      *
+6.10 c                   if         *in90 = *off
+6.10 c                   delete    lovfl1r
+6.10 c                   endif
+     c                   dow       *in90 = *off
+      *
+      * Nytt firma ?
+      *
+6.10 c**                 if        lgfirm <> s_firm
+6.10 c**                 exsr      nytt_firma
+6.10 c**                 endif
+      *
+      * Ny periode ?
+      *
+     c                   if        lgfirm <> s_firm or
+     c                             lgperi <> s_peri
+     c                   exsr      ny_periode
+     c                   endif
+      *
+      * Ta vare på gamle verdier
+      *
+     c                   eval      w_firm = lgfirm
+     c                   eval      s_firm = lgfirm
+     c                   eval      s_peri = lgperi
+      *
+      * Redigerer regnskapsperiode og år
+      *
+     c                   movel     lgperi        w_rper
+     c                   move      lgperi        w_paar
+     c                   movel     20            w_raar
+     c                   move      w_paar        w_raar
+      *
+      * Oppdater RTRAPF
+      *
+     c                   exsr      opdat_rtra
+     c                   eval      w_arec = w_arec + 1
+      *
+     c                   read      lovfl1                                 90
+6.10 c                   if        *in90 = *on
+6.10 c                   goto      slutt
+6.10 c                   end
+6.10  *
+6.10  *
+6.10 c                   if        lgfirm > l_firm
+6.10 c                   goto      slutt
+6.10 c                   end
+6.10  *
+      *
+      * Dersom brudd,
+      * oppdater RBUNPF
+      *
+     c                   if        lgfirm <> s_firm or
+     c                             lgperi <> s_peri
+     c                   exsr      opdat_rbun
+     c                   endif
+      *
+6.10 c                   if        *in90 = *off
+6.10 c                   delete    lovfl1r
+6.10 c                   end
+     c                   enddo
+      *
+6.10 c     slutt         tag
+      * Siste buntsum,
+      * oppdater RBUNPF
+      *
+     c                   if        w_arec <> 0
+     c                   exsr      opdat_rbun
+     c                   endif
+      *
+6.10 c     slutt1        tag
+      * Avslutt program
+      *
+     c                   eval      *inlr = *on
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for brudd ved nytt firmanr.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     nytt_firma    begsr
+      *
+      * Hent inn firmaregister
+      *
+     c     afirl1_key    chain     afirl1                             91
+      *
+      * Hent inn statuskoder (avvikende perioder)
+      *
+     c     raa3pf_key    chain     raa3pf                             91
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for brudd periode / år
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     ny_periode    begsr
+      *
+      * Brudd periode/år
+      * Finn neste ledige buntnr
+      *
+610  c                   eval      rbunlu_nivo = *blank
+610  c                   eval      rbunlu_memb = w_memb
+     c                   eval      rbunlu_bunt = 99999
+     c     rbunlu_key    setgt     rbunlu
+     c                   readp     rbunlu                                 91
+      *
+     c                   if        *in91 = *on
+     c                   eval      w_bunt = 1
+     c                   else
+     c                   eval      w_bunt = rsbunt + 1
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppdatering av RTRAPF
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     opdat_rtra    begsr
+      *
+      * Beregn buntsummer
+      *
+     c                   if        lgdkto <> 0
+     c                   eval      w_psum = w_psum + lgbelp
+     c                   eval      w_bsum = w_bsum + lgbelp
+     c                   eval      w_pdeb = w_pdeb + lgbelp
+     c                   endif
+      *
+     c                   if        lgckto <> 0
+     c                   eval      w_psum = w_psum + lgbelp
+     c                   eval      w_pkre = w_pkre + lgbelp
+     c                   endif
+      *
+     c                   eval      w_linj = w_linj + 1
+      *
+     c                   eval      rtreid = 'T'
+     c                   eval      rtfirm = lgfirm
+     c                   eval      rtbunt = w_bunt
+     c                   eval      rtlinj = w_linj
+     c                   eval      rtstat = *blank
+     c                   eval      rtraar = w_raar
+     c                   eval      rtrper = w_rper
+     c                   eval      rtbiln = lgbiln
+6.20 c                   eval      rtarbo = lgarbo
+6.20  *
+6.20 c* Finner unerpr.prosjekt og aktivitet
+6.20 c                   eval      rp4ol1_arbo = lgarbo
+6.20 c     rp4ol1_key    chain     rp4ol1                             91
+6.21 c                   if        *in91 = '0' and
+6.21 c                             lgarbo <> ' ' and
+6.21 c                             lgarbo <> '000000'
+6.20 c                   eval      rtpros = rp4pro
+6.20 c                   eval      rtupro = rp4upr
+6.20 c                   eval      rtakti = rp4akt
+6.21 c                   else
+6.21 c                   eval      rtpros = *blank
+6.21 c                   eval      rtupro = *blank
+6.21 c                   eval      rtakti = *blank
+6.20 c                   endif
+6.20  *
+     c                   eval      rtbill = lgbill
+     c                   eval      rtdavd = lgdavd
+     c                   eval      rtdkto = lgdkto
+     c                   eval      rtdsps = lgdsps
+     c                   eval      rtdmva = lgdmom
+     c                   eval      rtbelØ = lgbelp
+     c***                eval      rtgmva = lgmvag
+     c                   eval      rtcavd = lgcavd
+     c                   eval      rtckto = lgckto
+     c                   eval      rtcsps = lgcsps
+     c                   eval      rtcmva = lgcmom
+6.20 c**                 eval      rtpros = lgproj
+     c                   eval      rtrefn = lgkref
+     c                   eval      rtkrab = 0
+     c                   eval      rtvalk = lgvalk
+     c                   eval      rtvalb = lgvalb
+6.20 c**                 eval      rtakti = lgakti
+     c                   eval      rtmngd = lgmngd
+     c                   eval      rtmngk = lgmngk
+     c                   eval      rtresn = lgkund
+     c                   eval      rtvirk = *blank
+     c                   eval      rtautx = *blank
+     c                   eval      rtatte = *blank
+     c                   eval      rtlfak = lgsfak
+      *
+     c                   eval      rtbdat = lgbdat
+     c                   eval      rtfdat = lgfdat
+      *
+     c                   if        lgautx = 'K'
+     c                   eval      rtautx = lgautx
+     c                   else
+     c                   eval      rtkrys = lgautx
+     c                   endif
+      *
+     c                   eval      rtkidi = lgkidi
+     c                   eval      rtbilk = lgbilk
+     c                   eval      rttext = lgtext
+     c                   eval      rtbetb = 0
+     c                   eval      rtbref = *blank
+610  c                   eval      rtnivo = *blank
+610  c                   eval      rtmemb = w_memb
+610  c                   time                    rtedat
+610  c                   time                    rtetim
+610  c                   eval      rteusr = l_user
+     c                   write     rtrapfr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppdatering av RBUNPF
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     opdat_rbun    begsr
+      *
+     c                   xfoot     per           w_xper
+     c                   movel     rtrper        wpe
+      *
+     c                   if        ra3stp > 01 and
+     c                             w_xper > *zero
+     c                   movel     per(wpe)      rtrper
+     c                   if        wpe    < ra3stp
+     c                   move      w_Årm1        rtrper
+     c                   endif
+     c                   endif
+      *
+     c                   eval      rsfirm = w_firm
+     c                   eval      rsbunt = w_bunt
+     c                   eval      rsstat = *blank
+     c                   eval      rsraar = rtraar
+     c                   eval      rsrper = rtrper
+     c                   eval      rsfØrs = 1
+     c                   eval      rssist = w_linj
+     c                   eval      rsbsum = w_bsum
+     c                   eval      rspsum = w_bsum
+     c                   eval      rspdeb = w_bsum
+     c                   eval      rspkre = w_bsum
+     c                   time                    rspdat
+610  c                   eval      rsnivo = *blank
+610  c                   eval      rsmemb = w_memb
+610  c                   time                    rsedat
+610  c                   time                    rsetim
+610  c                   eval      rseusr = l_user
+     c                   write     rbunlur
+      *
+      * Nullstill buntsum
+      *
+     c                   eval      w_bsum = 0
+     c                   eval      w_psum = 0
+     c                   eval      w_pdeb = 0
+     c                   eval      w_pkre = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+610  c     *entry        plist
+610  c                   parm                    w_memb
+      *
+     c                   eval      wpe = 0
+     c                   eval      w_bsum = 0
+     c                   eval      w_Årm1 = uyear - 1
+      *
+      * Key for les av transaksjonsfile
+      *
+     c     lovfl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lovfl1_peri
+      *
+      *
+6.20 c     rp4ol1_key    klist
+6.20 c                   kfld                    w_firm
+6.20 c                   kfld                    rp4ol1_arbo
+      *
+      * Key for les av firmaregister
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for les av statuskoder 3 (avvikende perioder)
+      *
+     c     raa3pf_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppdatering av buntfile
+      *
+     c     rbunlu_key    klist
+610  c                   kfld                    rbunlu_nivo
+610  c                   kfld                    rbunlu_memb
+     c                   kfld                    w_firm
+     c                   kfld                    rbunlu_bunt
+      *
+     c                   endsr

@@ -1,0 +1,405 @@
+/* Endret 11.04.02 HFL: caller ikke DB800C   merket S400             */
+/* Endret 17.04.02 HFL: caller GL1X9R som konverterer ÆØÅ i GATRPF   */
+/* Endret 10.10.02 HFL: caller alltid DB800C.                        */
+/* Endret 24.09.04 TSO: Innlagt overføring fra IFS                   */
+/* 090605 RHO Modifisert TSO's tilpasning.                           */
+/* 110615 NHO Lagt inn call til FIXGATR for å endre lang kid til     */
+/*            8 posisjoner slik at programmer ikke bør endres        */
+/*            Kort kid skal ikke gjøres noe med                      */
+/*                                                                   */
+/* 051120 bsa Fjerner kall til DB800C                       7.00     */
+/* 220324 bsa SEPA format som avregningsretur.              8.01     */
+/*                                                                   */
+/*                                                                   */
+/*                                                                   */
+/*------------------------------------------------------------------ */
+
+             PGM
+
+/* Initiering av parametre.                                          */
+
+             DCL        VAR(&PROG) TYPE(*CHAR) LEN(10) +
+                          VALUE('GL109R')
+
+             DCL        VAR(&RAPP) TYPE(*CHAR) LEN(10) +
+                          VALUE('GL109P')
+
+             DCL        VAR(&VALG)   TYPE(*CHAR) LEN(1) VALUE(' ')
+             DCL        VAR(&LIST)   TYPE(*CHAR) LEN(6)
+             DCL        VAR(&IN12)   TYPE(*DEC) LEN(1 0)
+             DCL        VAR(&PROG)   TYPE(*CHAR) LEN(10)
+             DCL        VAR(&RAPP)   TYPE(*CHAR) LEN(10)
+             DCL        VAR(&OVRS)   TYPE(*CHAR) LEN(1)
+             DCL        VAR(&FORM)   TYPE(*CHAR) LEN(10)
+             DCL        VAR(&OUTQ)   TYPE(*CHAR) LEN(10)
+             DCL        VAR(&ACPIX)  TYPE(*CHAR) LEN(4)
+             DCL        VAR(&ACPI)   TYPE(*DEC)  LEN(4 0)
+             DCL        VAR(&AKOPX)  TYPE(*CHAR) LEN(6)
+             DCL        VAR(&AKOP)   TYPE(*DEC)  LEN(6 0)
+             DCL        VAR(&HLDQ)   TYPE(*CHAR) LEN(4)
+             DCL        VAR(&ALINX)  TYPE(*CHAR) LEN(3)
+             DCL        VAR(&ALIN)   TYPE(*DEC)  LEN(3 0)
+             DCL        VAR(&PRTY)   TYPE(*CHAR) LEN(1)
+             DCL        VAR(&OFLWX)  TYPE(*CHAR) LEN(3)
+             DCL        VAR(&OFLW)   TYPE(*DEC)  LEN(3 0)
+             DCL        VAR(&BTCH)   TYPE(*CHAR) LEN(1)
+
+             DCL        VAR(&BANK) TYPE(*CHAR) LEN(2) VALUE('DN')
+
+             DCL        VAR(&FILG)   TYPE(*CHAR) LEN(3)
+             DCL        VAR(&FIRM)   TYPE(*CHAR) LEN(3)
+             DCL        VAR(&WWFIRM) TYPE(*DEC) LEN(3 0)
+
+             DCL        VAR(&FREM) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FMOT) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FAVR) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FOCR) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FKTO) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FINK) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FTFF) TYPE(*CHAR) LEN(20)
+
+             DCL        VAR(&FREM8) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&FMOT8) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&FAVR8) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&FOCR8) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&FKTO8) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&FINK8) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&FTFF8) TYPE(*CHAR) LEN(8)
+
+             DCL        VAR(&FIFS) TYPE(*CHAR) LEN(45)
+
+/* Initiering av parametre.                                          */
+
+             DCL        &MSGDTA *CHAR LEN(120)
+             DCL        VAR(&KOMM) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&IN03) TYPE(*DEC) LEN(1 0)
+             DCL        VAR(&IN3) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&LINJ) TYPE(*DEC) LEN(2 0) VALUE(2)
+             DCL        VAR(&POSI) TYPE(*DEC) LEN(3 0) VALUE(43)
+             DCL        VAR(&KODE) TYPE(*DEC) LEN(1 0) VALUE(0)
+             DCL        VAR(&VALG) TYPE(*CHAR) LEN(1)
+
+/* Parametre som brukes for å kontrollere om program er aktivt:      */
+
+             DCL        VAR(&PRGM) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&TYPE) TYPE(*DEC) LEN(1 0)
+             DCL        VAR(&AKTI) TYPE(*DEC) LEN(1 0)
+
+/*8.01*/     DCL        VAR(&CO402_KEY) TYPE(*CHAR) LEN(50)
+/*8.01*/     DCL        VAR(&CO402_V1)  TYPE(*CHAR) LEN(1)
+/*8.01*/     DCL        VAR(&CO402_V2)  TYPE(*CHAR) LEN(2048)
+/*8.01*/     dcl        var(&fgr)       type(*char) len(3)
+/*8.01*/     dcl        var(&fix)       type(*char) len(3)
+/*8.01*/     dcl        var(&fir)       type(*dec)  len(3 0) value(0)
+/*8.01*/     dcl        var(&lag)       type(*dec)  len(3 0) value(0)
+
+/* Tester på om DETTE program er aktivt:                             */
+
+             CHGVAR     VAR(&PRGM) VALUE('GL109C    ')
+             CHGVAR     VAR(&TYPE) VALUE('0')
+             CHGVAR     VAR(&AKTI) VALUE('0')
+
+          CALL       PGM(GLCHKPGM) PARM(&PRGM &TYPE &AKTI)
+
+          IF   COND(&AKTI *EQ 1) THEN(DO)
+
+/* Sender opp informasjonsbilde om at program allerede er aktivt:    */
+
+             CHGVAR     VAR(&VALG) VALUE('4')
+             CALL       PGM(GL124R) PARM(&IN03 &VALG &LINJ +
+                          &POSI &KODE)
+             GOTO       CMDLBL(END)
+          ENDDO
+
+/* Tester på om Java program er aktivt.                             */
+
+             CHGVAR     VAR(&PRGM) VALUE('GL109CK   ')
+             CHGVAR     VAR(&TYPE) VALUE('0')
+             CHGVAR     VAR(&AKTI) VALUE('0')
+
+          CALL       PGM(GLCHKPGM) PARM(&PRGM &TYPE &AKTI)
+
+          IF   COND(&AKTI *EQ 1) THEN(DO)
+
+/* Sender opp informasjonsbilde om at program allerede er aktivt:    */
+
+             CHGVAR     VAR(&VALG) VALUE('4')
+             CALL       PGM(GL124R) PARM(&IN03 &VALG &LINJ +
+                          &POSI &KODE)
+             GOTO       CMDLBL(END)
+          ENDDO
+/* Henter fra faste opplysninger på firma, type kommunikasjon:       */
+
+ XOVER:
+             CALL       PGM(GL119R) PARM(&KOMM &BANK &IN03 +
+                          &LINJ &POSI &FIFS)
+
+/* Tester på om program skal avsluttes.                              */
+
+                   IF         COND(&IN03 *EQ 1) THEN(DO)
+                   GOTO       CMDLBL(EOJ)
+                   ENDDO
+
+/* Tester på om program er aktivt:                                   */
+
+      IF         COND(&KOMM *NE 'PC  ') THEN(DO)
+
+             CHGVAR     VAR(&PRGM) VALUE('BANK      ')
+             CHGVAR     VAR(&TYPE) VALUE('1')
+             CHGVAR     VAR(&AKTI) VALUE('0')
+
+          CALL       PGM(GLCHKPGM) PARM(&PRGM &TYPE &AKTI)
+
+/* Program er aktivt!:                                               */
+
+          IF   COND(&AKTI *EQ 1) THEN(DO)
+               CHGVAR     VAR(&VALG) VALUE('4')
+               CALL       PGM(GL124R) PARM(&IN03 &VALG +
+                                           &LINJ &POSI &KODE)
+               GOTO       CMDLBL(END)
+
+          ENDDO
+
+/* Program er ikke aktivt.  Det settes nå AKTIVT!                    */
+
+          IF   COND(&AKTI *EQ 0) THEN(DO)
+               CHGVAR     VAR(&TYPE) VALUE('0')
+               CALL       PGM(GLCHKPGM) PARM(&PRGM &TYPE &AKTI)
+          ENDDO
+
+      ENDDO
+
+             CLRPFM     FILE(DIRUIE)
+             CLRPFM     FILE(DIRRIE)
+
+/* Starter ICF-kommunikasjonsprogram for å HENTE data, dersom        */
+/* dette er valgt som kommunikasjonstype på firma.                   */
+
+/* Programmet legger data ut på samlefile GRETPF:                    */
+
+             IF         COND(&KOMM *EQ 'ICF ') THEN(DO)
+             CALL       PGM(GL702R) PARM(&IN03 &BANK)
+
+/* Tester på om program skal avsluttes.                              */
+
+                   IF         COND(&IN03 *EQ 1) THEN(DO)
+                   GOTO       CMDLBL(EOJ)
+                   ENDDO
+
+             ENDDO
+
+/* Starter FTP-kommunikasjonsprogram for å HENTE data, dersom        */
+/* dette er valgt som kommunikasjonstype på firma.                   */
+
+/* Programmet legger data ut på samlefile GRETPF:                    */
+
+             IF         COND(&KOMM *EQ 'FTP ') THEN(DO)
+             CALL       PGM(GL714C)
+
+             ENDDO
+
+/* Ved PC-kommunikasjon må de forskjellige returfiler slås sammen:   */
+
+/* ( Henter først informasjon om filnavn som brukes ):               */
+
+/* Henter filgruppe og firmanummer:                                  */
+
+             RTVDTAARA  DTAARA(*LDA (931 3)) RTNVAR(&FILG)
+             RTVDTAARA  DTAARA(*LDA (944 3)) RTNVAR(&FIRM)
+
+             CHGVAR     VAR(&WWFIRM) VALUE(&FIRM)
+
+             CALL       PGM(GL320C) PARM(&FILG &WWFIRM &FREM &FMOT +
+                          &FAVR &FOCR &FKTO &FINK &FTFF)
+
+/*                                                                   */
+/* Klargjør feltnavn klar til bruk for QDLS:                         */
+/*                                                                   */
+
+             CHGVAR     VAR(&FREM8) VALUE(%SST(&FREM 1 8))
+             CHGVAR     VAR(&FMOT8) VALUE(%SST(&FMOT 1 8))
+             CHGVAR     VAR(&FAVR8) VALUE(%SST(&FAVR 1 8))
+             CHGVAR     VAR(&FOCR8) VALUE(%SST(&FOCR 1 8))
+             CHGVAR     VAR(&FKTO8) VALUE(%SST(&FKTO 1 8))
+             CHGVAR     VAR(&FINK8) VALUE(%SST(&FINK 1 8))
+             CHGVAR     VAR(&FTFF8) VALUE(%SST(&FTFF 1 8))
+
+/* Hopper ut dersom mottaksretur IKKE er utfylt.  Dette indikerer at */
+/* sammenslåing av returfiler skjer i egen bat-fil på PC'n, og at    */
+/* sammenslåing her IKKE skal gjøres.                                */
+
+/* NB! I faste data, så må det under bankfiler ligge noe i feltet    */
+/*     for MOTTAKSRETUR, for at det i hele tatt skal tas hensyn til  */
+/*     returene som ligger i mappe PCFILER.                          */
+
+/*     Denne testen kommer her:                                      */
+/*     ************************                                      */
+
+             IF         COND(&FMOT *EQ '        ') THEN(DO)
+             GOTO       CMDLBL(IKKEBRUK)
+             ENDDO
+
+/*     Hvis IFS skal brukes:                                         */
+
+             IF         COND(&KOMM *EQ 'IFS ') THEN(DO)
+             CALL       PGM(GL901C) PARM(&FMOT &FAVR &FOCR &FKTO +
+                          &FINK &FTFF &FIFS)
+             GOTO       CMDLBL(IKKEBRUK)
+             ENDDO
+
+
+             CPYFRMPCD  FROMFLR(PCFILER) TOFILE(GRETPF) +
+                          FROMDOC(&FMOT8) MBROPT(*ADD) /* +
+                          1.g.retur    */
+               MONMSG     MSGID(CPF0000)
+               DLTDLO     DLO(&FMOT8) FLR(PCFILER)
+               MONMSG     MSGID(CPF0000)
+
+             CPYFRMPCD  FROMFLR(PCFILER) TOFILE(GRETPF) +
+                          FROMDOC(&FAVR8) MBROPT(*ADD) /* +
+                          Avregningsretur */
+               MONMSG     MSGID(CPF0000)
+               DLTDLO     DLO(&FAVR8) FLR(PCFILER)
+               MONMSG     MSGID(CPF0000)
+
+             CPYFRMPCD  FROMFLR(PCFILER) TOFILE(GRETPF) +
+                          FROMDOC(&FOCR8) MBROPT(*ADD) /* OCR-retur */
+               MONMSG     MSGID(CPF0000)
+               DLTDLO     DLO(&FOCR8) FLR(PCFILER)
+               MONMSG     MSGID(CPF0000)
+
+             CPYFRMPCD  FROMFLR(PCFILER) TOFILE(GKTOPF) +
+                          FROMDOC(&FKTO8) MBROPT(*ADD) /* +
+                          Kontoinformasjon */
+               MONMSG     MSGID(CPF0000)
+               DLTDLO     DLO(&FKTO8) FLR(PCFILER)
+               MONMSG     MSGID(CPF0000)
+
+             CPYFRMPCD  FROMFLR(PCFILER) TOFILE(GRETPF) +
+                          FROMDOC(&FTFF8) MBROPT(*ADD) /* +
+                          Feilrtur     */
+               MONMSG     MSGID(CPF0000)
+               DLTDLO     DLO(&FTFF8) FLR(PCFILER)
+               MONMSG     MSGID(CPF0000)
+
+             CPYFRMPCD  FROMFLR(PCFILER) TOFILE(GRETPF) +
+                          FROMDOC(&FINK8) MBROPT(*ADD) /* +
+                          Inkassoretur */
+               MONMSG     MSGID(CPF0000)
+               DLTDLO     DLO(&FINK8) FLR(PCFILER)
+               MONMSG     MSGID(CPF0000)
+
+ IKKEBRUK:
+
+/* Skriver ut kvittering på mottatt retur:                           */
+
+             CALL       PGM(GL151C)
+
+/* Splitter GRETPF ut på GTGIPF, GOCRPF og GKTOPF:                   */
+
+             CALL       PGM(GL704R)
+             CHKOBJ     OBJ(QS36F/MSRJE01) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(CRTPF +
+                          FILE(QS36F/MSRJE01) RCDLEN(80) +
+                          TEXT('Returdata fra bank'))
+             RCLRSC
+
+/* Henter formularparametre:                                         */
+
+/* LDA skal ved oppkall av denne rutinen inneholde en verdi i        */
+/* posisjon 844-844 for å fortelle om formularparametre skal         */
+/* vises på skjermen (verdi="1") før de legges ut i LDA, eller       */
+/* legges direkte ut i LDA fra formularregister (verdi= " ").        */
+
+/* Oppdaterer LDA med navn på prinfile og kode for om formular-      */
+/* parametre skal endres.                                            */
+
+             CHGDTAARA  DTAARA(*LDA (800 10)) VALUE(&PROG)
+             CHGDTAARA  DTAARA(*LDA (844 1)) VALUE(&VALG)
+             CHGDTAARA  DTAARA(*LDA (846 10)) VALUE(&RAPP)
+
+/* Oppkall av utskriftsparametre.                                    */
+
+/*           CALL       PGM(AP100R) PARM(&IN03 &IN12) */
+
+             CALL       PGM(AP600R) PARM('GL109' '1' '0' &IN3 &BTCH)
+
+
+/* Tester om F3 eller F12 er tastet.  Da skal rapport ikke skrives.  */
+
+             IF         COND(&IN3 *EQ '1') THEN(GOTO CMDLBL(EOJ))
+             IF         COND(&IN12 *EQ 1) THEN(GOTO CMDLBL(EOJ))
+
+/* Henter verdier i fra LDA.                                         */
+
+             RTVDTAARA  DTAARA(*LDA (800 10)) RTNVAR(&PROG)
+             RTVDTAARA  DTAARA(*LDA (810 10)) RTNVAR(&OUTQ)
+             RTVDTAARA  DTAARA(*LDA (820 10)) RTNVAR(&FORM)
+             RTVDTAARA  DTAARA(*LDA (830 4)) RTNVAR(&ACPIX)
+             RTVDTAARA  DTAARA(*LDA (834 4)) RTNVAR(&HLDQ)
+             RTVDTAARA  DTAARA(*LDA (838 6)) RTNVAR(&AKOPX)
+             RTVDTAARA  DTAARA(*LDA (845 1)) RTNVAR(&OVRS)
+             RTVDTAARA  DTAARA(*LDA (846 10)) RTNVAR(&RAPP)
+             RTVDTAARA  DTAARA(*LDA (856 3)) RTNVAR(&ALINX)
+             RTVDTAARA  DTAARA(*LDA (859 1)) RTNVAR(&PRTY)
+             RTVDTAARA  DTAARA(*LDA (860 3)) RTNVAR(&OFLWX)
+             RTVDTAARA  DTAARA(*LDA (863 1)) RTNVAR(&BTCH)
+
+/* ANTALL KOPIER og CPI må konverteres til numerisk felt.            */
+
+             CHGVAR     VAR(&AKOP) VALUE(&AKOPX)
+             CHGVAR     VAR(&ACPI) VALUE(&ACPIX)
+             CHGVAR     VAR(&ALIN) VALUE(&ALINX)
+             CHGVAR     VAR(&OFLW) VALUE(&OFLWX)
+
+             IF         COND(&OVRS *EQ ' ') THEN(GOTO +
+                          CMDLBL(NOTOVRPRTF))
+
+/* Endrer printfile ut i fra nye verdier.                            */
+
+             OVRPRTF    FILE(&RAPP) TOFILE(*FILE) DEV(&OUTQ) +
+                          PAGESIZE(&ALIN) CPI(&ACPI) +
+                          OVRFLW(&OFLW) OUTQ(&OUTQ) +
+                          FORMTYPE(&FORM) COPIES(&AKOP) +
+                          HOLD(&HLDQ) OUTPTY(&PRTY)
+
+NOTOVRPRTF:
+
+/* Kaller opp program for å splitte kontoinformasjon:                */
+
+/*7.00       CALL       PGM(DB800C)                                  */
+/* Kaller opp program for å lese filer m/returdata:                  */
+
+             CALL       PGM(GL109R) PARM(&LINJ &POSI)
+             CALL       PGM(FIXGATR)
+             CALL       PGM(GL1X9R) /* T400 Konverterer ÆÅØ i GATRPF */
+
+/* 8.01 Hvis SEPA retur, les inn disse til GATRPF                       */
+/*8.01*/     CHGVAR     VAR(&CO402_KEY) VALUE('AVREGNINGSRETUR_FORMAT')
+/*8.01*/     rtvdtaara  dtaara(*lda (931 3)) rtnvar(&fgr)
+/*8.01*/     rtvdtaara  dtaara(*lda (944 3)) rtnvar(&fix)
+/*8.01*/     chgvar     var(&fir)   value(&fix)
+/*8.01*/     CALL       PGM(CO402R) PARM(&FGR &FIR &LAG &CO402_KEY +
+/*8.01*/                  &CO402_V1 &CO402_V2)
+
+/*8.01       IF         COND(&CO402_V1 *EQ '1') THEN(do)     */
+/*8.01          CALL       PGM(GS109R)                       */
+/*8.01       enddo                                           */
+
+/* Sletter Kontrollmember:                                           */
+
+ EOJ:
+             CHGVAR     VAR(&TYPE) VALUE('2')
+             CHGVAR     VAR(&PRGM) VALUE('GL109C    ')
+             CALL       PGM(GLCHKPGM) PARM(&PRGM &TYPE &AKTI)
+
+             CHGVAR     VAR(&TYPE) VALUE('2')
+             CHGVAR     VAR(&PRGM) VALUE('GL109CK   ')
+             CALL       PGM(GLCHKPGM) PARM(&PRGM &TYPE &AKTI)
+
+             CHGVAR     VAR(&TYPE) VALUE('2')
+             CHGVAR     VAR(&PRGM) VALUE('BANK      ')
+             CALL       PGM(GLCHKPGM) PARM(&PRGM &TYPE &AKTI)
+ END:
+
+             ENDPGM

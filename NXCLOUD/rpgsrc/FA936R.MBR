@@ -1,0 +1,499 @@
+    Hh decedit('0.') datedit(*dmy-) option(*nodebugio)
+     h DftActgrp(*No) Actgrp(*NEW) BndDir('CGIDEV2/CGIDEV2')
+      /copy hspecsbnd
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FA936R
+      * Beskrivelse . . : Oppslag mot Bisnode med webservice - foretak
+      *                   Brukes kun til kredittvurdering
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       270723 ASK  Nytt program
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_figr                934    939
+     d l_filg                931    933
+     d l_firm                944    946  0
+      *
+      * Definering av variable
+      *
+     d p_fnum          s              9  0
+     d p_kgre          s              8  0
+     d p_rati          s              5
+      *
+     d XML_Input       s            256a   Varying
+     d XML_Output1     s            256a   Varying
+     d XML_Output2     s            256a   Varying
+     d XML_Output3     s            256a   Varying
+     d XML_Output4     s            256a   Varying
+     d XML_path        s            256a
+     d w_xmlp          s            100
+     d options         s            200a   Varying
+      *
+     d w_url           s            200
+     d w_reqf          s            100
+     d w_rspf          s            100
+     d w_xmlf          s            100    Varying
+     d w_usrn          s             20
+     d w_pass          s             50
+     d w_usrk          s             20
+     d w_pask          s             50
+     d w_scor          s              3
+     d w_scorn         s              2  0
+     d w_susr          s             10
+     d w_rapp          s             25
+     d w_scrm          s             25
+     d w_stat          s              1  0
+     d w_autt          s              5
+     d w_ftnr          s              9
+     d w_duns          s              9
+     d w_rate          s              5
+     d w_ratx          s             20
+     d w_limt          s             10
+     d w_hend          s             20
+     d w_grun          s             20
+     d w_juri          s             20
+     d w_okon          s             20
+     d w_erfa          s             20
+     d w_sekd          s              3
+     d w_setx          s             20
+     d w_besl          s             20
+      *
+     d w_kode          s              1
+     d w_fell          s              6
+     d w_type          s              2
+     d w_fast          s             10
+     d w_numm          s              8  0
+     d w_leng          s              2  0
+     d w_start         s              2  0
+     d w_slutt         s              2  0
+     d w_tegn          s              1
+     d w_fnum          s              9
+      *
+     d w_firm          s              3  0
+     d w_ksc1          s              3  0
+     d w_ksc2          s              3  0
+     d w_ksc3          s              3  0
+     d w_ksc4          s              3  0
+     d w_ksc5          s              3  0
+     d w_kgr1          s              8  0
+     d w_kgr2          s              8  0
+     d w_kgr3          s              8  0
+     d w_kgr4          s              8  0
+     d w_kgr5          s              8  0
+      *
+      *
+      * Definering av konstanter
+      *
+      *
+      /copy prototypeb
+      /copy usec
+      *
+      * Datastruktur for XML fra Foretakinfo
+      *
+     d Identifikasjon  ds                  qualified
+     d   Orgnr                        9a
+     d   Dunsnr                       9a
+      *
+     d Rating          ds                  qualified
+     d   Rating                       5a
+     d   RatingBeskrivelse...
+     d                               20a
+     d   Limit                       10a
+     d   AktuellHendelse...
+     d                               20a
+     d   DelbGrunnfakta...
+     d                               20a
+     d   DelbEierJuridisk...
+     d                               20a
+     d   Delbokonomi                 20a
+     d   DelbBetalingserfaring...
+     d                               20a
+      *
+     d Grunnfakta      ds                  qualified
+     d   SelskFormKode...
+     d                                3a
+     d   SelskFormTekst...
+     d                               20a
+     d Scoring         ds                  qualified
+     d   Beslutning...
+     d                               20a
+     d   Score...
+     d                                5a
+      *
+      * Oppslag mot switch register for å hente info
+      *
+      *
+       dcl-s co402_verdi1  char(1);
+       dcl-s co402_verdi2  char(2048);
+       DCL-PR CO402R EXTPGM('CO402R');
+         p_filgrp            char(3)     const;
+         p_firm              packed(3:0) const;
+         p_lager             packed(2:0) const;
+         p_nokkel            char(50)    const;
+         p_verdi1            char(1);
+         p_verdi2            char(2048);
+       END-PR;
+
+     C/Exec SQL
+     C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR
+     C/End-Exec
+
+      * Hovedprogram:
+      *
+      *  - slår opp med foretaksnummer
+      *  - mottar internreferanse navn og adresseinformasjon
+      *  - returnerer verdier til registreringsprogram
+      *
+      * ------------------------------------------------------------------------
+      * Initierer, bygger requestfiler fra ForetaksinfoMal og kjører webservice
+      * ------------------------------------------------------------------------
+      *
+      * Params file
+      *
+     c                   eval      XML_path = '/home/' +
+     c                                        l_figr +
+     c                                        '/Bisnode/Bisnode_mal' +
+     c                                        '/ForetakinfoMal.txt.params'
+
+     c                   eval      w_xmlp = %trim(XML_path)
+     c                   callp     GetHTMLIFS(w_xmlp :'<AS400>')
+
+     c                   eval      XML_Output1 = '/home/' +
+     c                                           l_figr +
+     c                                           '/Bisnode/Bisnode_ws' +
+     c                                           '/Foretakinfo' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.txt.params'
+
+           // Ingen parametre på denne filen
+               WrtSection('FinfoParams');
+
+     c                   callp     WrtHtmlToStmf(XML_Output1: 819)
+      *
+      * Headers file
+      *
+     c                   eval      XML_path = '/home/' +
+     c                                        l_figr +
+     c                                        '/Bisnode/Bisnode_mal' +
+     c                                        '/ForetakinfoMal.txt.headers'
+
+     c                   eval      w_xmlp = %trim(XML_path)
+     c                   callp     GetHTMLIFS(w_xmlp :'<AS400>')
+
+     c                   eval      w_usrn = w_usrk
+     c                   eval      w_pass = w_pask
+
+           // Legge inn påloggingsinfo fra switch
+               UpdHTMLVar('usrid':                  w_usrn);
+               UpdHTMLVar('passw':                  w_pass);
+               WrtSection('FsokHeader');
+
+     c                   eval      XML_Output2 = '/home/' +
+     c                                           l_figr +
+     c                                           '/Bisnode/Bisnode_ws' +
+     c                                           '/Foretakinfo' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.txt.headers'
+      *
+     c                   callp     WrtHtmlToStmf(XML_Output2: 819)
+      *
+      * Body file
+      *
+     c                   eval      XML_path = '/home/' +
+     c                                        l_figr +
+     c                                        '/Bisnode/Bisnode_mal' +
+     c                                        '/ForetakinfoMal.txt'
+      *
+     c                   eval      w_xmlp = %trim(XML_path)
+     c                   callp     GetHTMLIFS(w_xmlp :'<AS400>')
+
+           // Legge inn foretaksnummer fra parameter
+               UpdHTMLVar('foretaksnr':             w_fnum);
+               UpdHTMLVar('rapport':                w_rapp);
+               UpdHTMLVar('scoremod':               w_scrm);
+               WrtSection('Foretak');
+
+     c                   eval      XML_Output3 = '/home/' +
+     c                                           l_figr +
+     c                                           '/Bisnode/Bisnode_ws' +
+     c                                           '/Foretakinfo' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.txt'
+     c                   eval      XML_Input   = '/home/' +
+     c                                           l_figr +
+     c                                           '/Bisnode/Bisnode_ws' +
+     c                                           '/ForetakinfoResp' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.txt'
+      *
+     c                   callp     WrtHtmlToStmf(XML_Output3: 819)
+      *
+      * Initierer og kaller webservice for ForetakInfo
+      *
+     c                   eval      w_url = 'https://dbonline.no' +
+     c                                     '/webservices/service/ForetakInfo'
+     c                   eval      w_usrn = *blank
+     c                   eval      w_pass = *blank
+     c                   eval      w_autt = *blank
+     c                   eval      w_reqf = XML_Output3
+     c                   eval      w_rspf = XML_Input
+     c                   eval      w_stat = 0
+      *
+     c                   call      'AW703C'
+     c                   parm                    w_url
+     c                   parm                    w_reqf
+     c                   parm                    w_rspf
+     c                   parm                    w_usrn
+     c                   parm                    w_pass
+     c                   parm                    w_autt
+     c                   parm                    w_stat
+
+     c                   callp     unlink(XML_Output1)
+     c                   callp     unlink(XML_Output2)
+     c                   callp     unlink(XML_Output3)
+      *
+      * ------------------------------------------------------------------------
+      * Leser mottatt svar på Foretakinfo og tar vare på mottatte data
+      * ------------------------------------------------------------------------
+      *
+      * Henter Identifikasjon
+      *
+
+             options  = 'doc=file +
+                                path=HentForetakResponse/Identifikasjon +
+                                case=any +
+                                ns=remove +
+                                allowextra=yes +
+                                allowmissing=yes';
+             w_xmlf = %trim(w_rspf);
+
+                   xml-into Identifikasjon %xml(w_xmlf: options);
+
+             w_ftnr  = Identifikasjon.Orgnr;
+             w_duns  = Identifikasjon.Dunsnr;
+
+      *
+      * Henter Rating
+      *
+
+             options  = 'doc=file +
+                                path=HentForetakResponse/Rating +
+                                case=any +
+                                ns=remove +
+                                allowextra=yes +
+                                allowmissing=yes';
+             w_xmlf = %trim(w_rspf);
+
+                   xml-into Rating %xml(w_xmlf: options);
+
+             w_rate  = Rating.Rating;
+             w_ratx  = Rating.RatingBeskrivelse;
+             w_limt  = Rating.Limit;
+             w_hend  = Rating.AktuellHendelse;
+             w_grun  = Rating.DelbGrunnfakta;
+             w_juri  = Rating.DelbEierJuridisk;
+             w_okon  = Rating.DelbOkonomi;
+             w_erfa  = Rating.DelbBetalingserfaring;
+
+      *
+      * Henter Selskapsform
+      *
+
+             options  = 'doc=file +
+                                path=HentForetakResponse/Grunnfakta +
+                                case=any +
+                                ns=remove +
+                                allowextra=yes +
+                                allowmissing=yes';
+             w_xmlf = %trim(w_rspf);
+
+                   xml-into Grunnfakta %xml(w_xmlf: options);
+
+             w_sekd  = Grunnfakta.SelskFormKode;
+             w_setx  = Grunnfakta.SelskFormTekst;
+
+      *
+      * Henter Score
+      *
+
+             options  = 'doc=file +
+                                path=HentForetakResponse/Scoring +
+                                case=any +
+                                ns=remove +
+                                allowextra=yes +
+                                allowmissing=yes';
+             w_xmlf = %trim(w_rspf);
+
+                   xml-into Scoring %xml(w_xmlf: options);
+
+             w_besl  = Scoring.Beslutning;
+             w_scor  = Scoring.Score;
+
+     c                   callp     unlink(XML_Output1)
+     c                   callp     unlink(XML_Output2)
+     c                   callp     unlink(XML_Output3)
+     c                   callp     unlink(XML_Output4)
+      *
+      *
+      * Beregner kreditgrense
+      *
+     c                   eval      w_scorn = %dec(w_scor:2:0)
+
+         p_kgre = 0;
+
+         if w_besl = 'Godkjent';
+
+      // Henter kredittgrenser fra selskap
+
+           exec sql
+           select  rkksc1, rkkgr1, rkksc2, rkkgr2, rkksc3, rkkgr3,
+                   rkksc4, rkkgr4, rkksc5, rkkgr5
+             into :w_ksc1, :w_kgr1, :w_ksc2, :w_kgr2, :w_ksc3, :w_kgr3,
+                  :w_ksc4, :w_kgr4, :w_ksc5, :w_kgr5
+            from ra33st
+             where rkktyp = :w_sekd;
+
+           if sqlcod = 100;
+      // Henter kredittgrenser fra overordnet type
+
+           exec sql
+           select  rkksc1, rkkgr1, rkksc2, rkkgr2, rkksc3, rkkgr3,
+                   rkksc4, rkkgr4, rkksc5, rkkgr5
+             into :w_ksc1, :w_kgr1, :w_ksc2, :w_kgr2, :w_ksc3, :w_kgr3,
+                  :w_ksc4, :w_kgr4, :w_ksc5, :w_kgr5
+            from ra33st
+             where rkktyp = '      ';
+           endif;
+
+               if sqlcod = 100;
+                 p_kgre = 0;
+                else;
+                 if w_ksc1 > 0 and
+                    w_scorn > w_ksc1;
+                      p_kgre = w_kgr1;
+                 endif;
+                 if w_ksc2 > 0 and
+                    w_scorn > w_ksc2;
+                      p_kgre = w_kgr2;
+                 endif;
+                 if w_ksc3 > 0 and
+                    w_scorn > w_ksc3;
+                      p_kgre = w_kgr3;
+                 endif;
+                 if w_ksc4 > 0 and
+                    w_scorn > w_ksc4;
+                      p_kgre = w_kgr4;
+                 endif;
+                 if w_ksc5 > 0 and
+                    w_scorn > w_ksc5;
+                      p_kgre = w_kgr5;
+                 endif;
+               endif;
+         endif;
+     c                   eval      p_rati = w_scor
+      *
+     c                   callp     unlink(XML_Input)
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine  - Brukes ved ikke-treff mot Bisnode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+     c                   eval      p_kgre = 0
+     c                   eval      p_rati = 'Feil'
+     c                   goto      avslutt
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Henter inn parameter
+      *
+     c     *entry        plist
+     c                   parm                    p_fnum
+     c                   parm                    p_kgre
+     c                   parm                    p_rati
+      *
+      * Legge inn firmanummer
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      w_fnum = %char(p_fnum)
+      *
+      * Henter inn løpenummer teller for Bisnode
+      *
+     c                   eval      w_kode = '0'
+     c                   eval      w_fell = 'BISTEL'
+     c                   eval      w_type = *blank
+     c                   eval      w_fast = *blank
+     c                   eval      w_numm = *zero
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_numm
+      *
+      * Tilordner faste verdier
+      *
+     c                   eval      w_susr = l_user
+     c                   eval      w_rapp = 'TOTAL'
+     c                   eval      w_scrm = '1'
+      *
+      * Eksternt kundesøk  hent påloggingsinformasjon Bisnode
+      *
+       CallP CO402R(l_filg:w_firm:0:'BISNODE - EKSTERNT_KUNDESØK':
+                       co402_verdi1:co402_verdi2);
+
+      * Brukerid
+           w_start = 1;
+           dou  w_tegn <> ' ';
+            w_tegn = %subst(CO402_verdi2 : w_start : 1);
+            w_start= w_start + 1;
+           enddo;
+           w_start= w_start - 1;
+           w_slutt = %scan(' ' : co402_verdi2 : w_start);
+           w_leng = w_slutt - w_start;
+
+           w_usrk = %subst(CO402_verdi2 :w_start : w_leng);
+
+      * Passord
+           w_start = w_slutt;
+           dou  w_tegn <> ' ';
+            w_tegn = %subst(CO402_verdi2 : w_start : 1);
+            w_start= w_start + 1;
+           enddo;
+           w_start= w_start - 1;
+           w_slutt = %scan(' ' : co402_verdi2 : w_start);
+           w_leng = w_slutt - w_start;
+
+           w_pask = %subst(CO402_verdi2 :w_start : w_leng);
+      *
+     c                   endsr

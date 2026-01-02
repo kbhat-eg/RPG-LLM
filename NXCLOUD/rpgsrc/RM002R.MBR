@@ -1,0 +1,438 @@
+     h option(*nodebugio) datedit(*dmy)
+     h decedit('0.')
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : RM002R
+      * Beskrivelse . . : Leser linjer fra BOVF til semikolon separert fil
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * ----- ------ ---- -------------------------------------------------
+      *       270319 nho  Mamut
+7.01  *       171121 sst  Hente kundekonto fra RA04L1, fjernet div hardkoding
+7.03  *       120521 mst  Henter avvikende momskode, hvis den finnes
+7.04  *       210322 mst  Legger ut prosjekt
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     fbovfut    if   e             disk
+     frhovl1    if   e           k disk    rename(rhovpfr:rhovl1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+7.03 frb00l1    if   e           k disk    rename(rb00pfr:rb00l1r)
+7.01 fra04l1    if   e           k disk    rename(ra04pfr:ra04l1r)
+7.00 frb10l1    if   e           k disk    rename(rb10pfr:rb10l1r)
+      *
+     frm02pf    o    e           k disk
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_firm                944    946  0
+      *
+      * Definering av variabler i nøkler
+      *
+     d bovfl1_peri     s                   like(bfperi)
+      *
+     d rkunl1_kund     s                   like(rkkund)
+      *
+     d rhovl1_kont     s                   like(rhkont)
+     d rhovl1_spes     s                   like(rhspes)
+     d rhovl1_avde     s                   like(rhavde)
+      *
+7.00 d rb10l1_gkod     s                   like(raakod)
+      *
+      * Datastruktur for bilagsdato
+     d                 ds
+     d b_jdati                 1     10
+     d  b_fa                   1      4
+     d  b_f1                   5      5
+     d  b_fn                   6      7
+     d  b_f2                   8      8
+     d  b_fd                   9     10
+      *
+      * Datastruktur for forfallsdato
+     d                 ds
+     d b_fdati                 1     10
+     d  f_fa                   1      4
+     d  f_f1                   5      5
+     d  f_fn                   6      7
+     d  f_f2                   8      8
+     d  f_fd                   9     10
+      *
+      *
+     d fØrste          s              1  0
+     d w_ponr          s              4
+     d w_ident         s              6
+     d w_jdat8         s              8
+     d w_jdat4         s              4
+     d w_bilk          s              3  0
+     d x_bilk          s              3  0
+     d w_period        s              2  0
+     d w_aar           s              4  0
+     d w_numb          s              7  0
+     d w_vkod          s              5  0
+     d x_vkod          s              1
+     d w_belp          s             15  2
+     d w_firm          s              3  0
+     d w_kundn         s              9  0
+     d w_suppn         s             10  0
+     d w_cont          s             30
+     d w_navn          s                   like(rknavn)
+     d w_adres         s            200
+     d w_city          s             30
+     d w_invtxt        s             25
+     d w_notuse        s             30
+     d w_fdat8         s              8
+     d w_fdat4         s              4
+     d w_blank         s              1
+     d w_account       s             19
+     d w_ledger        s            100
+     d w_custdes       s            100
+     d w_proj          s              6
+     d w_depart        s              4
+     d w_payment       s              4
+     d w_blank1        s              1
+     d w_gross         s             20  2
+     d w_iban          s             50
+     d w_swift         s             50
+7.03 d rb00l1_gkod     s                   like(r00kod)
+7.03 d w_type          s             10
+      *
+     c                   eval      bovfl1_peri = 0
+     c**   bovfl1_key    setll     bovfl1
+     c                   read      bovfut
+     c                   dow       not %eof
+      *
+     c                   if        l_firm <> bffirm
+     c                   goto      slutt
+     c                   endif
+      * Identification
+     c                   eval      w_ident = 'GBAT10'
+7.00  * Sjekker om bilagstype skal konverteres
+7.00 c                   eval      x_bilk = bfbilk
+7.00 c                   eval      rb10l1_gkod = bfbilk
+7.00 c     rb10l1_key    chain     rb10l1
+7.00 c                   if        %found
+7.00 c                   eval      x_bilk = rankod
+7.00 c                   endif
+7.00  *
+      *
+      * Journal date
+     c                   movel     bfbdat        b_jdati
+     c                   movel     b_fa          w_jdat8
+     c                   movel     b_fn          w_jdat4
+     c                   move      b_fd          w_jdat4
+     c                   move      w_jdat4       w_jdat8
+      *
+      * Journal type   / konstant 6
+      ***************
+7.00 c*                  eval      w_bilk = 6
+      *
+      * Period
+     c                   movel     bfperi        w_period
+      *
+      * Accounting year
+     c                   movel     w_jdat8       w_aar
+      *
+      * Accounting number
+     c                   if        bfdkto > 9999
+7.01 c                   eval      bfdkto = radk05
+     c                   else
+     c                   if        bfckto > 9999
+7.01 c                   eval      bfckto = radk05
+     c                   endif
+     c                   endif
+      *
+      * Accounting number
+     c                   if        bfdkto <> *zeros
+7.01 c*                  if        bfdkto = 3000
+7.01 c*                  eval      bfdkto = 3010
+7.01 c*                  eval      w_numb = bfdkto
+7.01 c*                  endif
+     c                   eval      w_numb = bfdkto
+     c                   else
+7.01 c*                  if        bfckto = 3000
+7.01 c*                  eval      bfckto = 3010
+7.01 c*                  eval      w_numb = bfckto
+7.01 c*                  else
+     c                   eval      w_numb = bfckto
+7.01 c*                  endif
+     c                   endif
+      *
+      * Vat Code
+      *
+     c                   if        bfdmom <> *blank
+     c                   move      bfdmom        w_vkod
+     c                   else
+     c                   move      bfcmom        w_vkod
+     c                   endif
+7.03  * Sjekker om momskode  skal konverteres
+7.03 c                   eval      w_type      = 'MVAKODE'
+7.03 c                   move      w_vkod        rb00l1_gkod
+7.03 c     rb00l1_key    chain     rb00l1
+7.03 c                   if        %found
+7.03 c*                  movel     r00nko        w_vkod
+7.03 c                   move      r00nko        w_vkod
+7.03 c                   endif
+      *
+      *
+7.01 c                   if        bfckto = radk05
+     c                   eval      w_vkod = 0
+     c                   endif
+      *
+7.01 c                   if        bfdkto = radk05
+     c                   eval      w_vkod = 0
+     c                   endif
+      *
+7.01 c*                  if        bfdkto = 7105
+7.01 c*                  eval      w_vkod = 0
+7.01 c*                  endif
+      *
+7.01 c*                  if        bfckto = 7105
+7.01 c*                  eval      w_vkod = 0
+7.01 c*                  endif
+      * Balance
+     c                   if        bfdkto <> 0
+     c                   eval      w_belp = bfbelp
+     c                   eval      w_gross = bfbelp
+     c                   else
+     c     bfbelp        mult      -1            bfbelp
+     c                   eval      w_belp = bfbelp
+     c                   eval      w_gross = bfbelp
+     c                   endif
+      *
+      * Customer number
+     c                   eval      w_kundn = bfkund
+      * Address
+     c                   eval      rkunl1_kund = w_kundn
+     c     rkunl1_key    chain     rkunl1                             90
+     c                   if        *in90 = '0'
+     c                   movel     rkgate        w_adres
+      * Postcode
+     c                   movel     rkponr        w_ponr
+      * Postcode
+     c                   movel     rknavn        w_navn
+     c                   endif
+      * Due date
+     c                   movel     bffdat        b_fdati
+     c                   movel     b_fa          w_fdat8
+     c                   movel     b_fn          w_fdat4
+     c                   move      b_fd          w_fdat4
+     c                   move      w_jdat4       w_fdat8
+      * Invoice number
+     c                   movel     bfbiln        w_invtxt
+      *
+      * Gross
+     c                   eval      w_blank1 = 'T'
+      *
+      * Sjekk hovedboks konto Bank account
+     c                   if        bfdkto <> 0
+     c                   move      bfdkto        rhovl1_kont
+     c                   eval      rhovl1_spes = *zero
+     c                   eval      rhovl1_avde = *zero
+     c     rhovl1_key    chain     rhovl1                             62
+      *
+     c                   if        *in62 = *off
+     c                   movel     bfdkto        w_account
+     c                   movel     rhtext        w_ledger
+     c                   movel     rhtext        w_navn
+     c                   move      *blanks       w_adres
+     c                   move      *blanks       w_ponr
+     c                   move      *blanks       w_city
+     c                   end
+     c                   end
+      *
+     c                   if        bfckto <> 0
+     c                   move      bfckto        rhovl1_kont
+     c                   eval      rhovl1_spes = *zero
+     c                   eval      rhovl1_avde = *zero
+     c     rhovl1_key    chain     rhovl1                             62
+      *
+     c                   if        *in62 = *off
+     c                   movel     bfckto        w_account
+     c                   movel     rhtext        w_ledger
+     c                   movel     rhtext        w_navn
+     c                   move      *blanks       w_adres
+     c                   move      *blanks       w_ponr
+     c                   move      *blanks       w_city
+     c                   endif
+     c                   endif
+      *
+      * Project
+7.04 c                   movel     bfproj        w_proj
+      **********************************************************************
+     c*
+     c**********
+     c                   eval      rmdata = *blank
+     c                   eval      rmdata = %trim('"') +
+      *
+      * Identification
+     c                                     %trim(w_ident) + '"' + ';' +
+      * Journalnr.
+     c                                     %char(bfbiln) + ';' +
+      * Journal date
+     c                                     %trim(w_jdat8) + ';' +
+      * Journal type
+7.01 c*                                    %char(w_bilk)  + ';' +
+7.01 c                                     %char(x_bilk)  + ';' +
+      * Period
+     c                                     %char(w_period)  + ';' +
+      * Account Year ?????
+     c                                     %char(w_aar)  + ';' +
+      * Account Numb ?????
+     c                                     %char(w_numb)  + ';' +
+      * VAT code
+     c                                     %char(w_vkod)  + ';' +
+      * Balance
+     c                                     %char(w_belp)  + ';' +
+      * Customer numb
+     c                                     %char(w_kundn)  + ';' +
+      * Supplier number
+     c                                     %char(0)       + ';' +
+      * Contact name
+     c                               '"'+  %trim(w_navn) + '"' + ';' +
+      * Adress
+     c                               '"'+  %trim(w_adres) + '"' + ';' +
+      * Postcode
+     c                               '"'+  %trim(w_ponr) + '"' + ';' +
+      * City
+     c                               '"'+  %trim(w_city) + '"' + ';' +
+      * Invoice number (TXT)
+     c                               '"'+  %trim(w_invtxt) + '"' + ';' +
+      * Not used
+     c                               '"'+  %trim(w_notuse) + '"' + ';' +
+      * Due date
+     c                                     %trim(w_fdat8) + ';' +
+      * Not used
+     c                                     %trim(w_blank) + ';' +
+      * Bank Account
+     c                               '"'+  %trim(w_account) + '"' + ';' +
+      * Ledger description
+     c                               '"'+  %trim(w_ledger) + '"' + ';' +
+      * Customer description
+     c                               '"'+  %trim(w_custdes) + '"' + ';' +
+      * Factoring rateiption
+     c                                     %char(1)          + ';' +
+      * Project
+     c                                     %trim(w_proj)     + ';' +
+      * Department
+     c                                     %trim(w_depart)     + ';' +
+      * Payment terms
+     c                                     %trim(w_payment)     + ';' +
+      * Gross
+     c                                     %trim(w_blank1)     + ';' +
+      * Gross sum
+     c                                     %char(w_gross)     + ';' +
+      * IBAN
+     c                               '"'+  %trim(w_iban) + '"' + ';' +
+      * SWIFT
+     c                               '"'+  %trim(w_swift) + '"'
+      **********************************************************************
+     c************************************************************************
+     c*    'Æ':X'46'     xlate     nsdata        nsdata
+     c*    'æ':X'A0'     xlate     nsdata        nsdata
+     c*    'Ø':X'77'     xlate     nsdata        nsdata
+     c*    'ø':X'90'     xlate     nsdata        nsdata
+     c*    'Å':X'2A'     xlate     nsdata        nsdata
+     c*    'å':X'EF'     xlate     nsdata        nsdata
+     c                   movel     *blanks       w_iban
+     c                   movel     *blanks       w_swift
+     c                   write     rm02pfr
+6.24  *
+      * Blanker felt
+     c                   exsr      blank
+      *
+     c                   read      bovfut
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      *inlr = *on
+6.23 c     slutt         tag
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Blanker felter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     blank         begsr
+      *
+     c                   eval      w_ponr = *blanks
+     c                   eval      w_navn = *blanks
+     c                   eval      w_ident = *blanks
+     c                   eval      w_jdat8 = *blanks
+     c                   eval      w_jdat4 = *blanks
+     c                   eval      w_bilk  = *zeros
+     c                   eval      w_period  = *zeros
+     c                   eval      w_aar  = *zeros
+     c                   eval      w_numb  = *zeros
+     c                   eval      w_vkod  = *zeros
+     c                   eval      x_vkod  = *blanks
+     c                   eval      w_belp  = *zeros
+     c                   eval      w_kundn = *zeros
+     c                   eval      w_suppn = *zeros
+     c                   eval      w_cont  = *blanks
+     c                   eval      w_adres = *blanks
+     c                   eval      w_city  = *blanks
+     c                   eval      w_invtxt  = *blanks
+     c                   eval      w_notuse  = *blanks
+     c                   eval      w_fdat8  = *blanks
+     c                   eval      w_blank  = *blanks
+     c                   eval      w_account = *blanks
+     c                   eval      w_ledger = *blanks
+     c                   eval      w_proj = *blanks
+     c                   eval      w_depart = *blanks
+     c                   eval      w_payment = *blanks
+     c                   eval      w_blank1 = *blank
+     c                   eval      w_gross = *zeros
+     c                   eval      w_iban  = *blanks
+     c                   eval      w_swift  = *blanks
+6.21  *
+6.21 c                   endsr
+6.21  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.21  * Subrutine for initiering av program
+6.21  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.21  *
+6.21 c     *inzsr        begsr
+6.21  *
+      * Key for hovedbok
+      *
+     c     rhovl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rhovl1_kont
+     c                   kfld                    rhovl1_spes
+     c                   kfld                    rhovl1_avde
+      *
+6.21  * Key for oppslag på kunde
+6.21  *
+6.21 c     rkunl1_key    klist
+6.21 c                   kfld                    w_firm
+6.21 c                   kfld                    rkunl1_kund
+6.21  *
+      * Key for posisjonering på posteringsfil
+      *
+     c     bovfl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bovfl1_peri
+7.03  * Key for posisjonering på koder (moms)
+7.03  *
+7.03 c     rb00l1_key    klist
+7.03 c                   kfld                    w_firm
+7.03 c                   kfld                    w_type
+7.03 c                   kfld                    rb00l1_gkod
+7.00  * Key for posisjonering på bilagskoder
+7.00  *
+7.00 c     rb10l1_key    klist
+7.00 c                   kfld                    w_firm
+7.00 c                   kfld                    rb10l1_gkod
+6.21  *
+     c                   eval      w_firm = l_firm
+6.21  *
+7.01 c     w_firm        chain     ra04l1
+7.01 c                   if        not %found(ra04l1)
+7.01 c                             or  radk05 = *zero
+7.01 c                   eval      radk05 = 1510
+7.01 c                   endif
+6.21  *
+6.21 c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

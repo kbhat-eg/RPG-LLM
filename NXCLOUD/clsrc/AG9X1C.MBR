@@ -1,0 +1,67 @@
+             PGM        PARM(&FILE &DLIB &NULL)
+
+             DCL        VAR(&FILE) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&DLIB) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&NULL) TYPE(*CHAR) LEN(1)
+
+             DCL        VAR(&SFIL) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&BACK) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&INDX) TYPE(*CHAR) LEN(6)
+
+/*-------------------------------------------------------------------*/
+/* HOHXPF er en SQL-tabell, men med DDF-type-navn.  den bruker       */
+/* AG901C for å generere, men feil hvis indekser finnes fra før, de  */
+/*  heter L1, LU osv. Disse får den ikke slettet. Lager denne  som   */
+/* sletter Pheter L1, LU osv. Rutinen må nå kalle denne CL'en        */
+/*-------------------------------------------------------------------*/
+/* Setter databibliotek til current library                          */
+
+             CHGCURLIB  CURLIB(&DLIB)
+
+/* Utleder navn på source-file, backup-tabell og index-prefix        */
+
+             CHGVAR     VAR(&SFIL) VALUE(%SUBSTRING(&FILE 1 4) *CAT +
+                          'SQ')
+             CHGVAR     VAR(&BACK) VALUE(%SUBSTRING(&FILE 1 4) *CAT +
+                          'BT')
+             CHGVAR     VAR(&INDX) VALUE(%SUBSTRING(&FILE 1 4) *CAT +
+                          'L*')
+
+/* Tar vare på tabellinnholdet i temporær backup-tabell og sletter   */
+/* eksisterende tabell og tilhørende indekser                        */
+
+             CHKOBJ     OBJ(&DLIB/&FILE) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(GOTO CMDLBL(SQL))
+
+             CHKOBJ     OBJ(&DLIB/&BACK) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(GOTO CMDLBL(BACKUP))
+
+             DLTF       FILE(&DLIB/&BACK)
+
+ BACKUP:     CPYF       FROMFILE(&DLIB/&FILE) TOFILE(&DLIB/&BACK) +
+                          CRTFILE(*YES)
+
+             DLTF       FILE(&DLIB/&INDX)
+             MONMSG     MSGID(CPF2125)
+
+             DLTF       FILE(&DLIB/&FILE)
+
+/* Kjører SQL-statements for oppretting av tabell og indekser        */
+
+ SQL:        RUNSQLSTM  SRCFILE(*LIBL/QSQLSRC) SRCMBR(&SFIL) +
+                          NAMING(*SYS) DECMPT(*COMMA) +
+                          SRTSEQ(*LANGIDUNQ) LANGID(NOR)
+
+/* Kopierer tilbake tabellinnhold fra temporær backup-tabell         */
+
+             CHKOBJ     OBJ(&DLIB/&BACK) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(GOTO END)
+
+             IF         COND(&NULL *NE '1') THEN( +
+             CPYF       FROMFILE(&DLIB/&BACK) +
+                          TOFILE(&DLIB/&FILE) MBROPT(*ADD) +
+                          FMTOPT(*MAP *DROP))
+
+             DLTF       FILE(&DLIB/&BACK)
+
+ END:        ENDPGM

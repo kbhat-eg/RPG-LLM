@@ -1,0 +1,354 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : JV164R
+      * Beskrivelse . . : Finner prioriterte leverandører
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       210519 bsa  Nytt program
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvprll1    if   e           k disk    rename(vprlpfr:vprll1r)
+     fjvarl1    if   e           k disk    rename(jvarpfr:jvarl1r)
+     fjlevl3    if   e           k disk    rename(jlevpfr:jlevl3r)
+      *
+      * Definering parametre
+      *
+     d p_irec          s             80
+     d p_orec          s             80
+      *
+      * Datastruktur parameterliste -inn
+      *
+     d                 ds
+     d hirec                         80
+     d  hilage                        2  0 overlay(hirec)
+     d  hivare                       15    overlay(hirec:3)
+      *
+      * Datastruktur parameterliste -ut
+      *
+     d                 ds
+     d horec                         80
+     d  hopr1l                        6  0 overlay(horec)
+     d  hopr2l                        6  0 overlay(horec:7)
+     d  hopr3l                        6  0 overlay(horec:13)
+      *
+      * Definering av variabler i nøkler
+      *
+     d vprll1_lage     s                   like(pllage)
+     d vprll1_ogrp     s                   like(plogrp)
+     d vprll1_hgrp     s                   like(plhgrp)
+     d vprll1_ugrp     s                   like(plugrp)
+     d vprll1_modn     s                   like(plmodn)
+     d vprll1_vare     s                   like(plvare)
+     d jvarl1_vare     s                   like(jvvare)
+     d jlevl3_enum     s                   like(jlenum)
+      *
+      * Definering av variable
+      *
+     d b_prio          s              1    inz(*off)
+      *
+     d w_firm          s                   like(plfirm)
+     d w_lage          s              2  0
+     d w_ogrp          s              2  0
+     d w_hgrp          s              2  0
+     d w_ugrp          s              3  0
+     d w_modn          s              6  0
+     d w_vare          s             15
+      *
+     d                uds
+     d l_filg                931    931
+     d l_firm                944    946  0
+     d l_lage               1001   1002  0
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Kaller intitierings-rutine
+      *
+     c                   exsr      init
+      *
+     c                   exsr      hent_matrise
+      *
+      * Kopierer output-datastruktur til output-parameter
+      *
+     c                   eval      p_orec = horec
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+      *
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å hente rabatter/DG fra rabattmatrise
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_matrise  begsr
+      *
+      * Nivårekkefølge:
+      *
+      *  Lager
+      *   Overgruppe
+      *     Hovedgruppe
+      *       Undergruppe
+      *         Modul
+      *           Vare
+      *  _____________________
+      *  x x x x x x    1. Lager,ogrp,hgrp,ugrp,modul,vare
+      *  - x x x x x    2. 0,ogrp,hgrp,ugrp,modul,vare
+      *  x x x x x -    3. Lager,ogrp,hgrp,ugrp,modul
+      *  - x x x x -    4. 0,ogrp,hgrp,ugrp,modul
+      *  x x x x - -    5. Lager,ogrp,hgrp,ugrp
+      *  - x x x - -    6. 0,ogrp,hgrp,ugrp
+      *  x x x - - -    7. Lager,ogrp,hgrp
+      *  - x x - - -    8. 0,ogrp,hgrp
+      *  x x - - - -    9. Lager,ogrp
+      *  - x - - - -   10. 0,ogrp
+      *  x - - - - -   11. Lager
+      *
+     c                   eval      b_prio = *off
+      *
+     c                   eval      vprll1_lage = w_lage
+     c                   eval      vprll1_ogrp = w_ogrp
+     c                   eval      vprll1_hgrp = w_hgrp
+     c                   eval      vprll1_ugrp = w_ugrp
+     c                   eval      vprll1_modn = w_modn
+     c                   eval      vprll1_vare = w_vare
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   eval      vprll1_lage = 0
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   eval      vprll1_lage = w_lage
+     c                   eval      vprll1_ogrp = w_ogrp
+     c                   eval      vprll1_hgrp = w_hgrp
+     c                   eval      vprll1_ugrp = w_ugrp
+     c                   eval      vprll1_modn = w_modn
+     c                   eval      vprll1_vare = *blanks
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   eval      vprll1_lage = 0
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   eval      vprll1_lage = w_lage
+     c                   eval      vprll1_ogrp = w_ogrp
+     c                   eval      vprll1_hgrp = w_hgrp
+     c                   eval      vprll1_ugrp = w_ugrp
+     c                   eval      vprll1_modn = 0
+     c                   eval      vprll1_vare = *blanks
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   eval      vprll1_lage = 0
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   eval      vprll1_lage = w_lage
+     c                   eval      vprll1_ogrp = w_ogrp
+     c                   eval      vprll1_hgrp = w_hgrp
+     c                   eval      vprll1_ugrp = 0
+     c                   eval      vprll1_modn = 0
+     c                   eval      vprll1_vare = *blanks
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   eval      vprll1_lage = 0
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   eval      vprll1_lage = w_lage
+     c                   eval      vprll1_ogrp = w_ogrp
+     c                   eval      vprll1_hgrp = 0
+     c                   eval      vprll1_ugrp = 0
+     c                   eval      vprll1_modn = 0
+     c                   eval      vprll1_vare = *blanks
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   eval      vprll1_lage = 0
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   eval      vprll1_lage = w_lage
+     c                   eval      vprll1_ogrp = 0
+     c                   eval      vprll1_hgrp = 0
+     c                   eval      vprll1_ugrp = 0
+     c                   eval      vprll1_modn = 0
+     c                   eval      vprll1_vare = *blanks
+     c     vprll1_key    chain     vprll1
+     c                   if        %found
+     c                   exsr      prio_lev
+     c                   if        b_prio = *on
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å hente rabatter eller DG etter treff i rabatt-
+      * matrisen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     prio_lev      begsr
+      *
+     c                   eval      b_prio = *on
+      *
+     c                   eval      jlevl3_enum = plpr1l
+     c     jlevl3_key    chain     jlevl3
+     c                   if        %found
+     c                   eval      hopr1l = jlldor
+     c                   endif
+      *
+     c                   eval      jlevl3_enum = plpr2l
+     c     jlevl3_key    chain     jlevl3
+     c                   if        %found
+     c                   eval      hopr2l = jlldor
+     c                   endif
+      *
+     c                   eval      jlevl3_enum = plpr3l
+     c     jlevl3_key    chain     jlevl3
+     c                   if        %found
+     c                   eval      hopr3l = jlldor
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering og nullstilling av variable
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     init          begsr
+      *
+     c                   eval      w_lage = hilage
+     c                   eval      w_vare = hivare
+     c                   eval      w_ogrp = 0
+     c                   eval      w_hgrp = 0
+     c                   eval      w_ugrp = 0
+     c                   eval      w_modn = 0
+      *
+      * Finn informasjon om varen
+      *
+     c                   eval      jvarl1_vare = hivare
+     c     jvarl1_key    chain     jvarl1
+     c                   if        not %found
+     c                   eval      w_ogrp = jvogrp
+     c                   eval      w_hgrp = jvhgrp
+     c                   eval      w_ugrp = jvugrp
+     c                   eval      w_modn = jvmodn
+     c                   endif
+      *
+      * Nullstiller output-parametre
+      *
+     c                   eval      hopr1l = 0
+     c                   eval      hopr2l = 0
+     c                   eval      hopr3l = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+     c                   parm                    p_irec
+     c                   parm                    p_orec
+      *
+      * Key for oppslag på prioritert leverandør
+      *
+     c     vprll1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vprll1_lage
+     c                   kfld                    vprll1_ogrp
+     c                   kfld                    vprll1_hgrp
+     c                   kfld                    vprll1_ugrp
+     c                   kfld                    vprll1_modn
+     c                   kfld                    vprll1_vare
+      *
+      * Key for oppslag på leverandør
+      *
+     c     jlevl3_key    klist
+     c                   kfld                    jlevl3_enum
+      *
+      * Key for oppslag på vare
+      *
+     c     jvarl1_key    klist
+     c                   kfld                    jvarl1_vare
+      *
+      * Henter verdier fra input-parameter
+      *
+     c                   eval      hirec = p_irec
+     c                   eval      w_firm= l_firm
+      *
+     c                   endsr

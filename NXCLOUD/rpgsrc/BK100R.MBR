@@ -1,0 +1,1097 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASSHOP
+      * Program . . . . : BK100R
+      * Beskrivelse . . : ButikkKasse, vedlikehold
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       020604 HKO  Nytt program
+      *       130407 HKO  Lagt inn vedlikehold av fortrykt blankett
+6.31  *       040716 bof  Utvidet med noen felter (C3BLD)
+7.xx  * 7.00  260516 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fbkasi1    if   e           k disk    rename(bkasst:bkasi1r)
+     fbkasi2    if   e           k disk    rename(bkasst:bkasi2r)
+     fbkasir    if   e           k disk    rename(bkasst:bkasirr)
+     fbkasiu    uf a e           k disk    rename(bkasst:bkasiur)
+      *
+     fbstsl1    if   e           k disk    rename(bstspfr:bstsl1r)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     fawsdl1    if   e           k disk    rename(awsdpfr:awsdl1r)
+     fawsdlu    uf a e           k disk    rename(awsdpfr:awsdlur)
+      *
+     fbk100d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d bkasi1_kass     s                   like(bkkass)
+     d bkasi2_besk     s                   like(bkbesk)
+     d bkasir_kass     s                   like(bkkass)
+     d bkasiu_kass     s                   like(bkkass)
+     d votyl1_otyp     s                   like(vaotyp)
+     d awsdl1_wsid     s                   like(awwsid)
+     d awsdl1_ruti     s                   like(awruti)
+     d awsdlu_wsid     s                   like(awwsid)
+     d awsdlu_ruti     s                   like(awruti)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(bkfirm)
+     d w_rufd          s                   like(vaorub)
+     d w_rufk          s                   like(vaorub)
+     d w_ruhd          s                   like(vaorub)
+      *
+     d s_kass          s                   like(bkkass)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meleingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2kass <> *blank or
+     c                             b2besk <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      bkasi2_besk = b1besk
+     c     bkasi2_key    setll     bkasi2
+     c                   other
+     c                   eval      bkasi1_kass = b1kass
+     c     bkasi1_key    setll     bkasi1
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Kasse
+      *
+     c                   if        b2kass <> *blank
+     c                   eval      w_seqe = *blank
+     c                   eval      bkasi1_kass = b2kass
+     c     bkasi1_key    setll     bkasi1
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Beskrivelse
+      *
+     c                   if        b2besk <> *blank
+     c                   eval      w_seqe = 'B'
+     c                   eval      bkasi2_besk = b2besk
+     c     bkasi2_key    setll     bkasi2
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2kass = *blank
+     c                   eval      b2besk = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   eval      c1kass = b1kass
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Kopier
+      *
+     c                   if        b1valg = 3
+     c                   eval      k1kass = b1kass
+     c                   exsr      xk1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1kass = b1kass
+     c                   exsr      xd1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1kass = b1kass
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      b_oppr = *on
+     c                   eval      b_forn = *off
+      *
+     c                   eval      c1kass = b2kass
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_c1bld
+     c                   endsl
+      *
+     c                   if        c1kass = *blank
+     c                   goto      end_c1bld
+     c                   endif
+      *
+      * Sender opp informasjonsbilde dersom rad finnes fra før
+      *
+     c                   eval      bkasir_kass = c1kass
+     c     bkasir_key    chain     bkasir
+     c                   if        %found
+     c                   exsr      xc1msg
+     c                   if        b_anul = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   exsr      xc2bld
+      *
+     c                   eval      c1kass = *blank
+      *
+     c                   goto      c1taga
+      *
+     c     end_c1bld     tag
+      *
+     c                   eval      b_oppr = *off
+     c                   eval      b2kass = *blank
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   goto      end_c1msg
+     c                   endif
+      *
+     c     end_c1msg     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+      *
+     c                   eval      bkasir_kass = c1kass
+     c     bkasir_key    chain     bkasir
+      *
+     c                   if        %found
+     c                   eval      c2besk = bkbesk
+     c                   eval      c2plas = bkplas
+     c                   eval      c2grup = bkgrup
+     c                   eval      c2avde = bkavde
+     c                   eval      c2baer = bkbaer
+     c                   eval      c2lage = bklage
+     c                   eval      c2lety = bklety
+     c                   eval      c2btel = bkbtel
+     c                   eval      c2gtel = bkgtel
+     c                   eval      c2kfak = bkkfak
+     c                   eval      c2kpak = bkkpak
+     c                   eval      c2khuo = bkkhuo
+     c                   eval      c2kbfa = bkkbfa
+     c                   eval      c2kmot = bkkmot
+     c                   eval      c2kavt = bkkavt
+     c                   eval      c2ktas = bkktas
+     c                   eval      c2kkop = bkkkop
+     c                   eval      c2kkrf = bkkkrf
+     c                   eval      c2ksel = bkksel
+     c                   eval      c2kvad = bkkvad
+     c                   eval      c2kbse = bkkbse
+     c***                eval      c2kcan = bkkcan
+     c                   eval      c2kba4 = bkkba4
+     c                   eval      c2kftb = bkkftb
+     c                   eval      c2antp = bkantp
+     c                   eval      c2maca = bkmaca
+     c                   eval      c2hhor = bkhhor
+     c                   eval      c2bldb = bkbldb
+     c                   eval      c2obkg = bkobkg
+     c                   eval      c2debg = bkdebg
+     c                   eval      c2eagr = bkeagr
+     c                   eval      c2eksh = bkeksh
+     c                   eval      c2timo = bktimo / 60
+     c                   eval      c2eusr = bkeusr
+     c     *dmy          move      bkodat        c2odat
+     c     *dmy          move      bkedat        c2edat
+     c                   else
+     c                   eval      c2besk = *blank
+     c                   eval      c2plas = *blank
+     c                   eval      c2grup = *blank
+     c                   eval      c2avde = 0
+     c                   eval      c2baer = 0
+     c                   eval      c2lage = 0
+     c                   eval      c2lety = 0
+     c                   eval      c2btel = 0
+     c                   eval      c2gtel = 0
+     c                   eval      c2kfak = 0
+     c                   eval      c2kpak = 0
+     c                   eval      c2khuo = 0
+     c                   eval      c2kbfa = 0
+     c                   eval      c2kmot = 0
+     c                   eval      c2kavt = 0
+     c                   eval      c2ktas = 0
+     c                   eval      c2kkop = 0
+     c                   eval      c2kkrf = 0
+     c                   eval      c2ksel = 0
+     c                   eval      c2kvad = 0
+     c                   eval      c2kbse = 0
+     c***                eval      c2kcan = 0
+     c                   eval      c2kba4 = 0
+     c                   eval      c2kftb = 0
+     c                   eval      c2antp = 0
+     c                   eval      c2maca = *blank
+     c                   eval      c2hhor = 0
+     c                   eval      c2bldb = 0
+     c                   eval      c2obkg = 0
+     c                   eval      c2debg = 0
+     c                   eval      c2eagr = 1
+     c                   eval      c2eksh = 1
+     c                   eval      c2timo = 0
+     c                   eval      c2eusr = *blank
+     c                   eval      c2odat = 0
+     c                   eval      c2edat = 0
+     c                   endif
+      *
+      * Henter utkøer fra arbeidsstasjon/printerstyring
+      *
+     c                   eval      c2ufak = *blank
+     c                   eval      c2uhuo = *blank
+      *
+     c                   if        %found
+      *
+     c                   eval      awsdl1_wsid = c1kass
+      *
+     c                   if        w_rufd <> *blank
+     c                   eval      awsdl1_ruti = w_rufd
+     c     awsdl1_key    chain     awsdl1
+     c                   if        %found
+     c                   eval      c2ufak = awoutq
+     c                   endif
+     c                   endif
+      *
+     c                   if        w_ruhd <> *blank
+     c                   eval      awsdl1_ruti = w_ruhd
+     c     awsdl1_key    chain     awsdl1
+     c                   if        %found
+     c                   eval      c2uhuo = awoutq
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   if        b1valg = 3
+     c                   eval      c1kass = k1kass
+     c                   eval      c2maca = *blank
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30 = *on
+     c                   endif
+      *
+     c     c2taga        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   elseif    *inkg
+     c                   eval      bkasiu_kass = c1kass
+     c     bkasiu_key    chain     bkasiur
+     c                   eval      c2maca = *blank
+     c                   eval      bkmaca = *blank
+     c                   update    bkasiur
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Validering av input
+      *
+     c                   if        c2besk = *blank
+     c                   eval      *in31 = *on
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Oppdatering
+      *
+     c                   clear                   bkasiur
+      *
+     c                   eval      bkasiu_kass = c1kass
+     c     bkasiu_key    chain     bkasiur
+      *
+     c                   eval      bkbesk = c2besk
+     c                   eval      bkplas = c2plas
+     c                   eval      bkgrup = c2grup
+     c                   eval      bkavde = c2avde
+     c                   eval      bkbaer = c2baer
+     c                   eval      bklage = c2lage
+     c                   eval      bklety = c2lety
+     c                   eval      bkkfak = c2kfak
+     c                   eval      bkkpak = c2kpak
+     c                   eval      bkkhuo = c2khuo
+     c                   eval      bkkbfa = c2kbfa
+     c                   eval      bkkmot = c2kmot
+     c                   eval      bkkavt = c2kavt
+     c                   eval      bkktas = c2ktas
+     c                   eval      bkkkop = c2kkop
+     c                   eval      bkkkrf = c2kkrf
+     c                   eval      bkksel = c2ksel
+     c                   eval      bkkvad = c2kvad
+     c                   eval      bkkbse = c2kbse
+     c                   eval      bkkcan = 0
+     c                   eval      bkkba4 = c2kba4
+     c                   eval      bkkftb = c2kftb
+     c                   eval      bkantp = c2antp
+     c                   eval      bkmaca = c2maca
+     c                   eval      bkhhor = c2hhor
+     c                   eval      bkbldb = c2bldb
+     c                   eval      bkobkg = c2obkg
+     c                   eval      bkdebg = c2debg
+     c                   eval      bkeagr = c2eagr
+     c                   eval      bkeksh = c2eksh
+     c                   eval      bktimo = c2timo * 60
+     c                   eval      bkeusr = l_user
+      *
+     c                   time                    bkedat
+     c                   time                    bketim
+      *
+     c                   if        %found
+     c                   update    bkasiur
+     c                   else
+     c                   eval      bkfirm = w_firm
+     c                   eval      bkkass = c1kass
+     c                   time                    bkodat
+     c                   write     bkasiur
+     c                   endif
+      *
+      * Oppdatering av arbeidsstasjon/printerstyring
+      *
+     c                   if        w_rufd <> *blank
+     c                   eval      awsdlu_wsid = c1kass
+     c                   eval      awsdlu_ruti = w_rufd
+     c     awsdlu_key    chain     awsdlur
+     c                   eval      awoutq = c2ufak
+     c                   eval      aweusr = l_user
+     c                   time                    awedat
+     c                   time                    awetim
+     c                   if        %found
+     c                   if        c2ufak = *blank
+     c                   delete    awsdlur
+     c                   else
+     c                   update    awsdlur
+     c                   endif
+     c                   else
+     c                   eval      awwsid = c1kass
+     c                   eval      awruti = w_rufd
+     c                   eval      awform = '*STD'
+     c                   eval      awakop = 1
+     c                   write     awsdlur
+     c                   endif
+     c                   endif
+      *
+     c                   if        w_rufk <> *blank
+     c                   eval      awsdlu_wsid = c1kass
+     c                   eval      awsdlu_ruti = w_rufk
+     c     awsdlu_key    chain     awsdlur
+     c                   eval      awoutq = c2ufak
+     c                   eval      aweusr = l_user
+     c                   time                    awedat
+     c                   time                    awetim
+     c                   if        %found
+     c                   if        c2ufak = *blank
+     c                   delete    awsdlur
+     c                   else
+     c                   update    awsdlur
+     c                   endif
+     c                   else
+     c                   eval      awwsid = c1kass
+     c                   eval      awruti = w_rufk
+     c                   eval      awform = '*STD'
+     c                   eval      awakop = 1
+     c                   write     awsdlur
+     c                   endif
+     c                   endif
+      *
+     c                   if        w_ruhd <> *blank
+     c                   eval      awsdlu_wsid = c1kass
+     c                   eval      awsdlu_ruti = w_ruhd
+     c     awsdlu_key    chain     awsdlur
+     c                   eval      awoutq = c2uhuo
+     c                   eval      aweusr = l_user
+     c                   time                    awedat
+     c                   time                    awetim
+     c                   if        %found
+     c                   if        c2uhuo = *blank
+     c                   delete    awsdlur
+     c                   else
+     c                   update    awsdlur
+     c                   endif
+     c                   else
+     c                   eval      awwsid = c1kass
+     c                   eval      awruti = w_ruhd
+     c                   eval      awform = '*STD'
+     c                   eval      awakop = 1
+     c                   write     awsdlur
+     c                   endif
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c                   if        b1valg = 2
+     c                   eval      b1besk = bkbesk
+     c                   eval      b1plas = bkplas
+     c                   if        bkmaca <> *blank
+     c                   eval      b1kode = 'X'
+     c                   else
+     c                   eval      b1kode = *blank
+     c                   endif
+     c                   endif
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+6.31  *
+6.31  * bilde 2
+6.31  *
+6.31 c                   exsr      xc3bld
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+6.31  *
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  * Subrutine for å behandle bilde for ny/endring/vise (C3BLD)
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  *
+6.31 c     xc3bld        begsr
+6.31  *
+6.31 c                   eval      w_arow = 0
+6.31 c                   eval      w_acol = 0
+6.31  *
+6.31 c                   eval      bkasir_kass = c1kass
+6.31 c     bkasir_key    chain     bkasir
+6.31 c                   if        not %found(bkasir)
+6.31 c                   leavesr
+6.31 c                   endif
+6.31  *
+6.31 c                   eval      c3antb = bkantb
+6.31 c                   eval      c3repv = bkrepv
+6.31 c                   eval      c3repk = bkrepk
+6.31 c     *dmy          move      bkodat        c3odat
+6.31 c     *dmy          move      bkedat        c3edat
+     c                   eval      c3eusr = bkeusr
+      *
+     c     c3taga        tag
+      *
+     c                   exfmt     c3bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c3bld
+     c                   endif
+6.31  *
+6.31  *
+6.31  * Validering av input
+6.31  *
+6.31  *
+6.31  * Oppdatering
+6.31  *
+6.31 c                   clear                   bkasiur
+6.31  *
+6.31 c                   eval      bkasiu_kass = c1kass
+6.31 c     bkasiu_key    chain     bkasiur
+6.31  *
+6.31 c                   eval      bkantb = c3antb
+6.31 c                   eval      bkrepv = c3repv
+6.31 c                   eval      bkrepk = c3repk
+6.31  *
+6.31 c                   time                    bkedat
+6.31 c                   time                    bketim
+6.31  *
+6.31 c                   if        %found
+6.31 c                   update    bkasiur
+6.31 c                   endif
+6.31  *
+6.31  *
+6.31 c     end_c3bld     tag
+6.31  *
+6.31 c                   endsr
+6.31  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      bkasir_kass = d1kass
+     c     bkasir_key    chain     bkasir
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_d1win
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter rad
+      *
+     c                   eval      bkasiu_kass = d1kass
+     c     bkasiu_key    chain     bkasiur
+      *
+     c                   delete    bkasiur
+      *
+      * Sletter fra arbeidsstasjon/printerstyring
+      *
+     c                   eval      awsdlu_wsid = d1kass
+     c     awsdlu_key2   setll     awsdlu
+     c     awsdlu_key2   reade     awsdlur
+     c                   dow       not %eof
+     c                   delete    awsdlur
+     c     awsdlu_key2   reade     awsdlur
+     c                   enddo
+      *
+     c     end_d1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle kopierings-bildet (K1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xk1win        begsr
+      *
+      * Tar vare på nøkkel til rad det skal kopieres fra
+      *
+     c                   eval      s_kass = k1kass
+      *
+      * Fyller kopierings-bildet
+      *
+     c                   eval      bkasir_kass = k1kass
+     c     bkasir_key    chain     bkasir
+      *
+     c     k1taga        tag
+      *
+     c                   exfmt     k1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_k1win
+     c                   endif
+      *
+      * Sjekk om utfylt
+      *
+     c                   if        k1kass = *blank
+     c                   eval      *in31 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Sjekker om rad finnes fra før
+      *
+     c                   eval      bkasir_kass = k1kass
+     c     bkasir_key    chain     bkasir
+     c                   if        %found
+     c                   eval      *in32 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   eval      c1kass = s_kass
+     c                   exsr      xc2bld
+      *
+     c     end_k1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   read      bkasi2
+     c                   other
+     c                   read      bkasi1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             bkfirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      bkasi2_besk = bkbesk
+     c                   other
+     c                   eval      bkasi1_kass = bkkass
+     c                   endsl
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1kass = bkkass
+     c                   eval      b1besk = bkbesk
+     c                   eval      b1plas = bkplas
+     c                   if        bkmaca <> *blank
+     c                   eval      b1kode = 'X'
+     c                   else
+     c                   eval      b1kode = *blank
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c                   select
+     c                   when      w_seqe = 'B'
+     c     bkasi2_key    setgt     bkasi2
+     c                   readp     bkasi2
+     c                   other
+     c     bkasi1_key    setgt     bkasi1
+     c                   readp     bkasi1
+     c                   endsl
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   readp     bkasi2
+     c                   other
+     c                   readp     bkasi1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             bkfirm <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      bkasi2_besk = bkbesk
+     c                   other
+     c                   eval      bkasi1_kass = bkkass
+     c                   endsl
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c                   select
+     c                   when      w_seqe = 'B'
+     c     bkasi2_key    setll     bkasi2
+     c                   other
+     c     bkasi1_key    setll     bkasi1
+     c                   endsl
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for posisjonering på kasse
+      *
+     c     bkasi1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bkasi1_kass
+      *
+      * Key for posisjonering på beskrivelse
+      *
+     c     bkasi2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bkasi2_besk
+      *
+      * Key for les på ButikkKasse
+      *
+     c     bkasir_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bkasir_kass
+      *
+      * Key for oppdatering av ButikkKasse
+      *
+     c     bkasiu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bkasiu_kass
+      *
+      * Key for oppslag på Butikk koderegister
+      *
+     c     bstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på Ordretype
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      * Key for oppslag på Arbeidsstasjon/printerstyring
+      *
+     c     awsdl1_key    klist
+     c                   kfld                    awsdl1_wsid
+     c                   kfld                    awsdl1_ruti
+      *
+      * Key for oppdatering av Arbeidsstasjon/printerstyring
+      *
+     c     awsdlu_key    klist
+     c                   kfld                    awsdlu_wsid
+     c                   kfld                    awsdlu_ruti
+      *
+     c     awsdlu_key2   klist
+     c                   kfld                    awsdlu_wsid
+      *
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Initierer skjermbildet
+      *
+     c                   eval      *in22 = *on
+      *
+      * Henter butikk-informasjon
+      *
+     c     bstsl1_key    chain     bstsl1
+      *
+      * Henter rutiner knyttet mot ordretyper
+      *
+     c                   if        baaofd <> *blank
+     c                   eval      votyl1_otyp = baaofd
+     c     votyl1_key    chain     votyl1
+     c                   if        %found
+     c                   eval      w_rufd = vaorub
+     c                   endif
+     c                   endif
+      *
+     c                   if        baaofk <> *blank
+     c                   eval      votyl1_otyp = baaofk
+     c     votyl1_key    chain     votyl1
+     c                   if        %found
+     c                   eval      w_rufk = vaorub
+     c                   endif
+     c                   endif
+      *
+     c                   if        baaold <> *blank
+     c                   eval      votyl1_otyp = baaold
+     c     votyl1_key    chain     votyl1
+     c                   if        %found
+     c                   eval      w_ruhd = vaorub
+     c                   endif
+     c                   endif
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      bkasi1_kass = *blank
+     c     bkasi1_key    setll     bkasi1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

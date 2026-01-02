@@ -1,0 +1,264 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASVADM
+      * Program . . . . : JM592R
+      * Beskrivelse . . : Skal finne 1 tilbudspris, skal velge den som
+      *                   ligger nærmest fra dato og tildato
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       190214 bof  Nytt program
+      *       280415 bof  Tar i bruk programmet og endrer noe på logikk
+6.3q  *       260515 bof  Datoformat sql
+6.32  *       070716 bof  Feilretting i fetch
+8.01  *PRG2   220622 BOF  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skvdrmindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjkavlr    if   e           k disk    rename(jkavpfr:jkavlrr)
+     fjkahlr    if   e           k disk    rename(jkahpfr:jkahlrr)
+     fjlevl3    if   e           k disk    rename(jlevpfr:jlevl3r)
+     fjvarlr    if   e           k disk    rename(jvarpfr:jvarlrr)
+      *
+      * Definering av parametre
+      *
+     d p_vfir          s                   like(jmvfir)
+     d p_vvar          s                   like(jmvvar)
+     d p_ldor          s                   like(jlldor)
+6.20 d p_vkai          s                   like(jmvkai)
+6.20 d p_penh          s                   like(jvpenh)
+      *
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variable i nøkler
+      *
+     d jkahlr_kamp     s                   like(jmkamp)
+     d jlevl3_enum     s                   like(jlenum)
+     d jvarlr_vare     s                   like(jvvare)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+      *
+     d w_seqe          s              1
+     d b_subf          s              1    inz(*off)
+     d b_open_sok      s              1    inz(*off)
+     d b_valg_ok       s              1    inz(*off)
+     d b_funn          s              1    inz(*off)
+      *
+     d w_vfir          s                   like(jmvfir)
+     d w_vldo          s                   like(jmvldo)
+6.20 d w_vvar          s                   like(jmvvar)
+6.20 d w_dato          s                   like(jmveda)
+6.20 d w_loval         s                   like(jmveda)
+6.20 d w_antt          s              4  0
+6.20 d w_firm          s                   like(jmvfir)
+6.20 d w_vkai          s                   like(jmvkai)
+6.20 d w_venh          s                   like(jvpenh)
+6.20 d w_vidf          s                   like(jmvidf)
+      *
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(10)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skvdrmbilder.
+      * - - - - - - - - - - - - - - - - -
+      *
+6.3q C/Exec SQL
+6.3q C+  Set Option DatFmt=*ISO
+6.3q C/End-Exec
+      *
+      * sjekk om vvarn finnes på flere kampanjer
+      *
+     c                   exsr      finn_inpr
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  * Subrutine for å finne innkjøpspris
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  *
+6.31 c     finn_inpr     begsr
+6.31  *
+     c                   time                    w_dato
+     c                   eval      w_loval = *loval
+     c                   eval      w_vidf  = *loval
+     c                   eval      w_vkai = 0
+     c                   eval      w_venh = *blank
+6.31  *
+6.31 c/exec sql
+6.31 c+                  declare kamp2 cursor for
+     c+                  select jmvvar,
+     c+                         jmvkam,
+     c+                         jmvidf,
+     c+                         jmvldo,
+     c+                         jmvkai,
+     c+                         jmvkaa
+6.31 c+                  from   jkavpf
+6.31 c+                  where  jmvfir = :w_vfir and
+6.31 c+                         jmvvar = :w_vvar and
+6.31 c+                         jmvldo = :w_vldo and
+6.31 c+                         jmvidf <> :w_loval and
+6.31 c+                         jmvidt <> :w_loval and
+6.31 c+                         jmvidf <= :w_dato  and
+6.31 c+                         jmvidt >= :w_dato
+6.31 c+                  for read only
+6.31 c/end-exec
+6.31  *
+6.31 c/exec sql
+6.31 c+ open kamp2
+6.31 c/end-exec
+      *
+      * Fyller opp subfile
+      *
+     c                   dou       *in15 = *on
+6.31  *
+6.31 c/exec sql
+     c+                  fetch next
+     c+                  from  kamp2
+     c+                  into  :jmvvar,
+     c+                        :jmvkam,
+     c+                        :jmvidf,
+     c+                        :jmvldo,
+6.32 c+                        :jmvkai,
+6.32 c+                        :jmvkaa
+6.31 c/end-exec
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c                   eval      *in15 = *on
+     c                   endif
+      *
+     c                   if        *in15
+     c                   leave
+     c                   endif
+      *
+     c                   if        jmvidf > w_vidf
+     c                   eval      w_vkai = jmvkai
+     c                   eval      w_venh = jvpenh
+     c                   eval      w_vidf = jmvidf
+     c                   endif
+      *
+     c                   enddo
+      *
+6.31 c/exec sql
+6.31 c+ close kamp2
+6.31 c/end-exec
+6.31  *
+     c                   eval      p_vkai = w_vkai
+     c                   eval      p_penh = w_venh
+6.31 c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_vfir
+6.20 c                   parm                    p_vvar
+6.20 c                   parm                    p_ldor
+     c                   parm                    p_vkai
+     c                   parm                    p_penh
+      *
+      * Key for oppslag på ordre
+      *
+     c     jkahlr_key    klist
+     c                   kfld                    w_vfir
+     c                   kfld                    jkahlr_kamp
+      *
+      * Key for oppslag på leverandør
+      *
+     c     jlevl3_key    klist
+     c                   kfld                    jlevl3_enum
+      *
+      * Key for oppslag på leverandør
+      *
+     c     jvarlr_key    klist
+     c                   kfld                    jvarlr_vare
+      *
+      *
+      * Henter parametre
+      *
+     c                   eval      w_vfir = p_vfir
+     c                   eval      b_funn = *off
+     c                   eval      p_penh = *blank
+     c                   eval      p_vkai = 0
+     c                   eval      w_vvar = p_vvar
+6.20 c                   eval      w_loval= *loval
+     c                   time                    w_dato
+      *
+      *
+     c                   time                    w_dato
+      *
+     c                   eval      jlevl3_enum = p_ldor
+     c     jlevl3_key    chain     jlevl3
+     c                   if        not %found(jlevl3)
+     c                   leavesr
+     c                   endif
+6.20 c                   eval      w_vldo = jlldor
+      *
+     c                   eval      jvarlr_vare = p_vvar
+     c     jvarlr_key    chain     jvarlr
+      *
+     c                   endsr

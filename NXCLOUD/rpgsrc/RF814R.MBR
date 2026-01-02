@@ -1,0 +1,1132 @@
+     h datedit(*dmy) option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : RF814R
+      * Beskrivelse . . : Eksport av BM Kort transaksjoner på XML-fil
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       241110 bsa  Nytt program
+6.10  *       070111 bsa  Div rettelser. Feil i innhenting av årstall
+6.11  *       310111 bsa  Skal ikke beregne mva på kassesalg
+6.12  *       030211 bsa  Utvider feltlengder
+6.13  *       200511 bsa  Regner feil ved kassekjøp. Feil håndtering av tekstlinjer
+6.14  *       190711 bsa  Hopper ut ved feil sted.
+6.15  *       040512 bsa  Feil format på numeriske felter
+6.16  *       100812 bsa  Sjekker mot valgt "kortlager", hvis det er forksjellig
+6.16  *                   fra 0.
+6.20  *       160713 bsa  Sjekken mot valgt lager ikke helt vanntett ved sjekk på
+6.20  *                   faktura.
+6.21  *       181113 bsa  Endret sjekk på om det finnes poster
+6.22  *       070514 bsa  Spesialtegn må konverteres til xml std. Bruk
+6.22  *                   AP613R som også benyttes i PTROA.
+6.23  *       170614 bsa  Konverter lagertekst kun en gang.
+6.nu  *       230614 bof  Sjekket mtp. nummerutvidelse
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     frukrl5    if   e           k disk    rename(rukrpfr:rukrl5r)
+     fbokkl5    uf   e           k disk    rename(bokkpfr:bokkl5r)
+     frukrlu    uf   e           k disk    rename(rukrpfr:rukrlur)
+     fbcdtir    if   e           k disk    rename(bcdtst:bcdtirr)
+     fbchei1    if   e           k disk    rename(bchest:bchei1r)
+     fsodtlr    if   e           k disk    rename(sodtpfr:sodtlrr)
+     fsohelr    if   e           k disk    rename(sohepfr:sohelrr)
+     fxmldnbpf  o    e             disk
+     fxmlgrlpf  o    e             disk
+     fxmllogpf  o    e             disk
+      *
+      * Definering av parametre
+      *
+     d                 ds
+     d p_prec                       128
+     d  p_ktyp                        2    overlay(p_prec:1)
+     d  p_frda                         d   overlay(p_prec:3)
+     d  p_tida                         d   overlay(p_prec:13)
+     d  p_omkj                        1  0 overlay(p_prec:23)
+     d  p_lage                        2  0 overlay(p_prec:24)
+     d  p_ftxt                       30    overlay(p_prec:26)
+      *
+     d                 ds
+     d w_dato                         8  0
+     d  w_data                        8    overlay(w_dato:1)
+     d  w_daty                        4    overlay(w_dato:1)
+     d  w_datm                        2    overlay(w_dato:5)
+     d  w_datd                        2    overlay(w_dato:7)
+      *
+      * Definering av logrecord
+      *
+     d                 ds
+     d l_lrec                       400
+     d  l_kknr                       13    overlay(l_lrec:1)
+     d  l_dato                        8  0 overlay(l_lrec:14)
+     d  l_orna                        6    overlay(l_lrec:22)
+     d  l_sufa                        2    overlay(l_lrec:28)
+     d  l_stxt                       20    overlay(l_lrec:30)
+     d  l_vare                       15    overlay(l_lrec:50)
+     d  l_tek1                       35    overlay(l_lrec:65)
+     d  l_tek2                       35    overlay(l_lrec:100)
+     d  l_lana                       14    overlay(l_lrec:135)
+     d  l_enho                        3    overlay(l_lrec:149)
+     d  l_pria                       14    overlay(l_lrec:152)
+     d  l_raba                        8    overlay(l_lrec:166)
+     d  l_ltoa                       14    overlay(l_lrec:174)
+      *
+      * Definering av variable i nøkler
+      *
+     d rukrl5_ktyp     s                   like(ruktyp)
+     d rukrlu_kkun     s                   like(rukkun)
+     d rukrlu_kpro     s                   like(rukpro)
+     d rukrlu_ktyp     s                   like(ruktyp)
+     d rukrlu_ktsq     s                   like(ruktsq)
+     d bokkl5_ktyp     s                   like(brktyp)
+     d bokkl5_kund     s                   like(brkund)
+     d bokkll_ktyp     s                   like(brktyp)
+     d bokkll_kund     s                   like(brkund)
+     d bokkll_odat     s                   like(brodat)
+     d sohelr_aarr     s                   like(soaarr)
+     d sohelr_binr     s                   like(sobinr)
+     d sohelr_numm     s                   like(sonumm)
+     d sohelr_suff     s                   like(sosuff)
+     d sodtlr_aarr     s                   like(sdaarr)
+     d sodtlr_binr     s                   like(sdbinr)
+     d bcdtir_bong     s                   like(bibong)
+     d bcdtll_bong     s                   like(bibong)
+     d bcdtll_boli     s                   like(biboli)
+     d bchei1_bong     s                   like(bhbong)
+      *
+      * Definering av outputrecord
+      *
+     d d_orec          s            400
+      *
+      * Definering av variable
+      *
+     d b_blnk          s              1    inz(*off)
+     d b_tran          s              1    inz(*off)
+     d b_kund          s              1    inz(*off)
+     d p_post          s              1
+6.10 d b_rapp          s              1    inz(*off)
+6.11 d b_bong          s              1    inz(*off)
+      *
+     d w_firm          s              3  0
+     d w_prec          s            128
+     d w_xrec          s            400
+     d w_year          s              4  0
+      *
+     d w_frda          s               d   datfmt(*iso)
+     d w_tida          s               d   datfmt(*iso)
+     d w_wdat          s             10
+     d w_wtim          s             10
+     d w_decx          s             20
+     d w_kknr          s             13
+     d w_pris          s             11  2
+     d w_pria          s             14
+     d w_lana          s             14
+     d w_mvab          s             11  2
+     d w_snet          s             11  2
+     d w_anet          s             14
+     d w_smva          s             11  2
+     d w_amva          s             14
+     d w_stot          s             11  2
+     d w_atot          s             14
+6.12 d w_rabp          s              7  2
+6.12 d w_raba          s             10
+     d w_ltot          s             11  2
+     d w_ltoa          s             14
+     d w_nett          s             11  2
+     d w_orna          s              6
+     d w_sufa          s              2
+     d w_oref          s             40
+6.10 d w_tek1          s            100
+6.10 d w_tek2          s            100
+     d w_binr          s             12
+     d w_selg          s              4  0
+     d w_anta          s             11  3
+     d w_sumb          s             11  2
+6.13 d w_sumn          s             11  2
+6.13 d w_sumx          s             11  2
+     d w_rab1          s             11  2
+     d w_rab2          s             11  2
+     d w_vare          s             15
+     d w_enhe          s              4
+      *
+     d w_str_i         s            100
+     d w_str_u         s            300
+     d w_posi          s              4  0
+     d w_posu          s              4  0
+     d*w_anta          s              6  0
+     d w_sisb          s              6  0
+     d w_date          s               d   datfmt(*iso)
+     d w_time          s               t
+     d w_str_x         s              1
+     d w_retk          s              1
+     d w_stxt          s             20
+6.22 d p_str_in        s            512
+6.22 d p_str_out       s            512
+6.22 d p_lr            s              1
+      *
+      *  Konstanter
+      *
+     d c_apos          c                   x'7D'
+     d c_digits        c                   ' 0123456789'
+      *
+      * XML string konstanter
+      *
+     d c_xqst          c                   '<'
+     d c_xqen          c                   '>'
+     d c_xhst          c                   '?'
+     d c_xhen          c                   '?'
+     d c_xfen          c                   '/'
+     d c_dquo          c                   '"'
+     d c_equa          c                   '='
+     d c_xmv1          c                   'xml version='
+     d c_xmv2          c                   '1.0'
+     d c_xme1          c                   'encoding='
+     d c_xme2          c                   'ISO-8859-1'
+     d c_ta04          c                   '    '
+     d c_ta06          c                   '      '
+     d c_ta12          c                   '            '
+     d c_ta24          c                   '                        '
+      *
+      * XML feltnavn - meldingsspesifikke
+      *
+      * Hovedstruktur - Filspec
+      *
+     d c_xst1          c                   'varelinjefil'
+     d c_xst2          c                   'xmlns:xsi="http://www.w3.org/20'
+     d c_xst3          c                   '01/XMLSchema-instance"'
+     d c_xst4          c                   'xsi:schemaLocation="null vareli'
+     d c_xst5          c                   'njeSpesifikasjon.xsd"'
+      *
+      * Substruktur #1 - Vare spesifikasjon
+      *
+     d c_kild          c                   'vareSpesifikasjon'
+     d c_kund          c                   'kundenummer'
+      *
+      * Substruktur #2 - Varelinje spesifikasjon
+      *
+     d c_spec          c                   'varelinjeSpesifikasjon'
+     d c_onum          c                   'ordrenummer'
+     d c_ldat          c                   'leveringsdato'
+     d c_vhus          c                   'utsalgssted'
+      *
+      * Substruktur #3 - Varelinje
+      *
+     d c_vlin          c                   'varelinje'
+     d c_vnum          c                   'varenummer'
+     d c_vbet          c                   'varebetegnelse'
+     d c_vant          c                   'antall'
+     d c_venh          c                   'enhet'
+     d c_vpri          c                   'pris'
+     d c_vrab          c                   'rabatt'
+     d c_vbel          c                   'belop'
+      *
+      * Substruktur #4 - Sumlinje
+      *
+     d c_slin          c                   'sumlinje'
+     d c_snet          c                   'netto'
+     d c_smva          c                   'mva'
+     d c_stot          c                   'totalt'
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Skriver initielle XML-meldinger
+      *
+     c                   exsr      skriv_init
+      *
+      * Leser kunde/kort register og produserer vare spesifikasjoner
+      *
+     c                   exsr      les_kort
+      *
+      * Skriver avsluttende XML-meldinger
+      *
+     c                   exsr      avsl_melding
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å lese kunde/kort koblinger   *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     les_kort      begsr
+      *
+     c     rukrl5_key    setll     rukrl5
+     c     rukrl5_key    reade     rukrl5
+      *
+     c                   dow       not %eof(rukrl5)
+      * Vi benytter fradato fra siste kjøretidspunkt, hvis ikke fradato
+      * er angitt
+     c                   eval      b_kund = *off
+     c                   if        w_frda = *loval
+     c                   eval      w_frda = rukdat
+     c                   endif
+     c                   move      rukknr        w_kknr
+      *
+      * Les fra BOKKL5 for å finne poster som skal være med i rapporten
+      *
+     c                   eval      bokkl5_ktyp = ruktyp
+     c                   eval      bokkl5_kund = rukkun
+     c                   eval      bokkll_ktyp = ruktyp
+     c                   eval      bokkll_kund = rukkun
+     c                   eval      bokkll_odat = w_frda
+     c     bokkll_key    setll     bokkl5
+     c     bokkl5_key    reade     bokkl5
+     c                   dow       not %eof
+      * Sjekk mot til dato
+     c                   if        brodat > w_tida
+     c                   goto      les_neste
+     c                   endif
+      * Skal posten legges ut på nytt, må det være omkjøring
+     c                   if        brofda <> *loval and
+     c                             p_omkj = 0
+     c                   goto      les_neste
+     c                   endif
+      * Skal posten legges ut, kan den ikke være behandlet tidligere
+     c                   if        brofda = *loval and
+     c                             p_omkj = 1
+     c                   goto      les_neste
+     c                   endif
+      * Hvis fakturanummer utfylt, les fra historisk fakturaregister eller fra bongregister
+6.11 c                   eval      b_bong = *off
+     c                   if        brbinr <> 0
+6.21 c**                 eval      p_post = '1'
+     c                   movel     brbinr        w_binr
+     c                   exsr      les_hfakt
+     c                   elseif    brbong <> *blank
+6.21 c**                 eval      p_post = '1'
+     c                   movel     brbong        w_binr
+     c                   exsr      les_bong
+     c                   endif
+      *
+      * Merk bokk postering med at den er lest
+      *
+6.16 c                   if        b_rapp = *on
+     c                   if        p_omkj = 0
+     c                   time                    brofda
+     c                   time                    bredat
+     c                   time                    brofti
+     c                   time                    bretim
+     c                   eval      breusr = l_user
+     c                   update    bokkl5r
+     c                   endif
+6.16 c                   endif
+6.10  * Vi må merke fullstendig pr. lest faktura, hvis ikke blir det feil i xml fila
+6.10  * hvis neste kunde er samme.
+6.10 c**                 exsr      avsl_kunde
+6.14 c     les_neste     tag
+     c     bokkl5_key    reade     bokkl5
+     c                   enddo
+      *
+6.10 c*                  if        b_kund = *on
+6.10 c*                  exsr      avsl_kunde
+6.10 c*                  endif
+      *
+6.14 c**   les_neste     tag
+      *
+     c     rukrl5_key    reade     rukrl5
+     c                   enddo
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for les av poster fra historisk fakturaregister *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     les_hfakt     begsr
+      *
+     c                   eval      b_tran = *off
+6.10 c                   eval      b_rapp = *off
+6.10  * Sjekk fra hvilket år statistikkposten tilhører
+6.10 c                   eval      sodtlr_aarr = %subdt(brodat:*years)
+6.10 c                   eval      sodtlr_binr = brbinr
+6.10 c     sodtlr_key    chain     sodtlr                             91
+6.10 c                   if        *in91 = *off
+6.10 c                   eval      b_rapp = *on
+6.10 c                   else
+6.10 c                   eval      sodtlr_aarr = %subdt(brodat:*years)-1
+6.10 c                   eval      sodtlr_binr = brbinr
+6.10 c     sodtlr_key    chain     sodtlr                             91
+6.10 c                   if        *in91 = *off
+6.10 c                   eval      b_rapp = *on
+6.10 c                   endif
+6.10 c                   endif
+6.10  *
+6.20  * Hent informasjon fra fakturahodet (flyttet)
+6.20 c                   eval      sohelr_aarr = sdaarr
+6.20 c                   eval      sohelr_binr = sdbinr
+6.20 c                   eval      sohelr_numm = sdnumm
+6.20 c                   eval      sohelr_suff = sdsuff
+6.20 c     sohelr_key    chain     sohelr
+6.10  *
+6.16 c                   if        p_lage <> 0 and
+6.16 c                             p_lage <> solage
+6.16 c                   eval      b_rapp = *off
+6.16 c                   goto      les_nyhead
+6.16 c                   endif
+6.10  *
+6.10 c                   if        b_rapp = *on
+6.10  * Skriv "vareSpesifikasjon" og "kundenummer"
+6.10 c                   exsr      skriv_vspec
+6.10  * Logg overføring av faktuanummer/bong for logg formål
+6.10 c                   exsr      skriv_result2
+6.10 c                   endif
+      *
+      * Les fra SODTPF for å finne poster som skal være med i rapporten
+      *
+6.10 c**                 eval      sodtlr_aarr = %subdt(brodat:*years)
+6.10 c**                 eval      sodtlr_binr = brbinr
+     c     sodtlr_key    setll     sodtlr
+     c     sodtlr_key    reade     sodtlr
+      *
+     c                   dow       not %eof(sodtlr)
+      *
+     c                   if        b_tran = *off
+     c                   eval      b_tran = *on
+     c                   eval      b_kund = *on
+6.20  * Hent informasjon fra fakturahodet (flyttet)
+6.20 c*                  eval      sohelr_aarr = sdaarr
+6.20 c*                  eval      sohelr_binr = sdbinr
+6.20 c*                  eval      sohelr_numm = sdnumm
+6.20 c*                  eval      sohelr_suff = sdsuff
+6.20 c*    sohelr_key    chain     sohelr
+      * Skriv informasjon om fakturanr/fakturadato og utsalgssted
+     c     *iso          move      sofkda        w_dato
+     c                   move      sobinr        w_orna
+     c                   move      '00'          w_sufa
+     c                   eval      w_selg = soselg
+     c                   exsr      skriv_vlspec
+     c                   endif
+      * Skriv varelinje (flytt over verdier først)
+     c                   eval      w_anta = sdanta
+     c                   eval      w_sumb = sdsalg
+     c                   eval      w_rab1 = sdrkr1
+     c                   eval      w_rab2 = sdrkr2
+     c                   eval      w_vare = sdvare
+6.10 c                   eval      w_tek1 = *blanks
+6.10 c                   eval      w_tek2 = *blanks
+     c                   movel     sdtek1        w_tek1
+     c                   movel     sdtek2        w_tek2
+     c                   eval      w_enhe = sdenh1
+     c                   exsr      skriv_vlin
+     c                   exsr      skriv_logg
+      *
+     c     sodtlr_key    reade     sodtlr
+     c                   enddo
+      *
+      * Avslutt ordre fra historisk fakturaregister
+      *
+     c                   if        b_tran = *on
+      * Skriver sumlinje for faktura
+     c                   exsr      skriv_slin
+     c                   exsr      avsl_vlspec
+6.10 c                   exsr      avsl_kunde
+     c                   endif
+      *
+6.16 c     les_nyhead    tag
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for les av poster fra bongregister                  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     les_bong      begsr
+      *
+     c                   eval      b_tran = *off
+6.11 c                   eval      b_bong = *on
+6.16 c                   eval      b_rapp = *off
+6.16  * Sjekk om bongen er tilknyttet riktig lager
+6.16 c                   eval      bchei1_bong = brbong
+6.16 c     bchei1_key    chain     bchei1
+6.16 c                   if        %found(bchei1)
+6.16 c                   if        p_lage <> 0 and
+6.16 c                             p_lage <> bhlage
+6.16 c                   goto      les_nybong
+6.16 c                   endif
+6.16 c                   else
+6.16 c                   goto      les_nybong
+6.16 c                   endif
+      * Skriv "vareSpesifikasjon" og "kundenummer"
+     c                   exsr      skriv_vspec
+      * Logg overføring av faktuanummer/bong for logg formål
+     c                   exsr      skriv_result2
+      *
+      * Les fra BCDTPF for å finne poster som skal være med i rapporten
+      *
+     c                   eval      bcdtir_bong = brbong
+     c                   eval      bcdtll_bong = brbong
+     c                   eval      bcdtll_boli = 0
+     c     bcdtll_key    setll     bcdtir
+     c     bcdtir_key    reade     bcdtir
+     c                   dow       not %eof(bcdtir)
+      *
+     c                   if        b_tran = *off
+     c                   eval      b_tran = *on
+     c                   eval      b_kund = *on
+     c
+      * Les bonghode for informasjon
+     c                   eval      bchei1_bong = brbong
+     c     bchei1_key    chain     bchei1
+      * Skriv informasjon om fakturanr/fakturadato og utsalgssted
+     c     *iso          move      bhodat        w_dato
+     c                   move      brbong        w_orna
+     c                   move      '00'          w_sufa
+     c                   eval      w_selg = bhselg
+     c                   exsr      skriv_vlspec
+     c                   endif
+      * Skriv varelinje (flytt over verdier først)
+6.16 c                   eval      b_rapp = *on
+     c                   eval      w_anta = bianta
+6.13 c                   eval      w_pris = bisaim
+6.13 c                   eval      w_sumx = bisumn
+6.13 c                   eval      w_sumn = bisnim
+6.13 c                   eval      w_sumb = bissim
+6.13 c**                 eval      w_rab1 = birab1
+6.13 c                   eval      w_rab1 = bisrim
+6.13 c**                 eval      w_rab2 = birab2
+6.13 c                   eval      w_rab2 = 0
+     c                   eval      w_vare = bivare
+6.10 c                   eval      w_tek1 = *blanks
+6.10 c                   eval      w_tek2 = *blanks
+     c                   movel     bitek1        w_tek1
+     c                   movel     bitek2        w_tek2
+     c                   eval      w_enhe = bienhe
+     c                   exsr      skriv_vlin
+     c                   exsr      skriv_logg
+      *
+      * Les neste post bongdetaljer
+      *
+     c     bcdtir_key    reade     bcdtir
+     c                   enddo
+      *
+      * Avslutt ordre fra bongregister
+      *
+     c                   if        b_tran = *on
+      * Skriver sumlinje for faktura
+     c                   exsr      skriv_slin
+     c                   exsr      avsl_vlspec
+6.10 c                   exsr      avsl_kunde
+     c                   endif
+      *
+6.16 c     les_nybong    tag
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gen. av "Varespesifikasjon" substruktur    *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     skriv_result2 begsr
+      *
+     c                   eval      w_xrec = *blanks
+     c                   eval      w_xrec = 'Statistikkpost ' +
+     c                                      %char(w_firm) +' dato '+
+     c                                      %char(udate)+' fannr/bong '+
+     c                                      w_binr
+      *
+     c                   eval      xmlgrl = w_xrec
+     c                   write     xmlgrlpfr
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gen. av initielle meldingsdata   *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     skriv_init    begsr
+      *
+      * XML-header (versjon/kodesett)
+      *
+     c                   eval      d_orec = c_xqst + c_xhst +
+     c                                      c_xmv1 + c_dquo +
+     c                                      c_xmv2 + c_dquo + ' ' +
+     c                                      c_xme1 + c_dquo +
+     c                                      c_xme2 + c_dquo +
+     c                                      c_xhst + c_xqen
+     c                   exsr      write_outp
+      *
+      * Hovedstruktur - Varelinje fil
+      *
+     c                   eval      d_orec = c_xqst + c_xst1
+     c                   exsr      write_outp
+      *
+     c                   eval      d_orec = c_ta04 + c_xst2 + c_xst3
+     c                   exsr      write_outp
+      *
+     c                   eval      d_orec = c_ta04 + c_xst4 + c_xst5 +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gen. av "Varespesifikasjon" substruktur  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     skriv_vspec   begsr
+      *
+      * Varespec
+      *
+     c                   eval      d_orec = c_ta04 +
+     c                                      c_xqst + c_kild + c_xqen
+     c                   exsr      write_outp
+      *
+      * Kundenummer
+      *
+     c                   eval      d_orec = c_ta06 +
+     c                                      c_xqst + c_kund + c_xqen +
+     c                                      %trim(w_kknr) +
+     c                                      c_xqst +c_xfen + c_kund +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gen. av "Vareslinje spesifikasjon" substruktur  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     skriv_vlspec  begsr
+      *
+      * Hent selger info
+      *
+     c                   call      'RS709R'
+     c                   parm                    w_retk
+     c                   parm                    w_selg
+     c                   parm                    w_stxt
+      *
+     c                   eval      w_oref = w_orna + '-' + w_sufa +
+     c                                      '-' + w_stxt
+      *
+      * Varelinjespec
+      *
+     c                   eval      d_orec = c_ta06 +
+     c                                      c_xqst + c_spec + c_xqen
+     c                   exsr      write_outp
+      *
+      * Fakturanr/selger
+      *
+     c                   eval      d_orec = c_ta12 +
+     c                                      c_xqst + c_onum + c_xqen +
+     c                                      %trim(w_oref) +
+     c                                      c_xqst +c_xfen + c_onum +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Leveringsdato
+      *
+     c                   eval      d_orec = c_ta12 +
+     c                                      c_xqst + c_ldat + c_xqen +
+     c                                      %trim(w_datd) + '-' +
+     c                                      %trim(w_datm) + '-' +
+     c                                      %trim(w_daty) +
+     c                                      c_xqst +c_xfen + c_ldat +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Varehus
+      *
+6.23  * Scann av streng etter ugyldig tegn
+6.23  *
+6.22 c*                  eval      p_str_in = *blank
+6.23 c*                  eval      p_lr = '0'
+6.23 c*                  movel     p_ftxt        p_str_in
+6.23 c*                  call      'AP613R'
+6.23 c*                  parm                    p_str_in
+6.23 c*                  parm                    p_str_out
+6.23 c*                  parm                    p_lr
+6.23 c*                  movel     p_str_out     p_ftxt
+6.23  *
+     c                   eval      d_orec = c_ta12 +
+     c                                      c_xqst + c_vhus + c_xqen +
+6.22 c                                      %trim(p_ftxt) +
+     c                                      c_xqst +c_xfen + c_vhus +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gen. av "Vareslinje" substruktur   *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     skriv_vlin    begsr
+6.13  * Nullstiller verdier som legge ut på xml
+6.13 c                   eval      w_lana = *blanks
+6.13 c                   eval      w_pria = *blanks
+6.13 c                   eval      w_raba = *blanks
+6.13 c                   eval      w_ltoa = *blanks
+      * Beregner verdier fra statistikk
+      * Hvis tekstlinje, hopper vi over mye kalkulering
+6.13 c                   if        w_vare <> *blank
+      *Antall
+6.15 c**                 eval      w_lana = %editw(w_anta : '      0 .   ')
+6.15 c                   eval      w_lana = %editw(w_anta : '      0 .   -')
+      *
+      *Pris pr. stk inkl. mva
+     c                   if        w_anta = 0
+     c                   eval      w_anta = 1
+     c                   endif
+6.11 c                   if        b_bong = *off
+     c                   eval(h)   w_pris = (w_sumb / w_anta) * 1.25
+6.11 c                   else
+6.13 c** Kalk ikke       eval(h)   w_pris = (w_sumb / w_anta)
+6.11 c                   endif
+     c                   eval      w_pria = %editw(w_pris : '       0 .  -')
+      *
+      *Beregner rabatt %
+     c                   if        w_sumb = 0
+     c                   eval      w_sumb = 1
+     c                   endif
+     c                   eval(h)   w_rabp = ((w_rab1 + w_rab2) * 100)
+     c                                        / w_sumb
+6.12 c                   eval      w_raba = %editw(w_rabp : '   0 .  ')
+      *
+      *Akkumulerer mva
+6.11 c                   if        b_bong = *off
+     c                   eval(h)   w_mvab = ((w_sumb - w_rab1 - w_rab2)
+     c                                      * 25) / 100
+6.11 c                   else
+6.13 c**                 eval(h)   w_mvab = (w_sumb - w_rab1 - w_rab2)
+6.13 c                   eval(h)   w_mvab = (w_sumn - w_sumx)
+6.11 c                   endif
+     c                   eval      w_smva = w_smva + w_mvab
+      *
+      *Akkumulerer nettobeløp
+6.13 c                   if        b_bong = *off
+     c                   eval(h)   w_nett = w_sumb  - w_rab1 - w_rab2
+6.13 c                   else
+6.13 c                   eval(h)   w_nett = w_sumx
+6.13 c                   endif
+     c                   eval      w_snet = w_snet + w_nett
+      *
+      *Beregner linjetotal
+6.11 c                   if        b_bong = *off
+     c                   eval(h)   w_ltot = (w_sumb - w_rab1 - w_rab2)
+     c                                        * 1.25
+6.11 c                   else
+6.11 c                   eval(h)   w_ltot = w_sumb - w_rab1 - w_rab2
+6.11 c                   endif
+6.15 c**                 eval      w_ltoa = %editw(w_ltot : '       0 .  ')
+6.15 c                   eval      w_ltoa = %editw(w_ltot : '       0 .  -')
+     c                   eval      w_stot = w_stot + w_ltot
+      *
+6.13 c                   endif
+      *
+      * Varelinje
+      *
+     c                   eval      d_orec = c_ta12 +
+     c                                      c_xqst + c_vlin + c_xqen
+     c                   exsr      write_outp
+      *
+      * Varenummer
+      *
+     c                   eval      d_orec = c_ta24 +
+     c                                      c_xqst + c_vnum + c_xqen +
+     c                                      %trim(w_vare) +
+     c                                      c_xqst +c_xfen + c_vnum +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Vare betegnelse
+      *
+     c                   eval      w_str_i = *blanks
+      * Konverterer spesialtegn til xml
+     c                   movel     w_tek1        w_str_i
+     c                   exsr      sjk_XML_esc
+     c                   movel     w_str_u       w_tek1
+      * Konverterer spesialtegn til xml
+6.10 c                   eval      w_str_i = *blanks
+     c                   movel     w_tek2        w_str_i
+     c                   exsr      sjk_XML_esc
+     c                   movel     w_str_u       w_tek2
+      *
+     c                   eval      d_orec = c_ta24 +
+     c                                      c_xqst + c_vbet + c_xqen +
+     c                                      %trim(w_tek1) + %trim(w_tek2) +
+     c                                      c_xqst +c_xfen + c_vbet +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Vare antall
+      *
+     c                   eval      d_orec = c_ta24 +
+     c                                      c_xqst + c_vant + c_xqen +
+     c                                      %trim(w_lana) +
+     c                                      c_xqst +c_xfen + c_vant +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Vare enhet
+      *
+     c                   eval      d_orec = c_ta24 +
+     c                                      c_xqst + c_venh + c_xqen +
+     c                                      %trim(w_enhe) +
+     c                                      c_xqst +c_xfen + c_venh +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Vare pris
+      *
+     c                   eval      d_orec = c_ta24 +
+     c                                      c_xqst + c_vpri + c_xqen +
+     c                                      %trim(w_pria) +
+     c                                      c_xqst +c_xfen + c_vpri +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Vare rabatt
+      *
+     c                   eval      d_orec = c_ta24 +
+     c                                      c_xqst + c_vrab + c_xqen +
+     c                                      %trim(w_raba) +
+     c                                      c_xqst +c_xfen + c_vrab +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Vare beløp
+      *
+     c                   eval      d_orec = c_ta24 +
+     c                                      c_xqst + c_vbel + c_xqen +
+     c                                      %trim(w_ltoa) +
+     c                                      c_xqst +c_xfen + c_vbel +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Avslutt varelinje
+      *
+     c                   eval      d_orec = c_ta12 +
+     c                                      c_xqst + c_xfen +
+     c                                      c_vlin + c_xqen
+     c                   exsr      write_outp
+      *
+6.21 c                   eval      p_post = '1'
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gen. av "Sumlinje" substruktur    *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     skriv_slin    begsr
+      *
+      * Sumlinje
+      *
+      * Redigerer
+      *
+     c                   eval      w_anet = %editw(w_snet : '       0 .  ')
+     c                   eval      w_amva = %editw(w_smva : '       0 .  ')
+     c                   eval      w_atot = %editw(w_stot : '       0 .  ')
+      *
+     c                   eval      d_orec = c_ta12 +
+     c                                      c_xqst + c_slin + c_xqen
+     c                   exsr      write_outp
+      *
+      * Netto beløp
+      *
+     c                   eval      d_orec = c_ta24 +
+     c                                      c_xqst + c_snet + c_xqen +
+     c                                      %trim(w_anet) +
+     c                                      c_xqst +c_xfen + c_snet +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Mva
+      *
+     c                   eval      d_orec = c_ta24 +
+     c                                      c_xqst + c_smva + c_xqen +
+     c                                      %trim(w_amva) +
+     c                                      c_xqst +c_xfen + c_smva +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Total
+      *
+     c                   eval      d_orec = c_ta24 +
+     c                                      c_xqst + c_stot + c_xqen +
+     c                                      %trim(w_atot) +
+     c                                      c_xqst +c_xfen + c_stot +
+     c                                      c_xqen
+     c                   exsr      write_outp
+      *
+      * Avslutt sumlinje
+      *
+     c                   eval      d_orec = c_ta12 +
+     c                                      c_xqst + c_xfen +
+     c                                      c_slin + c_xqen
+     c                   exsr      write_outp
+      *
+      * Nullstiller summer
+      *
+     c                   eval      w_snet = 0
+     c                   eval      w_smva = 0
+     c                   eval      w_stot = 0
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gen. av varelinjespesifikasjon avslutning    *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     avsl_vlspec   begsr
+      *
+     c                   eval      d_orec = c_ta06 +
+     c                                      c_xqst + c_xfen +
+     c                                      c_spec + c_xqen
+     c                   exsr      write_outp
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gen. av kunde avslutning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avsl_kunde    begsr
+      *
+     c                   eval      d_orec = c_ta04 +
+     c                                      c_xqst + c_xfen +
+     c                                      c_kild + c_xqen
+     c                   exsr      write_outp
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gen. av meldingsavslutning              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avsl_melding  begsr
+      *
+     c                   eval      d_orec = c_xqst + c_xfen +
+     c                                      c_xst1 + c_xqen
+      *
+     c                   exsr      write_outp
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kontroll/erstatning av XML-escape tegn i tekstfelt *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjk_XML_esc   begsr
+      *
+     c                   eval      w_posi = 0
+     c                   eval      w_posu = 0
+     c                   eval      w_str_u = *blank
+     c                   eval      b_blnk = *off
+      *
+     c                   dow       w_posi < 95 and
+     c                             b_blnk = *off
+     c                   eval      w_posi = w_posi + 1
+     c                   if        %subst(w_str_i:w_posi) = *blank
+     c                   eval      b_blnk = *on
+     c                   else
+     c                   eval      w_str_x = %subst(w_str_i:w_posi:1)
+     c                   if        w_posu < 295
+     c                   select
+     c                   when      w_str_x = '&'
+     c                   eval      w_posu = w_posu + 1
+     c                   eval      %subst(w_str_u:w_posu:5) = '&amp;'
+     c                   eval      w_posu = w_posu + 4
+      *
+     c                   when      w_str_x = '<'
+     c                   eval      w_posu = w_posu + 1
+     c                   eval      %subst(w_str_u:w_posu:4) = '&lt;'
+     c                   eval      w_posu = w_posu + 3
+      *
+     c                   when      w_str_x = '>'
+     c                   eval      w_posu = w_posu + 1
+     c                   eval      %subst(w_str_u:w_posu:4) = '&gt;'
+     c                   eval      w_posu = w_posu + 3
+      *
+     c                   when      w_str_x = c_apos
+     c                   eval      w_posu = w_posu + 1
+     c                   eval      %subst(w_str_u:w_posu:6) = '&apos;'
+     c                   eval      w_posu = w_posu + 5
+      *
+     c                   when      w_str_x = '"'
+     c                   eval      w_posu = w_posu + 1
+     c                   eval      %subst(w_str_u:w_posu:6) = '&quot;'
+     c                   eval      w_posu = w_posu + 5
+      *
+     c                   other
+     c                   eval      w_posu = w_posu + 1
+     c                   eval      %subst(w_str_u:w_posu:1) = w_str_x
+      *
+     c                   endsl
+     c                   endif
+     c                   endif
+     c                   enddo
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for skriving av fysisk record - m/konv. av bokstaver  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     write_outp    begsr
+      *
+     c                   eval      xmldnb = d_orec
+     c*    'Æ':X'46'     xlate     xmldnb        xmldnb
+     c*    'æ':X'A0'     xlate     xmldnb        xmldnb
+     c*    'Ø':X'77'     xlate     xmldnb        xmldnb
+     c*    'ø':X'90'     xlate     xmldnb        xmldnb
+     c*    'Å':X'2A'     xlate     xmldnb        xmldnb
+     c*    'å':X'EF'     xlate     xmldnb        xmldnb
+      *
+     c**                 if        1 = 2
+     c                   write     xmldnbpfr
+     c**                 endif
+      *
+     c                   eval      d_orec = *blank
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for skriving av fysisk record - m/konv. av bokstaver  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     merk_kort     begsr
+      *
+     c**                 if        1 = 2
+     c                   eval      rukrlu_kkun = rukkun
+     c                   eval      rukrlu_kpro = rukpro
+     c                   eval      rukrlu_ktyp = ruktyp
+     c                   eval      rukrlu_ktsq = ruktsq
+     c     rukrlu_key    chain     rukrlur
+      *
+     c                   if        %found
+     c                   eval      rukdat = w_date
+     c                   eval      ruktim = w_time
+     c                   eval      rukusr = l_user
+     c                   update    rukrlur
+     c                   endif
+      *
+     c**                 endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gen. av "logg" transaksjon       *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skriv_logg    begsr
+      *
+     c                   eval      l_lrec = *blanks
+      *
+     c                   eval      l_kknr = w_kknr
+     c                   eval      l_dato = w_dato
+     c                   eval      l_orna = w_orna
+     c                   eval      l_sufa = w_sufa
+     c                   eval      l_stxt = w_stxt
+     c                   eval      l_vare = w_vare
+     c                   eval      l_tek1 = w_tek1
+     c                   eval      l_tek2 = w_tek2
+     c                   eval      l_lana = w_lana
+     c                   eval      l_enho = w_enhe
+     c                   eval      l_pria = w_pria
+     c                   eval      l_raba = w_raba
+     c                   eval      l_ltoa = w_ltoa
+      *
+     c                   eval      xmllog = l_lrec
+     c                   write     xmllogpfr
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    w_prec
+     c                   parm                    p_post
+     c                   eval      p_prec = w_prec
+6.23  * Scann av streng etter ugyldig tegn
+6.23  *
+6.23 c                   eval      p_str_in = *blank
+6.23 c                   eval      p_lr = '0'
+6.23 c                   movel     p_ftxt        p_str_in
+6.23 c                   call      'AP613R'
+6.23 c                   parm                    p_str_in
+6.23 c                   parm                    p_str_out
+6.23 c                   parm                    p_lr
+6.23 c                   movel     p_str_out     p_ftxt
+      *
+      * Key for posisjonering på korttype
+      *
+     c     rukrl5_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rukrl5_ktyp
+      *
+      * Key for posisjonering på korttype
+      *
+     c     rukrlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rukrlu_kkun
+     c                   kfld                    rukrlu_kpro
+     c                   kfld                    rukrlu_ktyp
+     c                   kfld                    rukrlu_ktsq
+      *
+      * Key for les av avsatte korttransaksjoner
+      *
+     c     bokkl5_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bokkl5_ktyp
+     c                   kfld                    bokkl5_kund
+      *
+      * Key for les av avsatte korttransaksjoner
+      *
+     c     bokkll_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bokkll_ktyp
+     c                   kfld                    bokkll_kund
+     c                   kfld                    bokkll_odat
+      *
+      * Key for les av historisk fakturaregister - hode
+      *
+     c     sohelr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    sohelr_aarr
+     c                   kfld                    sohelr_binr
+     c                   kfld                    sohelr_numm
+     c                   kfld                    sohelr_suff
+      *
+      * Key for les av historisk fakturaregister - linjer
+      *
+     c     sodtlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    sodtlr_aarr
+     c                   kfld                    sodtlr_binr
+      *
+      * Key for les på bongregister
+      *
+     c     bcdtir_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bcdtir_bong
+      *
+      * Key for setll på bongregister
+      *
+     c     bcdtll_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bcdtll_bong
+     c                   kfld                    bcdtll_boli
+      *
+      * Key for les på bongregister
+      *
+     c     bchei1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bchei1_bong
+      *
+      * Legger inn verdier fra parameter
+      *
+     c                   eval      w_firm = l_firm
+     c                   move      p_ktyp        rukrl5_ktyp
+     c                   eval      w_frda =      p_frda
+     c                   eval      w_tida = p_tida
+     c                   time                    w_date
+     c                   time                    w_time
+      *
+     c                   eval      p_post = '0'
+     c                   eval      w_xrec = *blanks
+     c                   eval      w_xrec = 'Startet opp med  ' +
+     c                                      'uthenting av statistik'
+      *
+     c                   eval      xmlgrl = w_xrec
+     c                   write     xmlgrlpfr
+     c                   endsr

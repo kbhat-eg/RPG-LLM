@@ -1,0 +1,490 @@
+     h option(*nodebugio) datedit(*dmy) decedit('0,')
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FP601R
+      * Beskrivelse . . : Spesialpris, utskrift
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       120599 HKO  Nytt program
+      *       180204 HKO  Utvidet med kundekategori
+5.70  * PRGR  151108 BOF  Utvidet med prisgruppe
+      * 6.10  250609 BSA  Oppdatert med sporingsinformasjon
+6.nu  * 6.30  240614 bof  Gjennomgått mtp. nummerutvidelse
+6.31  * 6.31  300316 bof  Utvidet med prisgr. i nøkkel
+8.01  *PRG2   100622 BOF  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fra06pf    if   e           k disk    rename(ra06pfr:ra06pfr)
+     fra11pf    if   e           k disk    rename(ra11pfr:ra11pfr)
+     ffpril1    if   e           k disk    rename(fpripfr:fpril1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     ffkprl1    if   e           k disk    rename(fkprpfr:fkprl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     ffprwlu    uf a e           k disk    rename(fprwpfr:fprwlur)
+     ffprwl1    if   e           k disk    rename(fprwpfr:fprwl1r)
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+      *
+     ffp601p    o    e             printer
+      *
+      * Definering av parametre
+      *
+     d p_list          s             80
+      *
+      * Defineringa av LDA
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+      *
+      * Datastruktur for parameterliste -inn
+      *
+     d                 ds
+     d d_list                        64
+     d  d_firm                        3  0 overlay(d_list: 1)
+     d  d_rkaf                        3  0 overlay(d_list: 4)
+     d  d_rkat                        3  0 overlay(d_list: 7)
+     d  d_kkaf                        4  0 overlay(d_list:10)
+     d  d_kkat                        4  0 overlay(d_list:14)
+     d  d_kund                        6  0 overlay(d_list:18)
+     d  d_kpro                        6  0 overlay(d_list:24)
+     d  d_varf                       15    overlay(d_list:30)
+     d  d_vart                       15    overlay(d_list:45)
+8.01 d  d_prgr                        2    overlay(d_list:60)
+      *
+      * Definering av variable i nøkler
+      *
+     d ra06pf_fkod     s                   like(rafkod)
+     d ra11pf_kkod     s                   like(rakkod)
+     d rkunl1_kund     s                   like(rkkund)
+     d fkprl1_kpro     s                   like(flkpro)
+     d fkprl1_kund     s                   like(flkund)
+     d vvarl1_vare     s                   like(vvvare)
+     d fprwl1_prgr     s                   like(fpprgr)
+     d fprwl1_rkat     s                   like(fprkat)
+      *
+      * Definering av variable
+      *
+     d b_avsl_les      s              1    inz(*off)
+      *
+     d w_udat          s               d   datfmt(*iso)
+     d w_utim          s               t   timfmt(*iso)
+     d w_inlr          s              1
+      *
+     d w_firm          s                   like(fpfirm)
+     d w_sapr          s                   like(fpsapr)
+     d w_bupr          s                   like(fpsapr)
+     d w_kopr          s                   like(fpkopr)
+     d w_inpr          s                   like(fpkopr)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Leser spesialpriser, og kopierer denne over til arbeidsfil
+      * sammen med tilleggsopplysninger
+      *
+     c                   exsr      utplukk
+      *
+      * Skriver Header
+      *
+     c                   exsr      hode
+      *
+      * Leser arbeidstabell, og skriver detaljlinjer
+      *
+6.31 c                   eval      fprwl1_prgr = d_prgr
+     c                   eval      fprwl1_rkat = d_rkaf
+     c     fprwl1_key    setll     fprwl1
+     c                   read      fprwl1                                 90
+     c                   dow       *in90 = *off and
+     c                             b_avsl_les = *off
+     c                   exsr      detalj
+     c                   read      fprwl1                                 90
+     c                   enddo
+      *
+      * Avslutter program
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp arbeidsfil.
+      * Alle spesialpriser kopieres til arbeidsfil, og kompletteres med
+      * rabattkategori for kunde/kundeprosjekt
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     utplukk       begsr
+      *
+     c     fpril1_key    setll     fpril1
+     c     fpril1_key    reade     fpril1                                 90
+     c                   dow       *in90 = *off
+      *
+      * Behandling av kunde/kundeprosjekt
+      *
+     c                   if        fpkund <> 0 or
+     c                             fpkpro <> 0
+      *
+      * Henter eventuell rabattkategori fra kundeprosjekt
+      *
+     c                   eval      fprkat = 0
+     c                   eval      fpkkat = 0
+      *
+     c                   if        fpkpro <> 0
+     c                   eval      fkprl1_kund = fpkund
+     c                   eval      fkprl1_kpro = fpkpro
+     c     fkprl1_key    chain     fkprl1                             91
+     c                   if        *in91 = *off and
+     c                             florka <> 0
+     c                   eval      fprkat = florka
+     c                   endif
+     c                   endif
+      *
+      * Henter rabattkategori og kundekategori fra kunde
+      *
+     c                   eval      rkunl1_kund = fpkund
+     c     rkunl1_key    chain     rkunl1
+     c                   if        %found
+     c                   if        fprkat = 0
+     c                   eval      fprkat = rkrabk
+     c                   endif
+     c                   eval      fpkkat = rkkatg
+     c                   endif
+      *
+     c                   endif
+      *
+6.10 c                   time                    fpodat
+6.10 c                   time                    fpotim
+6.10 c                   eval      fpousr = l_user
+6.10 c                   time                    fpedat
+6.10 c                   time                    fpetim
+6.10 c                   eval      fpeusr = l_user
+     c                   write     fprwlur
+      *
+     c     fpril1_key    reade     fpril1                                 90
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering og utskrift av hode-opplysninger
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hode          begsr
+      *
+      * Legger inn arb.stasjon og bruker i faste felter
+      *
+     c                   eval      a1firm = w_firm
+     c                   eval      a1user = l_user
+     c                   eval      a1wsid = l_wsid
+     c                   eval      a1date = udate
+     c     *hms          move      w_utim        a1time
+      *
+      * Henter firmaopplysninger
+      *
+     c     afirl1_key    chain     afirl1r                            90
+     c                   eval      a1fnav = aafnav
+      *
+      * Henter parametre
+      *
+5.70 c                   eval      a2prgr = d_prgr
+     c                   eval      a2rkaf = d_rkaf
+     c                   eval      a2rkat = d_rkat
+     c                   eval      a2kkaf = d_kkaf
+     c                   eval      a2kkat = d_kkat
+     c                   eval      a2kund = d_kund
+     c                   eval      a2kpro = d_kpro
+     c                   eval      a2varf = d_varf
+     c                   eval      a2vart = d_vart
+      *
+      * Skriver heading
+      *
+     c                   write     a1hdr
+     c                   write     a2hdr
+     c                   write     a3hdr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utplukk og utskrift av detaljlinje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     detalj        begsr
+      *
+      * Test på valg
+      *
+5.70 c                   if        d_prgr <> *blank and
+5.70 c                             fpprgr > d_prgr
+5.70 c                   eval      b_avsl_les = *on
+5.70 c                   leavesr
+5.70 c                   endif
+      *
+     c                   if        d_rkat <> 0 and
+     c                             fprkat > d_rkat
+5.70 c*                  eval      b_avsl_les = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        d_kkaf <> 0 and
+     c                             fpkkat < d_kkaf or
+     c                             d_kkat <> 0 and
+     c                             fpkkat > d_kkat
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        d_kund <> 0 and
+     c                             fpkund <> d_kund
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        d_kpro <> 0 and
+     c                             fpkpro <> d_kpro
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        d_varf <> *blank and
+     c                             fpvare < d_varf or
+     c                             d_vart <> *blank and
+     c                             fpvare > d_vart
+     c                   leavesr
+     c                   endif
+      *
+      * Flytter verdier til detaljlinje
+      *
+5.70 c                   eval      d1prgr = fpprgr
+     c                   eval      d1rkat = fprkat
+     c                   eval      d1rtxt = *blank
+     c                   eval      d1kkat = fpkkat
+     c                   eval      d1ktxt = *blank
+     c                   eval      d1kund = fpkund
+     c                   eval      d1knav = *blank
+     c                   eval      d1kpro = fpkpro
+     c                   eval      d1pnav = *blank
+     c                   eval      d1vare = fpvare
+     c                   eval      d1tek1 = *blank
+     c                   eval      d1enhe = fpenhe
+     c                   eval      d1lety = fplety
+     c                   eval      d1numm = fpnumm
+     c                   eval      d1dekn = 0
+     c                   eval      d1sapr = fpsapr
+     c                   eval      d1rab1 = fprab1
+     c                   eval      d1rab2 = fprab2
+     c                   eval      d1kopr = fpkopr
+     c                   eval      d1fdat = 0
+     c                   eval      d1tdat = 0
+      *
+     c                   if        fpfdat <> *loval
+     c     *dmy          move      fpfdat        d1fdat
+     c                   endif
+      *
+     c                   if        fptdat <> *loval
+     c     *dmy          move      fptdat        d1tdat
+     c                   endif
+      *
+      * Henter beskrivelse
+      *
+     c                   if        fprkat <> 0
+     c                   eval      ra06pf_fkod = fprkat
+     c     ra06pf_key    chain     ra06pf
+     c                   if        %found
+     c                   eval      d1rtxt = raftxt
+     c                   endif
+     c                   endif
+      *
+     c                   if        fpkkat <> 0
+     c                   eval      ra11pf_kkod = fpkkat
+     c     ra11pf_key    chain     ra11pf
+     c                   if        %found
+     c                   eval      d1ktxt = raktxt
+     c                   endif
+     c                   endif
+      *
+     c                   if        fpkund <> 0
+     c                   eval      rkunl1_kund = fpkund
+     c     rkunl1_key    chain     rkunl1                             91
+     c                   if        *in91 = *off
+     c                   eval      d1knav = rknavn
+     c                   endif
+     c                   endif
+      *
+     c                   if        fpkpro <> 0
+     c                   eval      fkprl1_kund = fpkund
+     c                   eval      fkprl1_kpro = fpkpro
+     c     fkprl1_key    chain     fkprl1                             91
+     c                   if        *in91 = *off
+     c                   eval      d1pnav = flnavn
+     c                   endif
+     c                   endif
+      *
+     c                   if        fpvare <> *blank
+     c                   eval      vvarl1_vare = fpvare
+     c     vvarl1_key    chain     vvarl1                             91
+     c                   if        *in91 = *off
+     c                   eval      d1tek1 = vvtek1
+     c                   endif
+     c                   endif
+      *
+      * Kalkulerer DG
+      *
+     c                   exsr      kalk_dg
+      *
+      * Skriver detaljlinje
+      *
+     c                   write     d1dtl                                30
+     c                   exsr      overflow
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for overflow
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     overflow      begsr
+      *
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   write     a3hdr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Kalkuler DG for spesialpris
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     kalk_dg       begsr
+      *
+      * Dersom salgspris eller kostpris ikke er utfylt, kalles program som
+      * henter priser på vare
+      *
+     c                   if        fpsapr = 0 or
+     c                             fpkopr = 0
+      *
+     c                   eval      w_inlr = *blank
+      *
+     c                   call      'VP701R'
+     c                   parm                    w_firm
+     c                   parm                    fpvare
+5.70 c                   parm                    fpprgr
+     c                   parm                    fpenhe
+     c                   parm                    fplety
+     c                   parm                    w_udat
+     c                   parm                    w_inlr
+     c                   parm                    w_sapr
+     c                   parm                    w_bupr
+     c                   parm                    w_kopr
+     c                   parm                    w_inpr
+      *
+     c                   endif
+      *
+      * Bestemmer salgspris og kostpris
+      *
+     c                   if        fpsapr <> 0
+     c                   eval      w_sapr = fpsapr
+     c                   endif
+      *
+     c                   if        fpkopr <> 0
+     c                   eval      w_kopr = fpkopr
+     c                   endif
+      *
+      * Finner salgspris etter rabatt
+      *
+     c                   if        fprab1 <> 0
+     c                   eval(h)   w_sapr = w_sapr - (w_sapr * fprab1 / 100)
+     c                   endif
+      *
+     c                   if        fprab2 <> 0
+     c                   eval(h)   w_sapr = w_sapr - (w_sapr * fprab2 / 100)
+     c                   endif
+      *
+      * Beregner DG
+      *
+     c                   if        w_sapr <> 0
+     c                   select
+     c                   when      (100 - (w_kopr * 100 / w_sapr)) < -999,99
+     c                   eval      d1dekn = -999,99
+     c                   when      (100 - (w_kopr * 100 / w_sapr)) > 999,99
+     c                   eval      d1dekn = 999,99
+     c                   other
+     c                   eval(h)   d1dekn = 100 - (w_kopr * 100 / w_sapr)
+     c                   endsl
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Paramtre
+      *
+     c     *entry        plist
+     c                   parm                    p_list
+      *
+      * Key for les på spesialpris
+      *
+     c     fpril1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på rabattkategori
+      *
+     c     ra06pf_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra06pf_fkod
+      *
+      * Key for oppslag på kundekategori
+      *
+     c     ra11pf_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra11pf_kkod
+      *
+      * Key for oppslag på kunderegister
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for oppslag på kundeprosjekt
+      *
+     c     fkprl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fkprl1_kund
+     c                   kfld                    fkprl1_kpro
+      *
+      * Key for oppslag på vareregister
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for posisjonering på arbeidstabell
+      *
+     c     fprwl1_key    klist
+     c                   kfld                    w_firm
+6.31 c                   kfld                    fprwl1_prgr
+     c                   kfld                    fprwl1_rkat
+      *
+      * Key for oppslag på firma
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      *
+      *
+      * Flytter parameter til datasturuktur
+      *
+     c                   eval      d_list = p_list
+      *
+     c                   eval      w_firm = d_firm
+      *
+      * Henter dagens dato
+      *
+     c                   time                    w_udat
+     c                   time                    w_utim
+      *
+     c                   endsr

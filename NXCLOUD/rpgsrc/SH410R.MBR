@@ -1,0 +1,595 @@
+      /TITLE  ASLAGR Vise faktura
+     h decedit('0,') option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : SH410R
+      * Beskrivelse . . : Vise faktura
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       090698 HKO  Nytt program
+      * R5.30 241104 KOB  Lagt inn sjekk mot riktig leverandør
+6.20  * R6.20 130112 bsa  Legger ut leverandørens ordrenummer
+6.21  * R6.20 290212 ask  Legger ut leverandørens fakturanummer
+6.22  * R6.20 060314 nho  Sjekker om post finnes et år tilbake
+6.23  * R6.20 270116 nho  Tester på år frem i tid
+6.nu  * R6.30 270514 bsa  Programmet gjennomgått mtp nummerutvidelser.
+6.31  * R6.30 290814 bkv  Vis ordrehode
+7.xx  * 7.xx  180516 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       16 = Readc 16 on, no more records
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-59 = Varsle m/feilmeldinger/skjermindikatorer
+      *    60-69 = Fileindikatorer chain etc.
+      *    70-79 = Arbeidsindikatorer i sub-rutiner
+      *    80-89 = Arbeidsindikatorer ordinære
+      *    90-99 = Benyttes ved std. sub-rutiner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fsihel1    if   e           k disk    rename(sihepfr:sihel1r)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+     fsidtl1    if   e           k disk    rename(sidtpfr:sidtl1r)
+3.32 fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+      *
+     fsh410d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(shfirm)
+     d p_aarr          s                   like(shaarr)
+     d p_levr          s                   like(shldor)
+6.nu d p_binr          s                   like(shbinr)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_fnav                951    980
+      *
+      * Definering av datastrukturer
+      *
+      *  Datastruktur for detaljlinje
+      *
+     d                 ds
+     d d_text                        70
+     d  d_vare                        8    overlay(d_text)
+     d  d_tek1                       30    overlay(d_text:10)
+     d  d_anta                       13    overlay(d_text:37)
+     d  d_enh1                        3    overlay(d_text:50)
+     d  d_raba                        6    overlay(d_text:53)
+     d  d_kjop                       13    overlay(d_text:58)
+      *
+      * Definering av variabler i nøkler
+      *
+     d rlevl1_levr     s                   like(rllevr)
+3.32 d votyl1_otyp     s                   like(vaotyp)
+      *
+      * Definering av variable
+      *
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_dato          s               d   datfmt(*iso)
+     d w_raba          s              5  2
+     d w_csts          s              1
+     d w_ctx2          s             20
+6.22 d w_tell          s              1  0
+      *
+     d w_firm          s                   like(shfirm)
+     d w_aarr          s                   like(shaarr)
+6.23 d w_aar1          s                   like(shaarr)
+     d w_levr          s                   like(shldor)
+6.nu d w_binr          s                   like(shbinr)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(7)
+      *
+      /eject
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_srrn - Relativt recordnummer i subfile
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * wvisrn - Vis den side som inneholder denne record.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Fyller control-bildet
+      *
+     c                   exsr      control_init
+      *
+      * Fyller subfile
+      *
+     c     sidtl1_key    setll     sidtl1
+     c                   exsr      crt_subfile
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av standard funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+3.32  *
+3.32  * F15=Generere ordre utfra historisk faktura-register
+3.32  *
+3.32 c                   if        *inkp = *on
+3.32 c                   exsr      xh1win
+3.32 c                   goto      b2taga
+3.32 c                   endif
+      *
+      * F20=Utskrift av fakturakopi
+      *
+     c                   if        *inku = *on
+     c                   call      'LO681R'
+     c                   parm                    w_firm
+     c                   parm                    shaarr
+     c                   parm                    shbinr
+     c                   parm                    shotyp
+     c                   goto      b2taga
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+3.32  *
+3.32  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+3.32  * xh1win  Bilde for generering av ordre fra historisk fakt.reg.
+3.32  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+3.32  *
+3.32 c     xh1win        begsr
+3.32  *
+3.32 c     h1taga        tag
+3.32  *
+3.32 c                   write     h1win
+3.32 c                   exfmt     h1win
+3.32  *
+3.32  * Behandling av funksjonstaster
+3.32  *
+3.32 c                   select
+3.32 c                   when      *inkc
+3.32 c                   goto      end_h1win
+3.32 c                   when      *inkd
+3.32 c                   exsr      spØrring
+3.32 c                   goto      h1taga
+3.32 c                   endsl
+3.32  *
+3.32  * Ordretype må være oppgitt
+3.32  *
+3.32 c                   if        h1otyp = *blank
+3.32 c                   eval      *in31  = *on
+3.32 c                   goto      h1taga
+3.32 c                   endif
+3.32  *
+3.32  * Ordretype må være gyldig
+3.32  *
+3.32 c                   eval      votyl1_otyp = h1otyp
+3.32 c     votyl1_key    chain     votyl1r                            92
+3.32 c                   if        *in92  = *on
+3.32 c                   eval      *in32  = *on
+3.32 c                   goto      h1taga
+3.32 c                   endif
+3.32  *
+3.32  * Systemkode må være 1 på ordretypen
+3.32  *
+3.32 c                   if        vaosys <> 1
+3.32 c                   eval      *in33  = *on
+3.32 c                   goto      h1taga
+3.32 c                   endif
+3.32  *
+3.32  * Generer ordre
+3.32  *
+3.32 c                   call      'SH300R'
+3.32 c                   parm                    w_firm
+3.32 c                   parm                    shaarr
+3.32 c                   parm                    shbinr
+3.32 c                   parm                    shnumm
+3.32 c                   parm                    shsuff
+3.32 c                   parm                    h1otyp
+3.32  *
+3.32 c     end_h1win     endsr
+3.32  *
+3.32  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+3.32  * Subrutine for behandling av spørring
+3.32  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+3.32  *
+3.32 c     spØrring      begsr
+3.32  *
+3.32  * Ordre-type
+3.32  *
+3.32 c                   if        w_afld = 'H1OTYP'
+3.32 c                   call      'VA550R'
+3.32 c                   parm                    w_firm
+3.32 c                   parm                    h1otyp
+3.32 c                   goto      end_spØrr
+3.32 c                   endif
+3.32  *
+3.32 c     end_spØrr     endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å initierer/fylle opp control-bildet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     control_init  begsr
+      *
+      * Finner siste faktura-hode for faktura
+      *
+6.22 c     nyles         tag
+6.22  *
+     c     sihel1_key    setll     sihel1
+     c     sihel1_key    reade     sihel1                                 60
+6.23  * Dersom år = year så legg til 1 på år
+6.23 c                   if        *in60 = *on and
+6.23 c                             shaarr = 0 and
+6.23 c                             w_tell = 0
+6.23 c                   eval      w_aar1 = w_aarr
+6.23 c     w_aarr        add       1             w_aarr
+6.23 c     sihel1_key    setll     sihel1
+6.23 c     sihel1_key    reade     sihel1                                 60
+6.23 c                   if        *in60 = *off
+6.23 c                   add       1             w_tell
+6.23 c                   endif
+6.23 c                   endif
+6.22  * Sjekker om post finnes på fjoråret
+6.22 c                   if        *in60 = *on and
+6.22 c                             w_tell = 0
+6.22 c                   add       1             w_tell
+6.22 c     w_aar1        sub       1             w_aarr
+6.22 c                   goto      nyles
+6.22 c                   endif
+6.22  *
+     c                   if        *in60 = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   dow       *in60 = *off
+     c     sihel1_key    reade     sihel1                                 60
+     c                   enddo
+5.30  *
+5.30  * Kontroller om det er riktig leverandør
+5.30  *
+5.30 c                   if        shldor <> w_levr
+5.30 c                   goto      avslutt
+5.30 c                   endif
+      *
+     c                   eval      b2ousr = shuser
+     c                   eval      b2levr = shldor
+     c                   eval      b2navn = shnavn
+     c                   eval      b2adr1 = shadr1
+6.20 c                   eval      b2lonr = shlonr
+6.21 c                   eval      b2lfnr = shlfnr
+     c                   eval      b2sted = shsted
+     c                   eval      b2binr = shbinr
+     c                   eval      b2lmtx = shlmtx
+     c                   eval      b2fsum = shfsum
+     c                   eval      b2fkda = 0
+     c                   eval      b2ffda = 0
+      *
+     c                   if        shfkda <> *loval
+     c     *dmy          move      shfkda        b2fkda
+     c                   endif
+      *
+     c                   if        shffda <> *loval
+     c     *dmy          move      shffda        b2ffda
+     c                   endif
+      *
+      * Henter leverandørnavn
+      *
+     c                   if        shldor <> 0
+     c                   eval      rlevl1_levr = shldor
+     c     rlevl1_key    chain     rlevl1                             60
+     c                   if        *in60 = *off
+     c                   eval      b2lnav = rlnavn
+     c                   eval      b2lgat = rlgate
+     c                   eval      b2lste = rlsted
+     c                   endif
+     c                   endif
+      *
+      * Hente inn betalingsbetingelser
+      *
+     c                   call      'FÅ703R'
+     c                   parm                    w_firm
+     c                   parm                    shbetb
+     c                   parm                    w_dato
+     c                   parm                    w_csts
+     c                   parm                    w_dato
+     c                   parm                    b2ctxt
+     c                   parm                    w_ctx2
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c     sidtl1_key    setll     sidtl1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+      * Beholder eksisterende posisjonering i subfilen
+      *
+     c                   if        wcurrn > 0
+     c                   eval      wvisrn = wcurrn
+     c                   endif
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl                                  16
+      *
+     c                   if        *in16
+     c                   leave
+     c                   endif
+      *
+     c                   eval      wvisrn = w_srrn
+      *
+      * Vise
+      *
+     c                   if        b1valg = '5'
+     c                   call      'SH411R'
+     c                   parm                    w_firm
+     c                   parm                    w_aarr
+6.nu c                   parm                    w_binr
+     c                   parm                    b1numm
+     c                   parm                    b1suff
+     c                   parm                    b1ktxt
+     c                   parm                    b1line
+     c                   eval      b1valg = *blank
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+6.31  *
+6.31  * Vise ordrehode
+6.31  *
+6.31 c                   if        b1valg = '7'
+6.31 c                   call      'SH415R'
+6.31 c                   parm                    w_firm
+6.31 c                   parm                    w_aarr
+6.31 c                   parm                    w_binr
+6.31 c                   parm                    b1numm
+6.31 c                   parm                    b1suff
+6.31 c                   eval      b1valg = *blank
+6.31 c                   update    b1sfl
+6.31 c                   iter
+6.31 c                   endif
+      *
+     c                   enddo
+      *
+     c     end_subfile   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c     sidtl1_key    reade     sidtl1                                 15
+      *
+     c                   if        *in15
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1numm = slnumm
+     c                   eval      b1suff = slsuff
+     c                   eval      b1ktxt = slktxt
+     c                   eval      b1line = slline
+     c                   eval      b1text = *blank
+      *
+      * Tekstlinje
+      *
+     c                   if        slktxt = 1 or
+      *
+     c                             slktxt = 5
+     c                   eval      b1text = sltek1 + sltek2
+      *
+      * Varelinje
+      *
+     c                   else
+      *
+     c                   eval(h)   w_raba = slrab1 +
+     c                                      ((100 - slrab1) * slrab2 / 100)
+     c                   eval(h)   slkjop = slkjop - (slkjop * w_raba / 100)
+      *
+     c                   eval      d_anta = %editc(slanta : 'M')
+     c                   eval      d_kjop = %editc(slkjop : 'M')
+      *
+     c                   eval      d_vare = slvare
+     c                   eval      d_tek1 = sltek1
+     c                   eval      d_enh1 = slenh1
+     c                   eval      d_raba = *blank
+      *
+     c                   if        w_raba <> 0
+     c                   eval      d_raba = %editc(w_raba : '4')
+     c                   endif
+      *
+     c                   eval      b1text = d_text
+      *
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c     end_crt       tag
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      wvisrn = w_sfrn
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+     c                   eval      *in22 = *off
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_aarr
+     c                   parm                    p_levr
+6.nu c                   parm                    p_binr
+      *
+      * Key for oppslag på faktura-hode-register
+      *
+     c     sihel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_binr
+      *
+      * Key for oppslag på leverandør
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+      *
+      * Key for les på faktura-detalj-register
+      *
+     c     sidtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_binr
+3.32  *
+3.32  * Key for ordretyperegister
+3.32  *
+3.32 c     votyl1_key    klist
+3.32 c                   kfld                    w_firm
+3.32 c                   kfld                    votyl1_otyp
+      *
+      * Henter parameter-verdier
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      w_aarr = p_aarr
+     c                   eval      w_levr = p_levr
+6.nu c                   eval      w_binr = p_binr
+      *
+     c                   eval      *in22 = *on
+      *
+     c                   endsr

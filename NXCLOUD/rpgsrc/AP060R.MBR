@@ -1,0 +1,588 @@
+     H decedit('0.') datedit(*dmy-) option(*nodebugio)
+     h DftActgrp(*No) Actgrp(*NEW) BndDir('CGIDEV2/CGIDEV2')
+      /copy hspecsbnd
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : AP060R
+      * Beskrivelse . . : Oppslag mot API for å hente reskontroposter fra D365
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+7.xx  * 7.xx  290321 bsa  Nytt program
+7.xx  * 7.xx              NB String lenger enn 1024 vises ikke nromalt i
+7.xx  * 7.xx              grønn debugger. Bruk "eval feltnavn :C xxx" på
+7.xx  * 7.xx              input linja, så vil den vise det.
+7.xx  * 7.xx              Feks eval w_indata :C 4000  (da vises 4000 posisjoner)
+7.01  * 7.01  110621 bsa  Sjekk lengden på retur. Hvis den ikke reurnerer
+7.01  * 7.01              poster, må det tas høyde for.
+      *
+8.01  *K0000  041223 bsa  Endrer tegnsett på returfile, hvis ikke klarer
+8.01  *K0000              vi ikke lese de.
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_figr                934    939
+     d l_filg                937    939
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av parametere
+      *
+     d p_firm          s              3  0
+     d p_kund          s              6
+     d p_resp          s            256
+     d p_path          s            256
+     d p_stat          s              5
+      *
+      * Definering av variabler i nøkler
+      *
+      *
+      * Definering av variable
+      *
+     d w_token         s           4000
+     d w_tokeut        s           4014
+     d w_indata        s           4000
+     d w_indta         s           4000
+     d w_mal           s            200
+     d w_url           s            256
+     d w_url2          s            256
+     d w_lurl          s            256
+     d w_reqf          s            100
+     d w_rspf          s            100
+     d w_usrn          s             20
+     d*w_pass          s             50
+     d w_reqt          s              6
+     d w_enco          s             20
+     d w_stat          s              1  0
+     d w_kode          s              1
+     d w_fell          s              6
+     d w_type          s              2
+     d w_fast          s             10
+     d w_numm          s              8  0
+     d w_size          s              8  0
+     d w_start         s              4  0
+     d w_slutt         s              4  0
+     d w_lengd         s              4  0
+8.01 d w_ifsf          s              1
+     d w_kliid         s            256
+     d w_klisc         s            256
+     d w_tenid         s            256
+     d w_more          s            256a   inz('/api/services/DXCIntNexstep+
+     d                                     ServiceGroup/DXCIntNexstepService/+
+     d                                     getCustomerLedgerEntries')
+      *
+     d w_pass          s            200
+     d IFS_Output      s            256a   Varying
+     d IFS_Output1     s            256a   Varying
+     d IFS_Output2     s            256a   Varying
+     d IFS_Input       s            256a   Varying
+     d API_Output      s            256a   Varying
+     d API_Output2     s            256a   Varying
+     d API_Input       s            256a   Varying
+     d IFS_path        s            256a   Varying
+8.01 d IFS_file        s            256
+     d Len             s             10i 0
+     d IFS_log_req     s            256a   Varying
+     d IFS_log_res     s            256a   Varying
+      *
+      /copy prototypeb
+      *--------------------------------------------------------------------
+      * Change Directory
+      *
+      * int chdir(const char *path)
+      *--------------------------------------------------------------------
+     D chdir           PR            10I 0 ExtProc('chdir')
+     D   path                          *   Value Options(*string)
+
+     D fd2             S             10I 0
+     D RW              C                   6
+     D R               C                   4
+     D OWNER           C                   64
+     D GROUP           C                   8
+      *
+     d fd              s             10i 0
+     d line            s            100a
+      *
+     d** text                          *   value
+     d maxlen          s             10i 0
+      *
+     d rdbuf           s           1024a
+     d rdpos           s             10i 0
+     d rdlen           s             10i 0
+      *
+     d p_retstr        s               *
+     d retstr          s          32766a   based(p_retstr)
+      *
+      /copy usec
+      *
+      * Sjekk om vi har verdiene vi trenger for å lage komplett sekvens
+      *
+     c                   if        %trim(w_mal) = *blanks or
+     c                             %trim(w_lurl) = *blanks or
+     c                             %trim(w_url) = *blanks or
+     c                             %trim(w_tenid) = *blanks or
+     c                             %trim(w_kliid) = *blanks or
+     c                             %trim(w_klisc) = *blanks
+     c                   eval      p_stat = 'FALSE'
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Henter inn løpenummer teller
+      *
+     c                   eval      w_kode = '0'
+     c                   eval      w_fell = 'NXTKLI'
+     c                   eval      w_type = *blank
+     c                   eval      w_fast = *blank
+     c                   eval      w_numm = *zero
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    p_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_numm
+      *
+      * Skriv reequest for pålogging
+      *
+     c                   eval      IFS_path = '/home/' +
+     c                                        l_figr +
+     c                                        '/D365/'
+      *
+     c                   eval      IFS_Output1 = 'D365logon_' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.request'
+      *
+     c                   eval      IFS_Output = %trim(IFS_path) +
+     c                                           %trim(IFS_Output1)
+      *
+     c                   if        chdir(%Trim(IFS_path)) >= 0
+     c                   eval      fd2 = open(IFS_Output :
+     c                               O_CREAT+O_WRONLY+O_CODEPAGE :
+     c                               RW*OWNER + RW*GROUP + R : 1252  )
+     c                   if        fd2 < 0
+     c                   goto      avslutt
+     c                   endif
+     c                   endif
+     c                   callp     close(fd2)
+      *
+      * Åpnes igjen for å skrive inn påloggingsinfo
+      *
+      /FREE
+            w_tokeut = %triml('grant_type=client_credentials&client_id=' +
+                     %trim(w_kliid) + '&client_secret=' +
+                     %trim(w_klisc) + '&resource=' +
+                     %trim(w_url));
+      /END-FREE
+      *
+     c                   eval      fd2 = open(IFS_Output :
+     c                               O_WRONLY+O_TEXTDATA)
+     c                   if        fd2 < 0
+     c                   goto      avslutt
+     c                   endif
+     c                   eval      w_size = %size(%trim(w_tokeut))
+     c                   callp     write(fd2: %addr(w_tokeut): w_size)
+     c                   callp     close(fd2)
+      *
+      * Bygger navn på retur file
+      *
+     c                   eval      IFS_Input = 'D365logon_' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.response'
+      *
+      * Initierer og kaller webservice
+      *
+     c                   eval      w_url2 = %trim(w_lurl)+'/'+%trim(w_tenid) +
+     c                                      '/oauth2/token'
+     c                   eval      API_Output2 = %triml(IFS_Output)
+     c                   eval      API_Input = %triml(IFS_path + IFS_Input)
+     c                   eval      w_reqt = 'POST'
+     c**                 eval      w_usrn = '           '
+     c**                 eval      w_pass = '            '
+     c                   eval      w_reqf = API_Output2
+     c                   eval      w_rspf = API_Input
+     c**                 eval      w_enco = 'ISO-8859-1'
+     c                   eval      w_enco = 'UTF-8'
+     c                   eval      w_stat = 0
+     c                   eval      w_usrn = *blanks
+     c                   eval      w_pass = *blanks
+      *
+     c                   call      'AW702C'
+     c                   parm                    w_url2
+     c                   parm                    w_reqt
+     c                   parm                    w_reqf
+     c                   parm                    w_rspf
+     c                   parm                    w_usrn
+     c                   parm                    w_pass
+     c                   parm                    w_enco
+     c                   parm                    w_stat
+      *
+      * Henter ut data fra returfil
+      *
+     c                   eval      IFS_Input = 'D365logon_' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.response'
+     c                   eval      API_Input = %triml(IFS_path + IFS_Input)
+8.01 c                   eval      IFS_file = %trim(API_input)
+8.01  *
+8.01  * Prøv å endre ccsid på mottatt tabell
+8.01  *
+8.01 c                   eval      w_ifsf = *blanks
+8.01 c                   call      'AP060C'
+8.01 c                   parm                    IFS_file
+8.01 c                   parm                    w_ifsf
+8.01  *
+8.01 c                   if        w_ifsf = *blanks
+8.01 c                   eval      p_stat = 'FALSE'
+8.01 c                   goto      avslutt
+8.01 c                   endif
+      *
+     c                   eval      fd = open(API_Input :
+     c                               O_RDONLY+O_TEXTDATA)
+     c                   if        fd < 0
+     c                   eval      p_stat = 'FALSE'
+     c                   goto      avslutt
+     c                   endif
+      *
+      *  Hvis den ikke er "tom", leser vi inn det som kommer i retur
+      *
+     c                   exsr      readline
+      *
+     c**                 eval      len = read(fd: %addr(w_indata):
+     c**                                          %size(w_indata))
+      /FREE
+      *
+      * Partstype
+      *
+           w_start = %scan('access_token' : w_indata);
+           w_start = w_start + 15;
+           w_slutt = %scan('"': w_indata : w_start);
+           w_lengd = w_slutt - w_start;
+           w_token = %subst(w_indata:w_start : w_lengd);
+      *
+      /END-FREE
+      *
+      * Tar vare på verdier, slik at vi kan rydde opp etterpå.
+      *
+     c                   eval      IFS_log_req = API_Output2
+     c                   eval      IFS_log_res = API_Input
+      *
+      * Hent inn json templaten
+      *
+     c                   callp     GetHTMLIFS(w_mal :'<AS400>')
+     c                   callp     ClrHtmlBuffer
+      *
+      * NB Foreløpig brukes 100002 som kundenummer. Kun for test !!
+      *
+      /Free
+           // Bygge json request - id info
+          //   UpdHTMLVar('customerno':                   '100002');
+               UpdHTMLVar('customerno':              %trim(p_kund));
+
+               WrtSection('Request');
+
+      /End-Free
+      *
+      * Skriv json fila til IFS området
+      *
+     c                   eval      IFS_path = '/home/' +
+     c                                        l_figr +
+     c                                        '/D365/'
+      *
+     c                   eval      IFS_Output1 = 'D365trans_' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.request'
+      *
+     c                   eval      IFS_Output = %trim(IFS_path) +
+     c                                           %trim(IFS_Output1)
+      *
+     c                   callp     WrtHtmlToStmf(IFS_Output: 819)
+      *
+      * Oppretter headers file
+      *
+     c                   eval      IFS_Output2 = 'D365trans_' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.request.headers'
+      *
+     c                   if        chdir(%Trim(IFS_path)) >= 0
+     c                   eval      fd = open(IFS_Output2 :
+     c                               O_CREAT+O_WRONLY+O_CODEPAGE :
+     c                               RW*OWNER + RW*GROUP + R : 1252  )
+     c                   if        fd < 0
+     c                   goto      avslutt
+     c                   endif
+     c                   endif
+     c                   callp     close(fd)
+      *
+     c                   eval      API_Output = %triml(IFS_path + IFS_Output2)
+      *
+      * Åpnes igjen for å skrive inn APIKEY vi fikk ved logon
+      *
+     c                   eval      w_tokeut = %triml('Authorization=Bearer ' +
+     c                                        %trim(w_token))
+      *
+     c                   eval      fd = open(IFS_Output2 :
+     c                               O_WRONLY+O_TEXTDATA)
+     c                   if        fd < 0
+     c                   goto      avslutt
+     c                   endif
+     c                   eval      w_size = %size(%trim(w_tokeut))
+     c                   callp     write(fd: %addr(w_tokeut): w_size)
+     c                   callp     close(fd)
+      *
+      * Bygger navn på retur file
+      *
+     c                   eval      IFS_Input = 'D365trans_' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.response'
+      *
+      * Initierer og kaller webservice
+      *
+     c                   eval      w_url2 = %trim(%trim(w_url)+%trim(w_more))
+     c                   eval      API_Output2 = %triml(IFS_path + IFS_Output1)
+     c                   eval      API_Input = %triml(IFS_path + IFS_Input)
+     c                   eval      w_reqt = 'POST'
+     c**                 eval      w_usrn = '           '
+     c**                 eval      w_pass = '            '
+     c                   eval      w_reqf = API_Output2
+     c                   eval      w_rspf = API_Input
+     c**                 eval      w_enco = 'ISO-8859-1'
+     c                   eval      w_enco = 'UTF-8'
+     c                   eval      w_stat = 0
+     c                   eval      w_usrn = *blanks
+     c                   eval      w_pass = *blanks
+      *
+     c                   call      'AW702C'
+     c                   parm                    w_url2
+     c                   parm                    w_reqt
+     c                   parm                    w_reqf
+     c                   parm                    w_rspf
+     c                   parm                    w_usrn
+     c                   parm                    w_pass
+     c                   parm                    w_enco
+     c                   parm                    w_stat
+      *
+     c                   eval      IFS_Input = 'D365trans_' +
+     c                                           %trim(%char(w_numm)) +
+     c                                           '.response'
+     c                   eval      API_Input = %triml(IFS_path + IFS_Input)
+8.01 c                   eval      IFS_file = %trim(API_input)
+8.01  *
+8.01  * Prøv å endre ccsid på mottatt tabell
+8.01  *
+8.01 c                   eval      w_ifsf = *blanks
+8.01 c                   call      'AP060C'
+8.01 c                   parm                    IFS_file
+8.01 c                   parm                    w_ifsf
+      *
+8.01 c                   if        w_ifsf = *blanks
+8.01 c                   eval      p_stat = 'FALSE'
+8.01 c                   goto      avslutt
+8.01 c                   endif
+      *
+     c                   eval      fd = open(API_Input :
+     c                               O_RDONLY+O_TEXTDATA)
+     c                   if        fd < 0
+     c                   eval      p_stat = 'FALSE'
+     c                   goto      avslutt
+     c                   endif
+7.01  *
+7.01  * Sjekk lengden på retur, slik at vi ikke feiler
+7.01  *
+7.01 c                   eval      len = 1
+7.01 c                   eval      rdlen=read(fd:%addr(rdbuf):%size(rdbuf))
+7.01 c                   if        rdlen < 40
+7.01 c                   eval      p_stat = 'TOM  '
+7.01 c                   goto      avslutt
+7.01 c                   endif
+      *
+     c                   eval      p_path = %trim(IFS_path)
+     c                   eval      p_resp = %trim(IFS_Input)
+     c                   eval      p_stat = 'TRUE'
+      *
+      *
+      * Rydder opp i filer på IFS
+      *
+     c                   eval      fd = open(IFS_Output2 :
+     c                               O_WRONLY+O_TEXTDATA)
+     c                   if        fd < 0
+     c                   goto      avslutt
+     c                   endif
+      *
+      * NBNBNB Temporært fjernet sletting av filer på IFS
+      *
+9.xx c**                 if        1=2
+     c                   callp     unlink(IFS_log_req)
+     c                   callp     unlink(IFS_log_res)
+     c                   callp     unlink(API_Output)
+     c                   callp     unlink(API_Output2)
+     c**                 callp     unlink(IFS_Input)
+9.xx c**                 endif
+      *
+     c                   eval      p_stat = 'TRUE'
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine  - lese linjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     readline      begsr
+      *
+     c                   eval      len = 1
+     c                   eval      rdlen=read(fd:%addr(rdbuf):%size(rdbuf))
+     c                   eval      w_indata = *blanks
+      *
+     c                   dow       1=1
+      *
+      * Legg til teksten
+      *
+     c                   if        %trim(rdbuf) <> *blanks
+     c                   eval      %subst(w_indata:len) = %subst(rdbuf:1)
+     c                   eval      len = len + 1024
+     c                   eval      rdbuf = *blanks
+     c                   endif
+      *
+      * Load buffer
+      *
+     c                   eval      rdpos = 0
+     c                   eval      rdlen=read(fd:%addr(rdbuf):%size(rdbuf))
+     c                   if        rdlen < 1
+     c                   leavesr
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine  - Brukes ved mislykket web-service kall
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+     c                   eval      p_stat = 'FALSE'
+     c                   goto      avslutt
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Henter inn parameter
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_kund
+     c                   parm                    p_path
+     c                   parm                    p_resp
+     c                   parm                    p_stat
+      /Free
+      *
+      * Henter inn verdier for å bygge opp streng til json
+      *
+      * Henter inn evnt bruker
+      *
+       exec sql
+        select afudss
+        into   :w_usrn
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'WSSOKUSR';
+
+      *
+      * Henter inn passord til bruker
+      *
+       exec sql
+        select afudss
+        into   :w_pass
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'WSSOKPASS';
+
+      *
+      * Henter inn URL hvor tjenesten ligger
+      *
+       exec sql
+        select afudss
+        into   :w_url
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'cldD365Url';
+
+      *
+      * Henter inn mal for requst
+      *
+       exec sql
+        select afudss
+        into   :w_mal
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'D365_reque';
+
+      *
+      * Henter inn Klient id
+      *
+       exec sql
+        select afudss
+        into   :w_kliid
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'D365_KliId';
+
+      *
+      * Henter inn Klient secret id
+      *
+       exec sql
+        select afudss
+        into   :w_klisc
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'D365_KliSc';
+
+      *
+      * Henter inn Tenant ID
+      *
+       exec sql
+        select afudss
+        into   :w_tenid
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'D365_TenId';
+
+      *
+      * Henter inn URL hvor logon tjenesten ligger
+      *
+       exec sql
+        select afudss
+        into   :w_lurl
+        from   afpspf
+        where  afufil = :l_filg and
+               afuide = 'D365_LoUrl';
+
+      /End-Free
+      *
+     c                   eval      p_path = *blanks
+     c                   eval      p_resp = *blanks
+      *
+     c                   endsr

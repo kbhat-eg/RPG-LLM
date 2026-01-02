@@ -1,0 +1,129 @@
+             PGM        PARM(&KULE &KUND &KPRO &PRTF &NUMM &SELG)
+
+/* Definering av parametere og variable                              */
+
+             DCL        VAR(&KULE)     TYPE(*CHAR) LEN(1)
+             DCL        VAR(&KUND)     TYPE(*DEC)  LEN(6 0)
+             DCL        VAR(&KPRO)     TYPE(*DEC)  LEN(6 0)
+/*6.nu*/     DCL        VAR(&NUMM)     TYPE(*DEC)  LEN(8 0)
+             DCL        VAR(&SELG)     TYPE(*DEC)  LEN(4 0)
+             DCL        VAR(&PRTF)     TYPE(*CHAR) LEN(10)
+             DCL        VAR(&NAVN)     TYPE(*CHAR) LEN(30)
+             DCL        VAR(&EMAL)     TYPE(*CHAR) LEN(50)
+             DCL        VAR(&EMNE)     TYPE(*CHAR) LEN(50)
+             DCL        VAR(&EMN2)     TYPE(*CHAR) LEN(120)
+             DCL        VAR(&PERS)     TYPE(*CHAR) LEN(50)
+             DCL        VAR(&EMA2)     TYPE(*CHAR) LEN(50)
+             DCL        VAR(&IN03)     TYPE(*CHAR) LEN(1)
+             DCL        VAR(&SEND)     TYPE(*CHAR) LEN(10)
+             DCL        VAR(&STAT)     TYPE(*CHAR) LEN(1)
+             DCL        VAR(&SETU)     TYPE(*CHAR) LEN(100)
+             DCL        VAR(&FOTN)     TYPE(*CHAR) LEN(50)
+             DCL        VAR(&INIF)     TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD1)     TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD2)     TYPE(*CHAR) LEN(40)
+             DCL        VAR(&WALI)     TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO)     TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&JOBNAME)  TYPE(*CHAR) LEN(10)
+             DCL        VAR(&MAILSERV) TYPE(*CHAR) LEN(35)
+             DCL        VAR(&MSTATUS)  TYPE(*CHAR) LEN(1) VALUE('3')
+             DCL        VAR(&STATUS)   TYPE(*CHAR) LEN(1) VALUE('1')
+             DCL        VAR(&JAVA)     TYPE(*CHAR) LEN(1000)
+             DCL        VAR(&JAVALOG)  TYPE(*CHAR) LEN(10)
+             DCL        VAR(&JAVAERR)  TYPE(*CHAR) LEN(10)
+
+             DCL        VAR(&USERNAME) TYPE(*CHAR) LEN(10)
+
+
+/* Program for overstyring av e-mail-adresser  (sms)                 */
+
+             CALL       PGM(FO799R)  PARM(&KULE &KUND &KPRO &NUMM +
+                                          &SELG &NAVN &EMAL &EMNE +
+                                          &PERS &EMA2 &INIF &IN03)
+
+/* Er F03/F12 trykket                                                */
+
+             IF         COND(&IN03 *EQ '1') THEN(DO)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+
+/* Sending av e-mail                                                 */
+
+             CHGVAR     VAR(&WALI)     VALUE(12)
+             CHGVAR     VAR(&WAPO)     VALUE(24)
+             CHGVAR     VAR(&MLD1)     VALUE('Klargjøring for sms pågår, ')
+             CHGVAR     VAR(&MLD2)     VALUE('Vennligst vent litt . .       ')
+             CALL       PGM(AA006C)    PARM(&WALI &WAPO &MLD1 &MLD2)
+
+/* Bygger opp parametere som mangler                                 */
+/* og legger over emne til 250 posisjoner                            */
+/* og ...    init-file til 100 posisjoner                            */
+
+             CHGVAR     VAR(&SEND)     VALUE(&PRTF)
+             CHGVAR     VAR(&EMN2)     VALUE(&EMNE)
+             CHGVAR     VAR(&SETU)     VALUE(&INIF)
+
+/*        CALL       PGM(AM701C)    PARM(&PRTF &SEND +             */
+/*                                       &EMAL &EMA2 &EMN2 &STAT + */
+/*                                        &SETU &FOTN &PERS)       */
+
+/*----------sender mail --------------------------------------- */
+
+             RTVJOBA    JOB(&JOBNAME) USER(&USERNAME)
+
+/* Setter opp java logging til en fil                                */
+             CHGVAR     VAR(&JAVALOG) VALUE('J' *TCAT &USERNAME +
+                          *TCAT &JOBNAME)
+             CHKOBJ     OBJ(ADB/ALOGPF) OBJTYPE(*FILE) MBR(&JAVALOG)
+             MONMSG     MSGID(CPF9815) EXEC(DO)
+             ADDPFM     FILE(ADB/ALOGPF) MBR(&JAVALOG) TEXT('Java lo+
+                        ggfil - varemottaksmelding')
+                        ENDDO
+
+             OVRDBF     FILE(STDOUT) TOFILE(ADB/ALOGPF) MBR(&JAVALOG)
+ /* Henter ut mailserver                                              */
+             CALL       PGM(AM705C) PARM(&MAILSERV &MSTATUS)
+
+
+ /* Setter sammen java kall for mailsending                           */
+             CHGVAR     VAR(&JAVA) VALUE('java asp.mail.SendMail2 +
+                          "-server' *TCAT &MAILSERV *TCAT '"')
+
+             IF         COND('X' *TCAT &EMAL *NE 'X') THEN(CHGVAR +
+                          VAR(&JAVA) VALUE(&JAVA *BCAT '"-to' *TCAT +
+                          &EMAL *TCAT '"'))
+             IF         COND('X' *TCAT &EMA2 *NE 'X') THEN(CHGVAR +
+                          VAR(&JAVA) VALUE(&JAVA *BCAT '"-from' +
+                          *TCAT &EMA2 *TCAT '"'))
+             IF         COND('X' *TCAT &EMNE *NE 'X') THEN(CHGVAR +
+                          VAR(&JAVA) VALUE(&JAVA *BCAT '"-subject' +
+                          *TCAT &EMNE *TCAT '"'))
+             IF         COND('X' *TCAT &PERS *NE 'X') THEN(CHGVAR +
+                          VAR(&JAVA) VALUE(&JAVA *BCAT '"-text " +
+                          "-text' *TCAT &PERS *TCAT '"'))
+
+             STRQSH     CMD(&JAVA)
+
+/*           RMVM       FILE(ADB/ALOGPF) MBR(&JAVAERR)                       */
+/*           MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(ERROR))              */
+
+/* Avslutter programmet.                                                     */
+SLUTT:
+             DLTOVR     FILE(STDOUT)
+             MONMSG     MSGID(CPF0000)
+             RMVM       FILE(ADB/ALOGPF) MBR(&JAVALOG)
+             CHGVAR     VAR(&STATUS) VALUE(' ')
+             RETURN
+
+ERROR:
+             IF         COND(&STATUS *EQ '1') THEN(SNDMSG MSG('Kunne +
+                          ikke lage PDF fil') TOUSR(&USERNAME))
+             IF         COND(&STATUS *EQ '2') THEN(SNDMSG MSG('Kunne +
+                          ikke hente ut mailserver') TOUSR(&USERNAME))
+             IF         COND(&STATUS *EQ '3') THEN(SNDMSG MSG('Kunne +
+                          ikke sende mail') TOUSR(&USERNAME))
+
+             DLTOVR     FILE(STDOUT)
+             MONMSG     MSGID(CPF0000)
+
+ENDPGM:      ENDPGM

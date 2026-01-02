@@ -1,0 +1,167 @@
+/*                  xledg    BUSINESS                                */
+/*6.30  21.08.15 nho Nye program vedr summering xledg Business       */
+/*7.01  21.08.20 bsa Feiul i filnavn                                 */
+             PGM
+
+             DCL        VAR(&FILN)  TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FILS)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MAPX) TYPE(*CHAR) LEN(30)
+             DCL        VAR(&CLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&IFSV) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILT) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILG) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&grp)  TYPE(*CHAR) LEN(7)
+             DCL        VAR(&BIBL) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&BAN1) TYPE(*CHAR) LEN(5) +
+                          VALUE('/asp/')
+             DCL        VAR(&BAN2) TYPE(*CHAR) LEN(9) +
+                          VALUE('/XLedger/')
+             DCL        VAR(&BAN3) TYPE(*CHAR) LEN(10) +
+                          VALUE('/qsys.lib/')
+             DCL        VAR(&BAN4) TYPE(*CHAR) LEN(31) +
+                          VALUE('.lib/xledgbut.file/xledgbut.mbr')
+             DCL        VAR(&BAN5) TYPE(*CHAR) LEN(31) +
+                          VALUE('.lib/xledgkun.file/xledgkun.mbr')
+             DCL        VAR(&CO402_KEY) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&CO402_V1)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&CO402_V2)  TYPE(*CHAR) LEN(2048)
+             dcl        var(&fix)       type(*char) len(3)
+             dcl        var(&fir)       type(*dec)  len(3 0) value(0)
+             dcl        var(&lag)       type(*dec)  len(3 0) value(0)
+             dcl        var(&filx)      type(*char) len(30)
+             dcl        var(&i)         type(*dec)  len(3 0)
+
+/* Henter filgruppe og firmanummer:                                  */
+
+             RTVDTAARA  DTAARA(*LDA (931 3)) RTNVAR(&FILG)
+             RTVDTAARA  DTAARA(*LDA (934 6)) RTNVAR(&BIBL)
+
+/* Lager til-katalogen på IFS hvis den ikke finnes                   */
+
+             CHGVAR     VAR(&MAPX)     VALUE(&BAN1 *CAT &FILG +
+                                             *CAT &BAN2)
+             CRTDIR     DIR(&MAPX)
+             MONMSG     MSGID(CPF0000)
+
+/* Tømmer transaksjonsfil før danning av transaksjoner               */
+
+             chgvar     var(&grp)    value('ASP_' *cat &filg)
+             CLRPFM     FILE(RV02PF)
+             MONMSG     MSGID(CPF9801)   EXEC(do)
+               call     pgm(ag906c)  parm('RV02PF    ' &filg &grp ' ')
+             enddo
+             CLRPFM     FILE(RVk2PF)
+             MONMSG     MSGID(CPF9801)   EXEC(do)
+               call     pgm(ag906c)  parm('RVK2PF    ' &filg &grp ' ')
+             enddo
+/*6.30*/     CLRPFM     FILE(BOBFUT)
+/*6.30*/     CLRPFM     FILE(BQBWPF)
+/*6.30*/     CPYF       FROMFILE(BOVFPF) TOFILE(*libl/BQBWPF) +
+                          MBROPT(*ADD) FMTOPT(*MAP *DROP)
+
+/* Kaller program for danning av transaksjoner                       */
+/*6.30*/     CALL       PGM(RB007R)
+/*6.30*/     CALL       PGM(RB008R)
+
+
+/*6.30       CALL       PGM(RB009R)  Fjernet 01.06.2021  Marius */
+
+             CALL       PGM(RB093R)
+             CALL       PGM(RB094R)
+
+/* Test om overføringsregister finnes - bygg evt.                    */
+
+             CHKOBJ     OBJ(*LIBL/xledgBUT) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+             CRTPF      FILE(xledgBUT) RCDLEN(800) +
+                          TEXT('Posteringer til xledg')           +
+                          MAXMBRS(*NOMAX)
+             ENDDO
+
+             CHKOBJ     OBJ(*LIBL/xledgKUN) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+             CRTPF      FILE(xledgkun) RCDLEN(800) +
+                          TEXT('Posteringer til xledg')           +
+                          MAXMBRS(*NOMAX)
+             ENDDO
+
+/* Kopier data til overføringsfil                                    */
+
+             CPYF       FROMFILE(*libl/RV02PF) +
+                          TOFILE(*libl/xledgBUT) FROMMBR(RV02PF) +
+                          MBROPT(*REPLACE) FMTOPT(*NOCHK)
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+
+             CPYF       FROMFILE(*libl/RVk2PF) +
+                          TOFILE(*libl/xledgkun) FROMMBR(RVk2PF) +
+                          MBROPT(*REPLACE) FMTOPT(*NOCHK)
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+
+
+/* Starter kopiering til integret filsystem  Kunder                  */
+
+             CALL       PGM(LO763R) PARM(&FILN)
+             CHGVAR VAR(&FILN)    VALUE((%sst(&filn 1 1)) *cat 'K' +
+                        *cat  (%sst(&filn 2 6)) *cat '_' +
+                        *cat (%sst(&FILN 10 6)) *cat '.csv')
+
+             chgvar     var(&i)  value(%scan('.' &filn))
+             if         cond(&i *gt 0)  then(do)
+               chgvar   %sst(&filn &i 1)   value('_')
+             enddo
+/* Skal filen innehode en sufix?                                     */
+             chgvar     var(&co402_key) value('EKSTERN_REGNSKAP_SUFIX')
+             rtvdtaara  dtaara(*lda (944 3)) rtnvar(&fix)
+             chgvar     var(&fir)   value(&fix)
+             call       pgm(co402r) parm(&filg &fir &lag &co402_key +
+                          &co402_v1 &co402_v2)
+
+             chgvar     var(&filx) value(&filn)
+             if         cond(&co402_v1 *eq '1') then(do)
+               chgvar   var(&filx) value(&filn *tcat &co402_v2)
+             enddo
+
+             CHGVAR VAR(&FILS) VALUE(&BAN1 *CAT &FILG *CAT &BAN2 *tcat &FILx)
+             CHGVAR VAR(&FILT) VALUE(&BAN3 *CAT &BIBL *CAT &BAN5)
+
+             CPYTOSTMF  +
+                          FROMMBR(&FILT) TOSTMF(&FILS) +
+                          STMFOPT(*REPLACE) STMFCODPAG(*PCASCII)
+             CHGAUT     OBJ(&FILS) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+
+/*  Vent 2 sek slik at ikke filene kan få samme navn    */
+             dlyjob     dly(2)
+/* Starter kopiering til integret filsystem  Butikk.transer          */
+
+             CALL       PGM(LO763R) PARM(&FILN)
+             CHGVAR VAR(&FILN)    VALUE((%sst(&filn 1 1)) *cat 'P' +
+                        *cat  (%sst(&filn 2 6)) *cat '_' +
+                         *cat (%sst(&FILN 10 6)) *cat '.csv')
+
+             chgvar     var(&i)  value(%scan('.' &filn))
+             if         cond(&i *gt 0)  then(do)
+               chgvar   %sst(&filn &i 1)   value('_')
+             enddo
+/* Skal filen innehode en sufix?                                     */
+             chgvar     var(&co402_key) value('EKSTERN_REGNSKAP_SUFIX')
+             rtvdtaara  dtaara(*lda (944 3)) rtnvar(&fix)
+             chgvar     var(&fir)   value(&fix)
+             call       pgm(co402r) parm(&filg &fir &lag &co402_key +
+                          &co402_v1 &co402_v2)
+
+             chgvar     var(&filx) value(&filn)
+             if         cond(&co402_v1 *eq '1') then(do)
+               chgvar   var(&filx) value(&filn *tcat &co402_v2)
+             enddo
+
+             CHGVAR VAR(&FILS) VALUE(&BAN1 *CAT &FILG *CAT &BAN2 *tcat &FILx)
+             CHGVAR VAR(&FILT) VALUE(&BAN3 *CAT &BIBL *CAT &BAN4)
+
+             CPYTOSTMF  +
+                          FROMMBR(&FILT) TOSTMF(&FILS) +
+                          STMFOPT(*REPLACE) STMFCODPAG(*PCASCII)
+             CHGAUT     OBJ(&FILS) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+
+ END:        ENDPGM

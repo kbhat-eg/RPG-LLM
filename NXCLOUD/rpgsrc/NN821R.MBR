@@ -1,0 +1,450 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : NN821R
+      * Beskrivelse . . : Nettbutikk, hent faktura-linjer
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       101002 HKO  Nytt program
+      *       150903 HKO  Returnerte feil fakturapris eksl. mva
+6.nu  * R6.30 040614 bsa  Programmet gjennomgått mtp nummerutvidelser.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fsohel1    if   e           k disk    rename(sohepfr:sohel1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     fsodtl1    if   e           k disk    rename(sodtpfr:sodtl1r)
+     fvpkol1    if   e           k disk    rename(vpkopfr:vpkol1r)
+     faforlr    if   e           k disk    rename(aforpfr:aforlrr)
+      *
+      * Definering av parametre
+      *
+     d p_uniq          s             15
+     d p_dtqi          s             10
+     d p_dtqo          s             10
+     d p_bibl          s             10
+     d p_feil          s              1
+     d p_firm          s              3  0
+     d p_lage          s              2
+     d p_inpl          s              5p 0
+     d p_outl          s              5p 0
+     d p_wait          s              5p 0
+     d p_keyo          s              2
+     d p_keyl          s              3p 0
+     d p_sndl          s              3p 0
+     d p_sndi          s             36
+      *
+      * Definering av datastrukturer
+      *
+      * Datakø - inn
+      *
+     d                 ds
+6.nu d d_inpu                        12
+     d  d_aarr                        4    overlay(d_inpu: 1)
+6.nu d  d_binr                        8    overlay(d_inpu: 5)
+      *
+      * Datakø - ut - faktura-hode
+      *
+     d                 ds
+     d d_outh                       441
+     d  d_hrec                        1    overlay(d_outh:  1) inz('1')
+     d  d_kund                        6  0 overlay(d_outh:  2)
+     d  d_knav                       35    overlay(d_outh:  8)
+     d  d_kgat                       35    overlay(d_outh: 43)
+     d  d_kad2                       35    overlay(d_outh: 78)
+     d  d_kste                       35    overlay(d_outh:113)
+     d  d_kpro                        6  0 overlay(d_outh:148)
+     d  d_pnav                       35    overlay(d_outh:154)
+     d  d_navn                       35    overlay(d_outh:189)
+     d  d_adr1                       35    overlay(d_outh:224)
+     d  d_adr2                       35    overlay(d_outh:259)
+     d  d_sted                       35    overlay(d_outh:294)
+     d  d_fkda                        8  0 overlay(d_outh:329)
+     d  d_ffda                        8  0 overlay(d_outh:337)
+     d  d_ctxt                       20    overlay(d_outh:345)
+     d  d_lmtx                       20    overlay(d_outh:365)
+     d  d_kidd                       25    overlay(d_outh:385)
+     d  d_fsue                       13    overlay(d_outh:410)
+     d  d_fsum                       13    overlay(d_outh:423)
+     d  d_antl                        6  0 overlay(d_outh:436)
+      *
+      * Datakø - ut - faktura-linje
+      *
+     d                 ds
+     d d_outl                       174
+     d  d_lrec                        1    overlay(d_outl:  1) inz('2')
+     d  d_numm                        6  0 overlay(d_outl:  2)
+     d  d_vare                        8    overlay(d_outl:  8)
+     d  d_tek1                       35    overlay(d_outl: 16)
+     d  d_anta                       13    overlay(d_outl: 51)
+     d  d_enhe                        3    overlay(d_outl: 64)
+     d  d_sapr                       13    overlay(d_outl: 67)
+     d  d_raba                        7    overlay(d_outl: 80)
+     d  d_kpri                        5    overlay(d_outl: 87)
+     d  d_ntpr                       13    overlay(d_outl: 92)
+     d  d_text                       70    overlay(d_outl:105)
+      *
+      * Definering av variabler i nøkler
+      *
+     d rkunl1_kund     s                   like(rkkund)
+     d vpkol1_pkod     s                   like(vapkod)
+     d aforlr_ruti     s                   like(afruti)
+      *
+      * Definering av variable
+      *
+     d w_udat          s               d   datfmt(*iso)
+     d w_dato          s               d   datfmt(*iso)
+     d w_csts          s              1
+     d w_ctx2          s             20
+     d w_antl          s              6  0
+     d w_dato_8        s              8
+     d w_aarx          s             10
+      *
+     d w_firm          s                   like(sofirm)
+     d w_aarr          s                   like(soaarr)
+     d w_binr          s                   like(sobinr)
+     d w_fsue          s                   like(sofsum)
+     d w_raba          s                   like(sdrab1)
+     d w_ntpr          s                   like(sdsalg)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Leser og behandler datakø (input)
+      *
+     c                   dou       d_inpu = *blank
+      *
+     c                   eval      d_inpu = *blank
+      *
+     c                   call      'QRCVDTAQ'
+     c                   parm                    p_dtqi
+     c                   parm                    p_bibl
+     c                   parm                    p_inpl
+     c                   parm                    d_inpu
+     c                   parm                    p_wait
+     c                   parm                    p_keyo
+     c                   parm                    p_keyl
+     c                   parm                    p_uniq
+     c                   parm                    p_sndl
+     c                   parm                    p_sndi
+      *
+     c                   if        d_inpu <> *blank
+     c                   exsr      behandling
+     c                   endif
+      *
+     c                   enddo
+      *
+      * Avslutt
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av forespørsel
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandling    begsr
+      *
+      * Henter verdi fra datakø
+      *
+     c                   move      d_aarr        w_aarr
+     c                   move      d_binr        w_binr
+      *
+     c                   if        w_aarr = 0
+     c     *iso          move      w_udat        w_aarx
+     c                   movel     w_aarx        w_aarr
+     c                   endif
+      *
+      * Avryter dersom faktura ikke finnes
+      *
+     c     sohel1_key    chain     sohel1
+     c                   if        not %found
+     c                   eval      p_feil = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Skriver faktura-hode informasjon
+      *
+     c                   exsr      faktura_hode
+      *
+      * Skriver faktura-linje informasjon
+      *
+     c                   exsr      faktura_linje
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å skrive faktura-hode informasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     faktura_hode  begsr
+      *
+      * Summerer salg, og henter siste faktura-hode for faktura
+      *
+     c     sohel1_key    setll     sohel1
+     c     sohel1_key    reade     sohel1
+     c                   dow       not %eof
+     c                   eval(h)   w_fsue = w_fsue +
+     c                                      sosalp + sosalh + sosalf -
+     c                                      sork1p - sork1h - sork1f -
+     c                                      sork2p - sork2h - sork2f -
+     c                                      sorkop - sorkoh - sorkof
+     c     sohel1_key    reade     sohel1
+     c                   enddo
+      *
+      * Finner antall fakturalinjer, og summerer salg
+      *
+     c     sodtl1_key    setll     sodtl1
+     c     sodtl1_key    reade     sodtl1
+     c                   dow       not %eof
+     c                   eval      w_antl = w_antl + 1
+     c     sodtl1_key    reade     sodtl1
+     c                   enddo
+      *
+      * Skriver til datakø
+      *
+     c                   eval      d_kund = sokund
+     c                   eval      d_knav = *blank
+     c                   eval      d_kgat = *blank
+     c                   eval      d_kad2 = *blank
+     c                   eval      d_kste = *blank
+     c                   eval      d_kpro = sokpro
+     c                   eval      d_pnav = *blank
+     c                   eval      d_navn = sonavn
+     c                   eval      d_adr1 = soadr1
+     c                   eval      d_adr2 = soadr2
+     c                   eval      d_sted = sosted
+     c                   eval      d_fkda = 0
+     c                   eval      d_ffda = 0
+     c                   eval      d_ctxt = *blank
+     c                   eval      d_lmtx = solmtx
+      * Sjekke om kort eller lang kid
+     c                   eval      aforlr_ruti = 'FFAKT'
+     c     aforlr_key    chain     aforlr
+     c                   if        %found
+     c                   select
+     c                   when      afkidk = 1
+     c                   eval      d_kidd = sokidd
+     c                   when      afkidk = 2
+     c                   eval      d_kidd = %char(sokidr)
+     c                   other
+     c                   eval      d_kidd = ''
+     c                   endsl
+     c                   else
+     c                   eval      d_kidd = sokidd
+     c                   endif
+      *
+     c                   eval      d_fsue = %editc(w_fsue : 'P')
+     c                   eval      d_fsum = %editc(sofsum : 'P')
+     c                   eval      d_antl = w_antl
+      *
+3.31 c                   if        sofkda <> *loval
+     c     *iso0         move      sofkda        w_dato_8
+     c                   move      w_dato_8      d_fkda
+3.31 c                   endif
+      *
+3.31 c                   if        soffda <> *loval
+     c     *iso0         move      soffda        w_dato_8
+     c                   move      w_dato_8      d_ffda
+3.31 c                   endif
+      *
+      * Henter kundenavn
+      *
+     c                   if        sokund <> 0
+     c                   eval      rkunl1_kund = sokund
+     c     rkunl1_key    chain     rkunl1
+     c                   if        %found
+     c                   eval      d_knav = rknavn
+     c                   eval      d_kgat = rkgate
+     c                   eval      d_kad2 = rkadr2
+     c                   eval      d_kste = rksted
+     c                   endif
+     c                   endif
+      *
+      * Hente inn betalingsbetingelser
+      *
+     c                   eval      w_dato = *loval
+      *
+     c***                call      'FÅ703R'
+     c***                parm                    w_firm
+     c***                parm                    sobetb
+     c***                parm                    w_dato
+     c***                parm                    w_csts
+     c***                parm                    w_dato
+     c***                parm                    d_ctxt
+     c***                parm                    w_ctx2
+      *
+      * Skriver til output-datakø
+      *
+     c     '.':','       xlate     d_fsue        d_fsue
+     c     '.':','       xlate     d_fsum        d_fsum
+      *
+     c                   call      'QSNDDTAQ'
+     c                   parm                    p_dtqo
+     c                   parm                    p_bibl
+     c                   parm                    p_outl
+     c                   parm                    d_outh
+     c                   parm                    p_keyl
+     c                   parm                    p_uniq
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å skrive faktura-linje informasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     faktura_linje begsr
+      *
+     c     sodtl1_key    setll     sodtl1
+     c     sodtl1_key    reade     sodtl1
+     c                   dow       not %eof
+      *
+     c                   eval      d_numm = sdnumm
+     c                   eval      d_vare = sdvare
+     c                   eval      d_tek1 = *blank
+     c                   eval      d_anta = %editc(sdanta : 'P')
+     c                   eval      d_enhe = sdenh1
+     c                   eval      d_sapr = %editc(sdsapr : 'P')
+     c                   eval      d_raba = *blank
+     c                   eval      d_ntpr = *blank
+     c                   eval      d_kpri = *blank
+     c                   eval      d_text = *blank
+      *
+     c                   if        sdkpri <> *blank
+     c                   eval      vpkol1_pkod = sdkpri
+     c     vpkol1_key    chain     vpkol1
+     c                   if        %found
+     c                   eval      d_kpri = vaptxt
+     c                   endif
+     c                   endif
+      *
+     c                   eval      w_raba = 0
+     c                   eval      w_ntpr = 0
+      *
+      * Tekstlinje
+      *
+     c                   if        sdvare = *blank
+      *
+     c***                if        sdktxt = 1 or
+     c***                          sdktxt = 5
+     c                   eval      d_text = sdtek1 + sdtek2
+     c***                endif
+      *
+      * Varelinje
+      *
+     c                   else
+      *
+     c                   eval(h)   w_raba = sdrab1 +
+     c                                      ((100 - sdrab1) * sdrab2 / 100)
+     c                   eval(h)   w_ntpr = sdsalg - (sdsalg * w_raba / 100)
+      *
+     c                   eval      d_tek1 = sdtek1
+     c                   endif
+      *
+     c                   eval      d_raba = %editc(w_raba : 'P')
+     c                   eval      d_ntpr = %editc(w_ntpr : 'P')
+      *
+      * Skriver til output-datakø
+      *
+     c     '.':','       xlate     d_anta        d_anta
+     c     '.':','       xlate     d_sapr        d_sapr
+     c     '.':','       xlate     d_raba        d_raba
+     c     '.':','       xlate     d_ntpr        d_ntpr
+      *
+     c                   call      'QSNDDTAQ'
+     c                   parm                    p_dtqo
+     c                   parm                    p_bibl
+     c                   parm                    p_outl
+     c                   parm                    d_outl
+     c                   parm                    p_keyl
+     c                   parm                    p_uniq
+      *
+     c     sodtl1_key    reade     sodtl1
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+     c                   eval      p_feil = *on
+     c                   goto      avslutt
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_uniq
+     c                   parm                    p_dtqi
+     c                   parm                    p_dtqo
+     c                   parm                    p_bibl
+     c                   parm                    p_feil
+     c                   parm                    p_firm
+     c                   parm                    p_lage
+     c                   parm                    p_inpl
+     c                   parm                    p_outl
+     c                   parm                    p_wait
+     c                   parm                    p_keyo
+     c                   parm                    p_keyl
+     c                   parm                    p_sndl
+     c                   parm                    p_sndi
+      *
+      * Key for oppslag på faktura-hode
+      *
+     c     sohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_binr
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for les på faktura-linje
+      *
+     c     sodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_binr
+      *
+      * Key for oppslag på priskode
+      *
+     c     vpkol1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vpkol1_pkod
+      *
+      * Key for oppslag på rutine
+      *
+     c     aforlr_key    klist
+     c                   kfld                    aforlr_ruti
+3.32  *
+      *
+      * Hent firma fra parameter
+      *
+     c                   eval      w_firm = p_firm
+      *
+      * Henter current dato og tid
+      *
+     c                   time                    w_udat
+      *
+     c                   endsr

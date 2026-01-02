@@ -1,0 +1,775 @@
+     h option(*nodebugio : *srcstmt) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : NEXSTEP
+      * Program . . . . : RF501R
+      * Beskrivelse . . : Oversikt over logg på regnskapstransaksjoner - linjer
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       300720 ASK  Nytt program
+8.01  *  800  021121 ask  Endret krav til tilgangskode for endring/sletting
+8.02  *  800  130122 ask  LAgt inn mulighet for å oppdatere periode i loggfil
+8.03  *  800  050522 ask  Lagt inn endring for å løses sporadisk feil i subfile
+8.04  *  800  041224 ask  Lagt inn kontroll på avvikende forfallsdatoer NXS-20549
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frlodi1    if   e           k disk    rename(rlodst:rlodi1r)
+     frlodir    if   e           k disk    rename(rlodst:rlodirr)
+      *
+     frf502d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d rlodi1_dts1     s                   like(rldts1)
+     d rlodi1_dlin     s                   like(rldlin)
+     d rlodir_dts1     s                   like(rldts1)
+     d rlodir_dlin     s                   like(rldlin)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              5  0
+     d w_stel          s              5  0
+     d w_spge          s              5  0
+     d w_srrn          s              5  0
+     d w_curs          s              5  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_firm          s                   like(rldfir)
+     d w_tmst          s               z
+     d w_dts1          s               z
+     d w_bila          s                   like(rldbin)
+8.04 d w_biln          s                   like(rldbin)
+8.04 d w_ffda          s                   like(rldfda)
+     d w_datt          s               d
+     d w_data          s              8
+     d w_date          s              8
+     d w_time          s              5
+     d w_tim6          s              8
+     d w_tsch          s             20
+     d w_ovfok         s              1  0
+     d w_bdat          s               d
+     d w_fdat          s               d
+     d w_dsum          s             12  2
+     d w_ksum          s             12  2
+     d w_fkod          s              2
+     d b_oppd          s              1    inz(*off)
+     d b_biln          s              1    inz(*off)
+8.04 d b_linopd        s              1    inz(*off)
+8.04 d b_ffeil         s              1    inz(*off)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(18)
+      *
+
+     C/Exec SQL
+     C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR
+     C/End-Exec
+
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   eval      rlodir_dlin = 1
+     c     rlodir_key    chain     rlodirr
+     c                   eval      b2type = rldtyp
+     c                   eval      w_tmst = rldts1
+     c                   exsr      cvrt_tmst
+     c                   eval      b2tdat = w_date
+     c                   eval      b2ttid = w_tim6
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   endsl
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+     c                   exsr      forny
+     c                   goto      b2tagb
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+8.04 c                   if        b_linopd = *on
+8.04 c                   exsr      sjk_ffdato
+8.04 c                   if        b_ffeil = *on
+8.04 c                   exfmt     b4msg3
+8.04 c                   goto      b2taga
+8.04 c                   endif
+8.04 c                   endif
+                         commit;
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   eval      rlodi1_dts1 = b1tmst
+     c                   eval      rlodi1_dlin = b1tlin
+     c     rlodi1_key    setll     rlodi1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+     c                   eval      w_curs = w_srrn
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      rlodir_dlin = b1tlin
+     c                   exsr      xb4win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      rlodir_dlin = b1tlin
+     c                   exsr      xb3win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  B3 Behandle bilde for detaljinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb3win        begsr
+      *
+      * Henter inn opplysninger fra logg linjer
+      *
+     c     b3taga        tag
+     c                   eval      *in30 = *on
+     c                   eval      b_oppd = *off
+      *
+     c     rlodir_key    chain     rlodirr
+      *
+     c                   eval      b3tlin = rldlin
+     c                   eval      b3type = rldtyp
+     c                   eval      b3firm = rldfir
+     c                   eval      w_tmst = rldts1
+     c                   exsr      cvrt_tmst
+     c                   eval      b3tdat = w_date
+     c                   eval      b3ttid = w_tim6
+     c                   eval      b3peri = rldper
+     c                   eval      b3bunt = rldbun
+     c                   eval      b3belp = rldbel
+     c                   eval      b3mvag = rldmvg
+     c                   eval      b3binr = rldbin
+     c                   eval      b3bili = rldbli
+     c                   eval      b3bdat = %dec(rldbda:*dmy)
+     c                   eval      b3fdat = %dec(rldfda:*dmy)
+     c                   eval      b3bkod = rldbko
+     c                   eval      b3btek = rldbtx
+     c                   eval      b3davd = rlddav
+     c                   eval      b3dkto = rlddko
+     c                   eval      b3dsps = rlddsp
+     c                   eval      b3dmva = rlddmv
+     c                   eval      b3kavd = rldkav
+     c                   eval      b3kkto = rldkko
+     c                   eval      b3ksps = rldksp
+     c                   eval      b3kmva = rldkmv
+     c                   eval      b3pros = rldpro
+     c                   eval      b3akti = rldpra
+     c                   eval      b3upro = rldpru
+     c                   eval      b3arbo = rldpao
+     c                   eval      b3mkod = rldmko
+     c                   eval      b3meng = rldmen
+     c                   eval      b3kref = rldkrf
+     c                   eval      b3resk = rldres
+     c                   eval      b3lkid = rldlki
+     c                   eval      b3kkid = rldkki
+     c                   eval      b3ksif = rldkkk
+     c                   eval      b3akid = rldaki
+     c                   eval      b3valk = rldvko
+     c                   eval      b3valb = rldvbe
+     c                   eval      b3salm = rldsal
+     c                   eval      b3sfak = rldsfa
+      *
+     c     b3tagb        tag
+     c                   exfmt     b3win
+      *
+      * F3=Avslutt subrutinen
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+      * Skal linje oppdateres?
+      *
+     c                   if        b_oppd = *on
+     c                   exsr      oppd_lin
+     c                   endif
+      *
+      * F9=Åpne for endring av bilag
+      *
+     c                   if        *inki
+      *
+      *  Bruker godkjent for endring?
+      *
+8.01 c                   if        w_ovfok <> 2
+     c                   exfmt     b3msg2
+     c                   goto      b3tagb
+     c                   endif
+      *
+      *  Er bilag journalført?
+      *
+     c                   exsr      sjk_bilag
+     c                   if        b_biln = *on
+     c                   exfmt     b3msg1
+     c                   goto      b3tagb
+     c                   endif
+      *
+     c                   eval      *in30 = *off
+     c                   eval      b_oppd = *on
+     c                   goto      b3tagb
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  B4 Behandle bilde for detaljinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb4win        begsr
+      *
+      * Henter inn opplysninger fra logg linjer
+      *
+     c     b4taga        tag
+8.01  *
+8.01  *  Bruker godkjent for sletting?
+8.01  *
+8.01 c                   if        w_ovfok <> 2
+8.01 c                   exfmt     b4msg2
+8.01 c                   leavesr
+8.01 c                   endif
+      *
+     c     rlodir_key    chain     rlodirr
+      *
+     c                   eval      b4tlin = rldlin
+     c                   eval      b4type = rldtyp
+     c                   eval      b4firm = rldfir
+     c                   eval      w_tmst = rldts1
+     c                   exsr      cvrt_tmst
+     c                   eval      b4tdat = w_date
+     c                   eval      b4ttid = w_tim6
+     c                   eval      b4peri = rldper
+     c                   eval      b4bunt = rldbun
+     c                   eval      b4belp = rldbel
+     c                   eval      b4mvag = rldmvg
+     c                   eval      b4binr = rldbin
+     c                   eval      b4bili = rldbli
+     c                   eval      b4bdat = %dec(rldbda:*dmy)
+     c                   eval      b4fdat = %dec(rldfda:*dmy)
+     c                   eval      b4bkod = rldbko
+     c                   eval      b4btek = rldbtx
+     c                   eval      b4davd = rlddav
+     c                   eval      b4dkto = rlddko
+     c                   eval      b4dsps = rlddsp
+     c                   eval      b4dmva = rlddmv
+     c                   eval      b4kavd = rldkav
+     c                   eval      b4kkto = rldkko
+     c                   eval      b4ksps = rldksp
+     c                   eval      b4kmva = rldkmv
+     c                   eval      b4pros = rldpro
+     c                   eval      b4akti = rldpra
+     c                   eval      b4upro = rldpru
+     c                   eval      b4arbo = rldpao
+     c                   eval      b4mkod = rldmko
+     c                   eval      b4meng = rldmen
+     c                   eval      b4kref = rldkrf
+     c                   eval      b4resk = rldres
+     c                   eval      b4lkid = rldlki
+     c                   eval      b4kkid = rldkki
+     c                   eval      b4ksif = rldkkk
+     c                   eval      b4akid = rldaki
+     c                   eval      b4valk = rldvko
+     c                   eval      b4valb = rldvbe
+     c                   eval      b4salm = rldsal
+     c                   eval      b4sfak = rldsfa
+      *
+     c     b4tagb        tag
+     c                   exfmt     b4win
+      *
+      * F3=Avslutt subrutinen
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+      *  Er bilag journalført?
+      *
+     c                   exsr      sjk_bilag
+     c                   if        b_biln = *on
+     c                   exfmt     b4msg1
+     c                   goto      b4tagb
+     c                   endif
+      *
+     c                   exsr      slet_lin
+     c                   eval      w_curs = 1
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14  = *on
+     c                   write     b2ctl
+     c                   eval      *in14  = *off
+      *
+     c                   eval      *in15  = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+     c                   read      rlodi1
+     c                   if        %eof  or
+     c                             rldfir <> w_firm or
+     c                             rldts1 <> w_dts1
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+     c                   if        w_bila <> 0 and
+     c                             w_bila <> rldbin
+     c                   goto      les_forbi
+     c                   endif
+      *
+      * Fyll opp subfile
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1tmst = rldts1
+     c                   eval      b1tlin = rldlin
+     c                   eval      b1biln = rldbin
+     c                   eval      b1bdat = %dec(rldbda:*dmy)
+     c                   eval      b1biko = rldbko
+     c                   eval      b1btek = rldbtx
+     c                   eval      b1belp = rldbel
+     c                   eval      b1mvag = rldmvg
+     c                   eval      b1davd = rlddav
+     c                   eval      b1dkto = rlddko
+     c                   eval      b1dsps = rlddsp
+     c                   eval      b1dmva = rlddmv
+     c                   eval      b1kavd = rldkav
+     c                   eval      b1kkto = rldkko
+     c                   eval      b1ksps = rldksp
+     c                   eval      b1kmva = rldkmv
+     c                   eval      b1resk = rldres
+      *
+     c                   write     b1sfl
+     c     les_forbi     tag
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     rlodi1_key    setll     rlodi1
+     c                   readp     rlodi1
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     rlodi1
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      rlodi1_dts1 = w_dts1
+     c                   eval      rlodi1_dlin = 0
+      *
+     c                   enddo
+      *
+     c                   if        %eof or
+     c                             rldts1 <> w_dts1
+     c     rlodi1_key    setll     rlodi1
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12  = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+8.03 c                   if        w_curs > 18
+8.03 c                   eval      w_curs = w_curs - 18
+8.03 c                   endif
+8.03  *
+     c                   if        w_curs > 1
+     c                   eval      w_virn = w_curs
+     c                   endif
+     c                   eval      *in13  = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12  = *off
+     c                   eval      *in13  = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for konvertere dato/tid fra timestamp
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      /FREE
+       begsr cvrt_tmst;
+
+           w_tsch = %char(w_tmst);
+
+           w_date = %subst(w_tsch:9:2 ) + '.' + %subst(w_tsch:6:2)
+                    + '.' + %subst(w_tsch:3:2 );
+           w_data = %subst(w_tsch:9:2 ) +  %subst(w_tsch:6:2)
+                    +  %subst(w_tsch:3:2 );
+           w_time = %subst(w_tsch:12:5);
+           w_tim6 = %subst(w_tsch:12:8);
+
+       endsr;
+      /END-FREE
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å sjekke om bruker kan endre linjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      /FREE
+       begsr sjk_user;
+
+         w_ovfok = 0;
+         exec sql
+          select fbko11
+           into :w_ovfok
+          from fusrpf
+          where fbfirm = :w_firm and fbuser = :l_user;
+       endsr;
+      /END-FREE
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å sjekke om bilag er journalført
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      /FREE
+       begsr sjk_bilag;
+
+       b_biln = *off;
+       w_dsum = 0;
+       w_ksum = 0;
+       w_fkod = ' ';
+
+       exec sql
+        select rlbsd4, rlbsk4, rlbff4
+          into   :w_dsum, :w_ksum, :w_fkod
+        from rlobst
+        where rlbfir = :w_firm and rlbts1 = :w_dts1 and rlbbil = :rldbin;
+
+       if w_dsum > 0 and
+          w_ksum > 0 and
+          w_fkod = ' ';
+         b_biln = *on;
+       endif;
+       endsr;
+      /END-FREE
+8.04
+8.04  // Subrutine for å sjekke om det er avvikende forfallsdato på bilag
+8.04
+8.04   begsr sjk_ffdato;
+8.04
+8.04   b_ffeil = *off;
+8.04   rlodi1_dlin = 0;
+8.04   w_ffda = *loval;
+8.04   w_biln = 0;
+8.04   setll rlodi1_key rlodi1;
+8.04
+8.04  // Sjekk bare dette bilaget
+8.04
+8.04   if w_bila <> 0;
+8.04     read rlodi1;
+8.04      dow not %eof;
+8.04       if w_bila = rldbin;
+8.04         if w_ffda = *loval;
+8.04           w_ffda = rldfda;
+8.04         else;
+8.04           if rldfda <> w_ffda;
+8.04             b_ffeil = *on;
+8.04             b4biln = %char(rldbin);
+8.04             leavesr;
+8.04         endif;
+8.04         endif;
+8.04       endif;
+8.04       read rlodi1;
+8.04      enddo;
+8.04   endif;
+8.04
+8.04  // Sjekk hele bunten - bilag for bilag
+8.04
+8.04   if w_bila = 0;
+8.04     read rlodi1;
+8.04      dow not %eof;
+8.04       if rldbin <> w_biln;
+8.04         w_biln = rldbin;
+8.04         w_ffda = rldfda;
+8.04        else;
+8.04          if rldfda <> w_ffda;
+8.04             b_ffeil = *on;
+8.04             b4biln = %char(rldbin);
+8.04             leavesr;
+8.04          endif;
+8.04       endif;
+8.04       read rlodi1;
+8.04      enddo;
+8.04   endif;
+8.04
+8.04   endsr;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å oppdatere linje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      /FREE
+       begsr oppd_lin;
+
+         w_bdat = %date(b3bdat : *dmy);
+         w_fdat = %date(b3fdat : *dmy);
+
+         exec sql
+         update rlodst
+           set
+8.02        rldper = :b3peri,
+            rldbda = :w_bdat,
+            rldfda = :w_fdat,
+            rldbko = :b3bkod,
+            rlddav = :b3davd,
+            rlddko = :b3dkto,
+            rlddsp = :b3dsps,
+            rlddmv = :b3dmva,
+            rldbel = :b3belp,
+            rldmvg = :b3mvag,
+            rldkav = :b3kavd,
+            rldkko = :b3kkto,
+            rldksp = :b3ksps,
+            rldkmv = :b3kmva,
+            rldpro = :b3pros,
+            rldpra = :b3akti,
+            rldpru = :b3upro,
+            rldpao = :b3arbo,
+            rldkrf = :b3kref,
+            rldres = :b3resk
+          where
+           rldfir = :w_firm and
+           rldts1 = :w_dts1 and
+           rldlin = :b3tlin;
+           if sqlcod = 0;
+            commit;
+8.04        b_linopd = *on;
+           endif;
+       endsr;
+      /END-FREE
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å slette linje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      /FREE
+       begsr slet_lin;
+
+         exec sql
+         delete rlodst
+          where
+           rldfir = :w_firm and
+           rldts1 = :w_dts1 and
+           rldlin = :b4tlin;
+           if sqlcod = 0;
+            commit;
+           endif;
+       endsr;
+      /END-FREE
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+     c     *entry        plist
+     c                   parm                    w_dts1
+     c                   parm                    w_bila
+      *
+      * Key for oppslag på transaksjonslogg linjer
+      *
+     c     rlodir_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlodir_dts1
+     c                   kfld                    rlodir_dlin
+      *
+      * Key for posisjonering på transaksjonslogg linjer
+      *
+     c     rlodi1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlodi1_dts1
+     c                   kfld                    rlodi1_dlin
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Henter første linje for heading info
+      *
+     c                   eval      rlodir_dts1 = w_dts1
+     c                   eval      rlodir_dlin = 1
+     c     rlodir_key    chain     rlodirr
+      *
+     c                   exsr      sjk_user
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      rlodi1_dts1 = w_dts1
+     c                   eval      rlodi1_dlin = 0
+     c     rlodi1_key    setll     rlodi1
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *

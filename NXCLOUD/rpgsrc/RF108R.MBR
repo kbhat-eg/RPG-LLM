@@ -1,0 +1,1563 @@
+      /TITLE  Oppsplitting av posteringer
+     h datedit(*dmy.) option(*nodebugio)
+      * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+      * System. . . . . : ASOKON                                              *
+      * Program . . . . : RF108R                                              *
+      * Beskrivelse . . : Genererer automatiske hovedboksposter               *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Spesialversjon. :                                                     *
+      * Tilpasset for . :                                                     *
+      *                                                                       *
+      * Referanse  Dato   Endringsbeskrivelse                            Sign *
+      * --------- ------  ---------------------------------------------- ---- *
+      *           301102  Nytt program                                   KOB  *
+T5.00 * V5.00     280403  Kategorispesifikasjon kunder og leverandører ble    *
+T5.00 *                   feil etter at felt RA1KSP ikke er i bruk.      HFL  *
+T5.00 * V5.10     070703  Henter mva-kode fra konto hvis overstyrt og    KOB  *
+      *                   overstyring ikke tillatt                       KOB  *
+      * R5.20     100903  Lagt inn nytt felt RJLFAK - lev.fakturanr      KOB  *
+      * R5.30     120304  Bilagsnr. ble ikke lagt ut på H-post lever.    KOB
+      * R5.30     120304  Lagt inn behandling av 6 % mva                 KOB
+      * R5.30     200404  Lagt ut mva-kode = 0 i stedet for blank        KOB
+T5.30 * R5.30     040604  Endret kontroll mot bilagskode fra CALL til         *
+T5.30 *                   CHAIN. CALL-program bruker firma i LDA. Det         *
+T5.30 *                   ble feil hvis posteringer for flere firmaer i       *
+T5.30 *                   samme kjøring.                                 HFL  *
+T5.30 * R5.30     150604  Korrigert beregning av mva-grunnlag.           KOB  *
+T5.31 * R5.31     050205  Lagt inn kode for mva-gr.lag middels/lav sats  KOB  *
+T5.31 * R5.31     210405  Korrigert avrundingsfeil mva                   KOB  *
+T5.31 * R5.40     250605  Lagt inn behandling av mva på utenl. tjenester KOB  *
+T5.40 * R5.40     100506  Henter mva-kode fra konto hvis overstyrt og    HFL  *
+      *                   overstyring ikke tillatt, ikke bilagskode 98.       *
+      * R5.60     050108  Endret rutinen for sist brukte verdier nytt år KOB  *
+      * R5.60     030308  Lagt ut avdeling, bærer for preregistrering    KOB  *
+6.10  * R6.10     040810  Hvis år ikke er lagt opp, settes siste bilags  BSA  *
+6.10  *                   nummer til 1.                                  BSA  *
+6.20  * R6.20     261110  Legger under rosjekt og arbeidsordre til       NHO  *
+      *                   RJOUPF                                              *
+6.21  * R6.20     280212  Legger ut årstall på sporing og avkr.ref       NHO  *
+6.30  * R6.30     300816  Fjernet all summering av bilag vedr ny         sst  *
+      *                   rapportering via ALTIN fom 01.01.2017          sst  *
+      *                   Styres av W_altin = 'J'
+6.31  *                   Justering vedr oppdatering mva Rf-0002         sst
+6.32  * R6.30 sst 140120  Fjernet oppdatering av Generert bilag-nr       sst
+7.01  *K00        060720  lagt på return + ab705r + switchstyrt          bof  *
+7.02  *           090120  Uvidet w_post
+      *                                                                       *
+      * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+      *
+     frjoupf    uf   e           k disk    rename(rjoupfr:rjoupfr)
+     f                                     prefix(x:1)
+     frhovl1    if   e           k disk    rename(rhovpfr:rhovl1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+     fraa4l1    if   e           k disk    rename(raa4pfr:raa4l1r)
+     fraa4lu    uf a e           k disk    rename(raa4pfr:raa4lur)
+     fraa1l1    if   e           k disk    rename(raa1pfr:raa1l1r)
+T5.20fra01l1    if   e           k disk    rename(ra01pfr:ra01l1r)
+     fra04l1    if   e           k disk    rename(ra04pfr:ra04l1r)
+     fra05l1    if   e           k disk    rename(ra05pfr:ra05l1r)
+     fra11l1    if   e           k disk    rename(ra11pfr:ra11l1r)
+     fra14l1    if   e           k disk    rename(ra14pfr:ra14l1r)
+     frjoulu    o  a e           k disk    rename(rjoupfr:rjoulur)
+      *
+     d kbel            s             11  2 dim(9999)
+     d lbel            s             11  2 dim(9999)
+      *
+      * KEY-REKKEFØLGE PÅ rjoulu (POSTER UT)
+      *
+     d wssort          ds
+     d  wsfirm                        3  0
+     d  wsraar                        4  0
+     d  wsrper                        2  0
+     d  wstype                        1  0
+     d  wsbunt                        5  0
+     d  wslinj                        5  0
+     d  wssequ                        1  0
+6.NU d  wsbiln                        8  0
+     d  wsbdat                         d   datfmt(*iso)
+     d  wsdbkr                        1
+     d  wslito                        4  0
+7.01 d w_jkey          s             41
+7.01 d w_jnav          s             15
+7.01 d w_jsta          s              2  0
+7.01 d w_jmld          s            200
+      *
+     d                uds
+     d l_user                911    920
+     d l_flgr                931    933
+      *
+     d wkkrab          s             11  2
+     d wlkrab          s             11  2
+     d wqperi          s              2  0
+     d wtpaar          s              2  0
+     d wtpmnd          s              2  0
+     d w_raar          s              4  0
+     d w_rper          s              2  0
+     d x               s              5  0
+      *
+     d p_akod          s                   like(rjbilk)
+     d p_betb          s                   like(rkbetb)
+     d p_stat          s              1
+     d p_tx20          s             20
+      *
+     d p_bdat          s               d   datfmt(*iso)
+     d p_fdat          s               d   datfmt(*iso)
+      *
+610  d w_mem1          s                   like(rjmemb)
+610  d w_mem2          s                   like(rjmemb)
+     d w_firm          s                   like(rjfirm)
+T5.20d w_firms         s                   like(rjfirm)
+     d w_bunt          s                   like(rjbunt)
+     d w_kont          s                   like(rjkont)
+     d w_spes          s                   like(rjspes)
+     d w_avde          s                   like(rjavde)
+     d w_bdat          s                   like(rjbdat)
+     d w_neto          s                   like(rjneto)
+     d w_4sgb          s                   like(ra4sgb)
+7.02 d w_post          s              9  0
+     d w_udat          s              6  0
+     d w_edat          s               d   datfmt(*iso)
+     d w_belØ          s                   like(rjneto)
+     d w_mvab          s                   like(rjneto)
+V5.40d w_mvau          s                   like(rjneto)
+     d w_invb          s                   like(rjneto)
+     d w_imva          s                   like(rjneto)
+     d w_umva          s                   like(rjneto)
+V5.40d w_xmva          s                   like(rjneto)
+     d w_iiva          s                   like(rjneto)
+     d w_ikke          s                   like(rjneto)
+     d w_mvag          s                   like(rjmvag)
+     d w_gmva          s                   like(rjmvag)
+     d w_amva          s                   like(rjamva)
+     d w_pmva          s                   like(raepro)
+     d w_piva          s                   like(raeinv)
+6.30 d w_altin         s              1    inz('J')
+      *
+      * Definering av variable i nøkler
+      *
+     d rkunl1_kund     s                   like(rkkund)
+     d rlevl1_levr     s                   like(rllevr)
+     d rhovl1_kont     s                   like(rhkont)
+     d rhovl1_spes     s                   like(rhspes)
+     d rhovl1_avde     s                   like(rhavde)
+     d ra11l1_kkod     s                   like(rakkod)
+     d ra14l1_nkod     s                   like(rankod)
+     d raa4l1_4aar     s                   like(ra4aar)
+     d raa4lu_4aar     s                   like(ra4aar)
+T5.20d ra01l1_kod      s                   like(raakod)
+     d ra05l1_ekod     s                   like(raekod)
+     d rjoupf_sort     s                   like(rjsort)
+610  d rjoupf_nivo     s                   like(rjnivo)
+610  d rjoupf_memb     s                   like(rjmemb)
+      *
+7.01   dcl-s co402_verdi1  char(1);
+7.01   dcl-s co402_verdi2  char(2048);
+7.01   DCL-PR CO402R EXTPGM('CO402R');
+7.01     p_filgrp            char(3)     const;
+7.01     p_firm              packed(3:0) const;
+7.01     p_lager             packed(2:0) const;
+7.01     p_nokkel            char(50)    const;
+7.01     p_verdi1            char(1);
+7.01     p_verdi2            char(2048);
+7.01   END-PR;
+7.01 d u_logg          s              1    inz(*off)                            logging ajltpf
+      *
+     c/eject
+      *
+7.01 c                   if        u_logg = *on
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Start RF108R        '
+7.01 c                   eval      w_jnav = 'OKON_RF108R-'
+7.01 c                   call      'AB700R'
+7.01 c                   parm                    w_jnav
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jmld
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Start RF108R       '
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jsta
+7.01 c                   parm                    w_jmld
+7.01 c                   endif
+7.01  *
+     c     dummy         tag
+      *
+      * Les posteringer
+      *
+610  c                   eval      rjoupf_nivo = *blank
+610  c                   eval      rjoupf_memb = w_mem1
+     c                   eval      rjoupf_sort = *zeros
+     c     rjoupf_key    setll     rjoupf
+     c                   read      rjoupf                                 60
+      *
+      * Hent firmainfo 1. post
+      *
+     c                   eval      w_firm = xjfirm
+     c                   eval      w_rper = xjrper
+     c                   eval      w_raar = xjraar
+     c                   eval      w_bunt = xjbunt
+     c                   eval      w_kont = xjkont
+     c                   eval      w_spes = xjspes
+     c                   eval      w_avde = xjavde
+      *
+     c                   exsr      brd_firma
+      *
+     c                   dow       *in60 = *off
+610  c                   if        xjmemb <> w_mem1
+610  c                   eval      *in60 = '1'
+610  c                   goto      slutt
+610  c                   end
+      *
+T5.00c                   eval      w_kont = xjkont
+T5.00c                   eval      w_spes = xjspes
+T5.00c                   eval      w_avde = xjavde
+      *
+      * Brudd på firma
+      *
+     c                   if        xjfirm > w_firm
+     c                   exsr      brd_bunt
+     c                   exsr      brd_firma
+     c                   endif
+      *
+      * Brudd på regnskapsperiode/bunt
+      *
+     c                   if        xjrper <> w_rper or
+     c                             xjraar <> w_raar
+     c                   exsr      brd_bunt
+     c                   endif
+      *
+     c                   eval      w_firm = xjfirm
+     c                   eval      w_rper = xjrper
+     c                   eval      w_raar = xjraar
+     c                   eval      w_bunt = xjbunt
+      *
+      * Ta vare på høyeste bilagsdato
+      *
+     c                   if        xjbdat > w_bdat
+     c                   eval      w_bdat = xjbdat
+     c                   endif
+      *
+      * Kopier post fra inputfil
+      *
+     c                   exsr      kopi_post
+      *
+      * Konto
+      *
+     c                   select
+     c                   when      xjkont <= ra1hkt
+     c                   exsr      beh_hovbok
+      *
+     c                   when      xjkont > ra1hkt and xjkont <= ra1hrs
+     c                   exsr      beh_kunde
+      *
+     c                   when      xjkont > ra1hrs
+     c                   exsr      beh_lever
+     c                   endsl
+      *
+610  c                   delete    rjoupf
+     c                   read      rjoupf                                 60
+      *
+     c                   enddo
+      *
+     c     slutt         tag
+      *
+      * Klargjør nye sumposter
+      *
+     c                   clear                   rjoulur
+     c                   exsr      brd_bunt
+     c
+      *
+7.01 c                   if        u_logg = *on
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Slutt RF108R før LR'
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jsta
+7.01 c                   parm                    w_jmld
+7.01 c                   endif
+7.01  *
+     c                   seton                                        lr
+7.01 c                   if        u_logg = *on
+7.01 c                   eval      w_jsta = 10
+7.01 c                   eval      w_jmld = 'Slutt RF108R etter LR'
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    w_jkey
+7.01 c                   parm                    w_jsta
+7.01 c                   parm                    w_jmld
+7.01 c                   endif
+7.01 c                   return
+      *
+     c/eject
+      *
+      * Brudd på firma
+      *
+     c     brd_firma     begsr
+      *
+     c                   move      xjfirm        w_firm
+      *
+     c     raa1l1_key    chain     raa1l1                             61
+      *
+     c     ra04l1_key    chain     ra04l1                             61
+      *
+     c                   endsr
+      *
+     c/eject
+      *
+      * Brudd på bunt
+      *
+     c     brd_bunt      begsr
+      *
+      * Hent sist brukte bilagsnummer
+      *
+     c                   move      w_raar        raa4l1_4aar
+     c     raa4l1_key    chain     raa4l1
+      *
+     c                   eval      w_4sgb = ra4sgb + 1
+      *
+      * Hent verdier fra forrige år dersom dette finnes
+6.10  * Nei, vi setter numer til 1. Record for nytt år blir
+6.10  * opprettet senere i sekvensen.
+     c                   if        not%found(raa4l1)
+6.10 c**                 eval      raa4l1_4aar = w_raar - 1
+6.10 c**   raa4l1_key    chain     raa4l1
+      *
+6.10 c**                 if        %found(raa4l1)
+6.10 c**                 eval      w_4sgb = ra4sgb + 1
+6.10 c**                 else
+     c                   eval      w_4sgb = 1
+6.10 c**                 endif
+      *
+     c                   endif
+      *
+      * Legg ut mva-posteringer hovedbok
+      *
+     c                   exsr      beh_mva
+      *
+      * Legg ut kategorispesifikasjon kunder
+      *
+     c                   exsr      beh_kkat_sp
+      *
+      * Legg ut kategorispesifikasjon leverandører
+      *
+     c                   exsr      beh_lkat_sp
+      *
+      * Oppdater sist brukte bilagsnummer
+      *
+     c                   if        w_post > 0 and
+     c                             *inu4 = *on
+      *
+     c                   move      w_raar        raa4lu_4aar
+     c     raa4lu_key    chain     raa4lu
+      *
+     c                   if        %found(raa4lu)
+     c                   eval      ra4sgb = ra4sgb + 1
+6.32 c**                 update    raa4lur
+     c                   endif
+      *
+      * Hvis dette er først journal nytt år
+      *
+     c                   if        not%found(raa4lu)
+     c                   clear                   raa4lur
+R5.60c                   eval      ra4sjÅ = 0
+     c                   eval      ra4fir = w_firm
+     c                   eval      ra4aar = w_raar
+     c                   eval      ra4sgb = 1
+6.21 c                   eval      ra4spo = 0
+6.21 c                   eval      ra4avk = 0
+6.21 c                   movel     w_raar        ra4spo
+6.21 c                   movel     w_raar        ra4avk
+     c                   time                    ra4dat
+     c                   time                    ra4tim
+     c                   eval      ra4usr = l_user
+     c                   write     raa4lur
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+     c/eject
+      *
+      * Subrutine for kopiering av post
+      *
+     c     kopi_post     begsr
+      *
+     c                   eval      rjfirm = xjfirm
+     c                   eval      rjreid = xjreid
+     c                   eval      rjbilk = xjbilk
+     c                   eval      rjtext = xjtext
+     c                   eval      rjkont = xjkont
+     c                   eval      rjspes = xjspes
+     c                   eval      rjavde = xjavde
+     c                   eval      rjbunt = xjbunt
+     c                   eval      rjlinj = xjlinj
+     c                   eval      rjraar = xjraar
+     c                   eval      rjrper = xjrper
+     c                   eval      rjmmrk = xjmmrk
+     c                   eval      rjbdat = xjbdat
+     c                   eval      rjbiln = xjbiln
+     c                   eval      rjbill = xjbill
+     c                   eval      rjmvab = xjmvab
+     c                   eval      rjiavg = xjiavg
+     c                   eval      rjstar = xjstar
+     c                   eval      rjmvak = xjmvak
+     c                   eval      rjfeik = xjfeik
+     c                   eval      rjtype = xjtype
+     c                   eval      rjatte = xjatte
+     c                   eval      rjrefn = xjrefn
+     c                   eval      rjfdat = xjfdat
+     c                   eval      rjneto = xjneto
+     c                   eval      rjpros = xjpros
+     c                   eval      rjvalk = xjvalk
+     c                   eval      rjvalb = xjvalb
+     c                   eval      rjmngd = xjmngd
+     c                   eval      rjmngk = xjmngk
+     c                   eval      rjresn = xjresn
+KOB  c                   eval      rjresa = xjresa
+KOB  c                   eval      rjress = xjress
+     c                   eval      rjvirk = xjvirk
+     c                   eval      rjmvag = xjmvag
+     c                   eval      rjkrys = xjkrys
+     c                   eval      rjrstb = xjrstb
+     c                   eval      rjrstv = xjrstv
+     c                   eval      rjakti = xjakti
+6.20 c                   eval      rjupro = xjupro
+6.20 c                   eval      rjarbo = xjarbo
+     c                   eval      rjbetb = xjbetb
+     c                   eval      rjbref = xjbref
+T5.20c                   eval      rjlfak = xjlfak
+     c                   eval      rjkidi = xjkidi
+     c                   eval      rjopdt = xjopdt
+     c                   eval      rjblde = xjblde
+T5.50c                   eval      rjbong = xjbong
+     c                   eval      rjsort = xjsort
+      *
+T5.20 * Tar vare på firma for å bruke det ved automatiske poster
+      *
+T5.20c                   eval      w_firms = w_firm
+     c                   endsr
+      *
+     c/eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for hente hovedbokskonto                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     hnt_konto     begsr
+      *
+     c                   eval      rhovl1_kont = w_kont
+     c                   eval      rhovl1_spes = w_spes
+     c                   eval      rhovl1_avde = w_avde
+     c     rhovl1_key    chain     rhovl1                             63
+      *
+     c                   if        *in63 = *on
+     c                   eval      rhovl1_avde = *zeros
+     c     rhovl1_key    chain     rhovl1                             63
+      *
+     c                   if        *in63 = *on
+     c                   eval      rhovl1_spes = *zeros
+     c     rhovl1_key    chain     rhovl1                             63
+      *
+     c                   endif
+     c                   endif
+      *
+     c                   endsr
+     c/eject
+      *
+      * Behandle hovedbokskonto
+      *
+     c     beh_hovbok    begsr
+      *
+      * Nullstill arbeidsfelt
+      *
+     c                   eval      w_neto = 0
+     c                   eval      w_mvab = 0
+     c                   eval      w_mvau = 0
+     c                   eval      w_invb = 0
+     c                   eval      w_ikke = 0
+     c                   eval      w_mvag = 0
+     c                   eval      w_pmva = 0
+     c                   eval      w_piva = 0
+T5.10 *
+T5.10 * Hent konto
+T5.10 *
+T5.10c                   exsr      hnt_konto
+T5.10 *
+T5.10 * Sjekk om mva-kode overstyrt på en konto hvor dette
+T5.10 * ikke er tillatt - hent mva-kode fra konto og bruk denne
+T5.40 * unntatt saldoposter
+T5.10 *
+T5.40c                   if        xjbilk <> 98
+T5.10c                   if        xjmvak <> rhmvak and
+T5.10c                             rhmvao = 'N'
+T5.10c                   eval      xjmvak = rhmvak
+T5.10c                   eval      rjmvak = rhmvak
+T5.10c                   endif
+T5.40c                   endif
+      *
+      * Ingen beregning
+      *
+     c                   if        xjmvak = ' ' or
+     c                             xjmvak = '0'
+     c                   eval      w_neto = xjneto
+     c                   goto      endhov
+     c                   endif
+      *
+      * Hent behandlingskode fra MVA-kode i koderegister
+      *
+     c                   move      xjmvak        ra05l1_ekod
+     c     ra05l1_key    chain     ra05l1                             61
+      *
+      * Direkte postering
+      *
+6.31 c                   if        raebmk = 00 or
+6.31 c                             raebmk = 02 or
+6.31 c                             raebmk = 04 or
+6.31 c                             raebmk = 09 or
+6.31 c                             raebmk = 38 or
+6.31 c                             raebmk = 39 or
+6.31 c                             raebmk = 45
+     c                   eval      w_neto = xjneto
+     c                   goto      endhov
+     c                   endif
+      *
+      * Finn andel som grunnlag for mva
+      *
+     c                   if        xjbdat < raepda
+     c                   eval      w_amva = raebgp
+     c                   else
+     c                   eval      w_amva = raebpr
+     c                   endif
+      *
+      * Finn %-sats mva
+      *
+     c                   if        xjbdat < raemda
+     c                   eval      w_pmva = raegpr
+     c                   else
+     c                   eval      w_pmva = raepro
+     c                   endif
+      *
+      * Finn %-sats iva
+      *
+     c                   if        xjbdat < raemda
+     c                   eval      w_piva = raegin
+     c                   else
+     c                   eval      w_piva = raeinv
+     c                   endif
+      *
+      * Beregn grunnlag mva
+      *
+     c                   if        xjmvag = 0
+     c                   eval(h)   w_gmva = xjneto * w_amva / 100
+     c                   endif
+      *
+6.31 c                   if        raebmk = 12 or
+6.31 c                             raebmk = 41 or
+6.31 c                             raebmk = 42 or
+6.31 c                             raebmk = 42 or
+6.31 c                             raebmk = 43 or
+6.31 c                             raebmk = 44 or
+6.31 c                             raebmk = 46 or
+6.31 c                             raebmk = 47 or
+6.31 c                             raebmk = 48
+     c                   eval(h)   w_gmva = xjneto * (w_pmva + 100) / 100
+     c                   eval      xjneto = w_gmva
+     c                   endif
+      *
+      * Restbeløpet inngår ikke i grunnlag
+      *
+     c                   eval      w_ikke = xjneto - w_mvag
+      *
+      * Beregn mva
+      *
+     c                   if        raebmk = 1 or
+6.31 c                             raebmk = 3 or
+6.31 c                             raebmk = 11 or
+6.31 c                             raebmk = 13 or
+6.31 c                             raebmk = 21 or
+6.31 c                             raebmk = 23 or
+6.31 c                             raebmk = 34 or
+6.31 c                             raebmk = 35
+      *
+     c                   if        xjmvag <> 0
+     c                   eval(h)   w_mvab = xjmvag * w_pmva / 100
+     c                   eval      w_mvag = xjmvag
+     c                   else
+     c                   eval(h)   w_mvab = w_gmva / (w_pmva + 100) * w_pmva
+     c                   eval      w_mvag = w_gmva - w_mvab
+     c                   endif
+      *
+     c                   endif
+      *
+      * Beregn iva
+      *
+6.31 c                   if        raebmk = 7 or
+6.31 c                             raebmk = 8
+      *
+     c                   eval(h)   w_invb = w_mvag * w_piva / 100
+      *
+     c                   endif
+      *
+      * Beregn mva - utenlandske tjenester
+      *
+6.31 c                   if        raebmk = 12 or
+6.31 c                             raebmk = 41 or
+6.31 c                             raebmk = 42 or
+6.31 c                             raebmk = 43 or
+6.31 c                             raebmk = 44 or
+6.31 c                             raebmk = 46 or
+6.31 c                             raebmk = 47 or
+6.31 c                             raebmk = 48
+     c                   eval(h)   w_mvab = w_gmva / (w_pmva + 100) * w_pmva
+     c                   eval      w_mvau = w_mvab * (-1)
+     c                   eval      w_mvag = xjneto - w_mvab
+     c                   endif
+      *
+      * Beregn netto til konto
+      *
+     c                   eval      w_neto = xjneto - w_mvab
+      *
+      * Summer inngående mva
+      *
+     c                   if        raebmk = 1  or
+     c                             raebmk = 6  or
+     c                             raebmk = 11 or
+     c                             raebmk = 12 or
+6.31 c                             raebmk = 21 or
+6.31 c                             raebmk = 34 or
+6.31 c                             raebmk = 35 or
+6.31 c                             raebmk = 41 or
+6.31 c                             raebmk = 42 or
+6.31 c                             raebmk = 43 or
+6.31 c                             raebmk = 44 or
+6.31 c                             raebmk = 46 or
+6.31 c                             raebmk = 47 or
+6.31 c                             raebmk = 48
+     c                   eval      w_imva = w_imva + w_mvab
+     c                   endif
+      *
+      * Summer inngående mva utenlandske tjenester
+      *
+6.31 c                   if        raebmk = 12 or
+6.31 c                             raebmk = 41 or
+6.31 c                             raebmk = 42 or
+6.31 c                             raebmk = 43 or
+6.31 c                             raebmk = 44 or
+6.31 c                             raebmk = 46 or
+6.31 c                             raebmk = 47 or
+6.31 c                             raebmk = 48
+     c                   eval      w_xmva = w_xmva + w_mvau
+     c                   endif
+      *
+      * Summer utgående mva
+      *
+     c                   if        raebmk = 3 or
+     c                             raebmk = 13 or
+     c                             raebmk = 23
+     c                   eval      w_umva = w_umva + w_mvab
+     c                   endif
+      *
+      * Summer investeringsavgift
+      *
+6.31 c                   if        raebmk = 6 or
+     c                             raebmk = 7
+     c                   eval      w_iiva = w_iiva + w_invb
+     c                   endif
+      *
+      * Oppdater mva-grunnlag
+      *
+     c                   if        raebmk = 5 or
+     c                             raebmk = 15 or
+     c                             raebmk = 25
+     c                   eval      w_mvag = xjneto
+     c                   endif
+      *
+     c     endhov        tag
+      *
+      * Legg ut postering
+      *
+     c                   eval      rjneto = w_neto
+     c                   eval      rjmvag = w_mvag
+     c                   eval      rjamva = w_amva
+     c                   eval      rjpmva = w_pmva
+     c                   eval      rjmvab = w_mvab
+     c                   eval      rjiavg = w_invb
+      *
+     c                   eval      rjflgr = l_flgr
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_mem2
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+610   *
+     c                   write     rjoulur
+6.30  *
+6.30  *  Legger ut div avgifts posteringer
+6.30  *
+6.30 c                   if        w_altin = 'J'
+6.30  *
+6.30  * Sorteringsbegrep
+6.30  *
+6.30 c                   eval      wsfirm = rjfirm
+6.30 c                   eval      wsbiln = rjbiln
+6.30 c                   eval      wsraar = w_raar
+6.30 c                   eval      wsrper = w_rper
+6.30 c                   eval      wstype = 2
+6.30 c                   eval      wsbdat = w_bdat
+6.30 c                   eval      wsbunt = w_bunt
+6.30 c                   eval      wssequ = 5
+6.30  *
+6.30  * Inngående mva
+6.30  *
+6.30 c                   if        w_imva <> *zeros
+6.30  *
+6.30 c                   eval      rjkont =radk02
+6.30 c                   eval      rjspes =rads02
+6.30 c                   eval      rjavde =rada02
+6.30  *
+6.30 c                   eval      rjtype = 2
+6.30 c                   eval      rjbilk = 91
+6.30 c                   exsr      hbiltxt
+6.30  *
+6.30 c                   eval      rjneto = w_imva
+6.30 c                   eval      rjmvag = 0
+6.30 c                   eval      rjmvab = 0
+6.30 c                   eval      rjiavg = 0
+6.30 c                   eval      rjmvak = '0'
+6.30  *
+6.30 c                   eval      rjlinj = 9191
+6.30 c                   eval      wslinj = 9191
+6.30 c                   eval      wslito = 9191
+6.30 c                   eval      rjsort = wssort
+6.30  *
+6.30 c                   eval      rjnivo = *blank
+6.30 c                   eval      rjmemb = w_mem2
+6.30 c                   time                    rjedat
+6.30 c                   time                    rjetim
+6.30 c                   eval      rjeusr = l_user
+6.30  *
+6.30 c                   write     rjoulur
+6.30  *
+6.30 c                   eval      w_imva = *zero
+6.30 c                   eval      w_post = w_post + 1
+6.30 c                   endif
+6.30  *
+6.30  * Utgående mva utenlandske tjenester
+6.30  *
+6.30 c                   if        w_xmva <> *zeros
+6.30  *
+6.30 c                   eval      rjkont =radk08
+6.30 c                   eval      rjspes =rads08
+6.30 c                   eval      rjavde =rada08
+6.30  *
+6.30 c                   eval      rjtype = 2
+6.30 c                   eval      rjbilk = 92
+6.30 c                   exsr      hbiltxt
+6.30  *
+6.30 c                   eval      rjneto = w_xmva
+6.30 c                   eval      rjmvag = 0
+6.30 c                   eval      rjmvab = 0
+6.30 c                   eval      rjiavg = 0
+6.30 c                   eval      rjmvak = '0'
+6.30  *
+6.30 c                   eval      rjlinj = 9192
+6.30 c                   eval      wslinj = 9192
+6.30 c                   eval      wslito = 9192
+6.30 c                   eval      rjsort = wssort
+6.30  *
+6.30 c                   eval      rjnivo = *blank
+6.30 c                   eval      rjmemb = w_mem2
+6.30 c                   time                    rjedat
+6.30 c                   time                    rjetim
+6.30 c                   eval      rjeusr = l_user
+6.30  *
+6.30 c                   write     rjoulur
+6.30  *
+6.30 c                   eval      w_xmva = *zero
+6.30 c                   eval      w_post = w_post + 1
+6.30 c                   endif
+6.30  *
+6.30  * Utgående mva
+6.30  *
+6.30 c                   if        w_umva <> *zeros
+6.30  *
+6.30 c                   eval      rjkont =radk01
+6.30 c                   eval      rjspes =rads01
+6.30 c                   eval      rjavde =rada01
+6.30  *
+6.30 c                   eval      rjtype = 2
+6.30 c                   eval      rjbilk = 92
+6.30 c                   exsr      hbiltxt
+6.30  *
+6.30 c                   eval      rjneto = w_umva
+6.30 c                   eval      rjmvag = 0
+6.30 c                   eval      rjmvab = 0
+6.30 c                   eval      rjiavg = 0
+6.30 c                   eval      rjmvak = '0'
+6.30  *
+6.30 c                   eval      rjlinj = 9200
+6.30 c                   eval      wslinj = 9200
+6.30 c                   eval      wslito = 9200
+6.30 c                   eval      rjsort = wssort
+6.30  *
+6.30 c                   eval      rjnivo = *blank
+6.30 c                   eval      rjmemb = w_mem2
+6.30 c                   time                    rjedat
+6.30 c                   time                    rjetim
+6.30 c                   eval      rjeusr = l_user
+6.30  *
+6.30 c                   write     rjoulur
+6.30  *
+6.30 c                   eval      w_umva = *zero
+6.30 c                   eval      w_post = w_post + 1
+6.30 c                   endif
+6.30  *
+6.30  * Investeringsavgift
+6.30  *
+6.30 c                   if        w_iiva <> *zeros
+6.30  *
+6.30 c                   eval      rjkont =radk03
+6.30 c                   eval      rjspes =rads03
+6.30 c                   eval      rjavde =rada03
+6.30  *
+6.30 c                   eval      rjtype = 2
+6.30 c                   eval      rjbilk = 93
+6.30 c                   exsr      hbiltxt
+6.30  *
+6.30 c                   eval      rjneto = w_iiva * -1
+6.30 c                   eval      rjmvag = 0
+6.30 c                   eval      rjmvab = 0
+6.30 c                   eval      rjiavg = 0
+6.30 c                   eval      rjmvak = '0'
+6.30  *
+6.30 c                   eval      rjlinj = 9300
+6.30 c                   eval      wslinj = 9300
+6.30 c                   eval      wslito = 9300
+6.30 c                   eval      rjsort = wssort
+6.30  *
+6.30 c                   eval      rjnivo = *blank
+6.30 c                   eval      rjmemb = w_mem2
+6.30 c                   time                    rjedat
+6.30 c                   time                    rjetim
+6.30 c                   eval      rjeusr = l_user
+6.30  *
+6.30 c                   write     rjoulur
+6.30  *
+6.30 c                   eval      w_iiva = *zero
+6.30 c                   eval      w_post = w_post + 1
+6.30 c                   endif
+6.30 c                   endif
+6.30  *
+     c                   endsr
+      *
+     c/eject
+      *
+      * Subrutine for å summere posteringer kunder
+      *
+     c     beh_kunde     begsr
+      *
+     c                   eval      rkunl1_kund = w_kont
+     c     rkunl1_key    chain     rkunl1
+      *
+T5.00 * Finner om kategorispesifikasjon kunder
+      *
+T5.00c                   eval      x = 9999
+     c                   if        rkkatg <> 0
+      *
+T5.00c                   eval      ra11l1_kkod = rkkatg
+T5.00c     ra11l1_key    chain     ra11l1
+      *
+T5.00c                   if        %found and
+T5.00c                             rakkat = 'J' and
+T5.00c                             rakkto > 0
+     c                   eval      x = rkkatg
+     c                   else
+     c                   eval      x = 9999
+T5.00c                   endif
+     c                   endif
+      *
+     c                   eval      kbel(x) = kbel(x) + xjneto
+      *
+     c                   eval      rjflgr = l_flgr
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_mem2
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+610   *
+     c                   write     rjoulur
+      *
+6.30  *  Legger ut hver enkelt kundepostering på kundekonto
+6.30  *
+6.30 c                   if        w_altin = 'J'
+6.30  *
+6.30 c                   eval      rjreid = 'H'
+6.30 c                   eval      rjfirm = w_firms
+6.30 c                   eval      rjraar = w_raar
+6.30 c                   eval      rjrper = w_rper
+6.30 c                   eval      rjtype = 2
+6.30 c                   eval      rjbdat = w_bdat
+6.30 c                   time                    rjfdat
+6.30 c                   eval      rjbunt = w_bunt
+6.30 c                   eval      rjlinj = 9400
+6.30  *
+6.30 c                   eval      rjflgr = l_flgr
+6.30  *
+6.30  * Sorteringsbegrep
+6.30  *
+6.30 c                   eval      wsfirm = rjfirm
+6.30 c                   eval      wsbiln = rjbiln
+6.30 c                   eval      wsraar = w_raar
+6.30 c                   eval      wsrper = w_rper
+6.30 c                   eval      wstype = 2
+6.30 c                   eval      wsbdat = w_bdat
+6.30 c                   eval      wsbunt = w_bunt
+6.30 c                   eval      wslinj = 9400
+6.30 c                   eval      wslito = 9400
+6.30 c                   eval      wssequ = 5
+6.30  *
+6.30 c                   eval      rjpros = *blank
+6.30 c                   eval      rjakti = *blank
+6.30 c                   eval      rjupro = *blank
+6.30 c                   eval      rjarbo = *blank
+6.30  *
+6.30 c                   eval      rjbilk = 94
+6.30 c                   exsr      hbiltxt
+6.30 c                   eval      rjtext = %trim(rjtext) + ' ' +
+6.30 c                                      %char(w_kont)
+6.30  *
+6.30  * Legg ut en postering til hovedbok
+6.30  *
+6.30 c                   if        x = 9999
+6.30 c                   eval      rjkont = radk05
+6.30 c                   eval      rjavde = rada05
+6.30 c                   eval      rjspes = rads05
+6.30 c                   else
+6.30  *
+6.30 c                   eval      ra11l1_kkod = x
+6.30 c     ra11l1_key    chain     ra11l1
+6.30  *
+6.30 c                   if        %found and
+6.30 c                             rakkto > 0
+6.30 c                   eval      rjkont = rakkto
+6.30 c                   eval      rjspes = raksps
+6.30 c                   eval      rjavde = rakavd
+6.30 c                   endif
+6.30 c                   endif
+6.30  *
+6.30 c                   eval      rjneto = xjneto
+6.30  *
+6.30 c                   eval      rjmvab = 0
+6.30 c                   eval      rjiavg = 0
+6.30 c                   eval      rjmvak = '0'
+6.30  *
+6.30 c                   eval      rjsort = wssort
+6.30  *
+6.30 c                   eval      rjnivo = *blank
+6.30 c                   eval      rjmemb = w_mem2
+6.30 c                   time                    rjedat
+6.30 c                   time                    rjetim
+6.30 c                   eval      rjeusr = l_user
+6.30 c                   eval      rjreid = 'H'
+6.30  *
+6.30 c                   write     rjoulur
+6.30  *
+6.30 c                   eval      xjneto = *zero
+6.30 c                   eval      w_post = w_post + 1
+6.30 c                   endif
+     c                   endsr
+      *
+     c/space 3
+      *
+      * Subrutine for å summere posteringer leverandører
+      *
+     c     beh_lever     begsr
+      *
+     c                   eval      rlevl1_levr = w_kont
+     c     rlevl1_key    chain     rlevl1
+      *
+T5.00 * Finner om kategorispesifikasjon leverandører
+      *
+T5.00c                   eval      x = 9999
+     c                   if        rlkatg <> 0
+      *
+T5.00c                   eval      ra14l1_nkod = rlkatg
+T5.00c     ra14l1_key    chain     ra14l1
+      *
+T5.00c                   if        %found and
+T5.00c                             rankat = 'J' and
+T5.00c                             rankto > 0
+     c                   eval      x = rlkatg
+     c                   else
+     c                   eval      x = 9999
+T5.00c                   endif
+     c                   endif
+      *
+     c                   eval      lbel(x) = lbel(x) + xjneto
+      *
+     c                   eval      rjflgr = l_flgr
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_mem2
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+610   *
+     c                   write     rjoulur
+6.30  *
+6.30  *  Legger ut hver enkelt leverandørpostering på leverandørkonto
+6.30  *
+6.30 c                   if        w_altin = 'J'
+6.30  *
+6.30  * Sorteringsbegrep
+6.30  *
+6.30 c                   eval      wsfirm = rjfirm
+6.30 c                   eval      wsbiln = rjbiln
+6.30 c                   eval      wsraar = w_raar
+6.30 c                   eval      wsrper = w_rper
+6.30 c                   eval      wstype = 2
+6.30 c                   eval      wsbdat = w_bdat
+6.30 c                   eval      wsbunt = w_bunt
+6.30 c                   eval      wslinj = 9500
+6.30 c                   eval      wslito = 9500
+6.30 c                   eval      wssequ = 5
+6.30  *
+6.30 c                   eval      rjpros = *blank
+6.30 c                   eval      rjakti = *blank
+6.30 c                   eval      rjupro = *blank
+6.30 c                   eval      rjarbo = *blank
+      *
+6.30 c                   eval      rjtype = 2
+6.30 c                   eval      rjbilk = 95
+6.30 c                   eval      wstype = 2
+6.30 c                   exsr      hbiltxt
+6.30 c                   eval      rjtext = %trim(rjtext) + ' ' +
+6.30 c                                      %char(w_kont)
+6.30  *
+6.30  * Legg ut en postering til hovedbok
+6.30  *
+6.30 c                   if        x = 9999
+6.30 c                   eval      rjkont = radk06
+6.30 c                   eval      rjavde = rada06
+6.30 c                   eval      rjspes = rads06
+6.30 c                   else
+6.30  *
+6.30 c                   eval      ra14l1_nkod = x
+6.30 c     ra14l1_key    chain     ra14l1
+6.30  *
+6.30 c                   if        %found and
+6.30 c                             rankto > 0
+6.30 c                   eval      rjkont = rankto
+6.30 c                   eval      rjspes = ransps
+6.30 c                   eval      rjavde = ranavd
+6.30 c                   endif
+6.30 c                   endif
+6.30  *
+6.30 c                   eval      rjneto = xjneto
+6.30  *
+6.30 c                   eval      rjmvab = 0
+6.30 c                   eval      rjiavg = 0
+6.30 c                   eval      rjmvak = '0'
+6.30  *
+6.30 c                   eval      rjsort = wssort
+6.30  *
+6.30 c                   eval      rjnivo = *blank
+6.30 c                   eval      rjmemb = w_mem2
+6.30 c                   time                    rjedat
+6.30 c                   time                    rjetim
+6.30 c                   eval      rjeusr = l_user
+6.30 c                   eval      rjlinj = 9500
+6.30 c                   eval      rjreid = 'H'
+6.30  *
+6.30 c                   write     rjoulur
+6.30  *
+6.30 c                   eval      xjneto = *zero
+6.30 c                   eval      w_post = w_post + 1
+6.30 c                   endif
+      *
+     c                   endsr
+     c/eject
+      *
+      * Subrutine for behandling av mva og iva totaler
+      *
+     c     beh_mva       begsr
+      *
+6.30 c                   if        w_altin = 'J'
+6.30 c                   goto      end_mva_p
+6.30 c                   endif
+     c                   clear                   rjoulur
+      *
+     c                   eval      rjreid = 'H'
+T5.20c                   eval      rjfirm = w_firms
+     c                   eval      rjbiln = w_4sgb
+     c                   eval      rjraar = w_raar
+     c                   eval      rjrper = w_rper
+     c                   eval      rjbdat = w_bdat
+     c                   eval      rjbunt = w_bunt
+     c                   eval      rjtype = 2
+     c                   time                    rjfdat
+      *
+     c                   eval      rjflgr = l_flgr
+      *
+      * Sorteringsbegrep
+      *
+     c                   eval      wsfirm = rjfirm
+     c                   eval      wsraar = w_raar
+     c                   eval      wsrper = w_rper
+     c                   eval      wstype = 2
+     c                   eval      wsbdat = w_bdat
+     c                   eval      wsbunt = w_bunt
+     c                   eval      wssequ = 5
+      *
+      * Inngående mva
+      *
+     c                   if        w_imva <> *zeros
+      *
+     c                   eval      rjkont =radk02
+     c                   eval      rjspes =rads02
+     c                   eval      rjavde =rada02
+      *
+     c                   eval      rjbilk = 91
+E5.20c                   exsr      hbiltxt
+      *
+     c                   eval      rjneto = w_imva
+     c                   eval      rjmvab = 0
+     c                   eval      rjiavg = 0
+     c                   eval      rjmvak = '0'
+      *
+     c                   eval      rjlinj = 9191
+     c                   eval      wslinj = 9191
+     c                   eval      wslito = 9191
+     c                   eval      rjsort = wssort
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_mem2
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+610   *
+     c                   write     rjoulur
+      *
+     c                   eval      w_post = w_post + 1
+     c                   endif
+      *
+      * Utgående mva utenlandske tjenester
+      *
+     c                   if        w_xmva <> *zeros
+      *
+     c                   eval      rjkont =radk08
+     c                   eval      rjspes =rads08
+     c                   eval      rjavde =rada08
+      *
+     c                   eval      rjbilk = 92
+E5.20c                   exsr      hbiltxt
+      *
+     c                   eval      rjneto = w_xmva
+     c                   eval      rjmvab = 0
+     c                   eval      rjiavg = 0
+     c                   eval      rjmvak = '0'
+      *
+     c                   eval      rjlinj = 9192
+     c                   eval      wslinj = 9192
+     c                   eval      wslito = 9192
+     c                   eval      rjsort = wssort
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_mem2
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+610   *
+     c                   write     rjoulur
+      *
+     c                   eval      w_post = w_post + 1
+     c                   endif
+      *
+      * Utgående mva
+      *
+     c                   if        w_umva <> *zeros
+      *
+     c                   eval      rjkont =radk01
+     c                   eval      rjspes =rads01
+     c                   eval      rjavde =rada01
+      *
+     c                   eval      rjbilk = 92
+E5.20c                   exsr      hbiltxt
+      *
+     c                   eval      rjneto = w_umva
+     c                   eval      rjmvab = 0
+     c                   eval      rjiavg = 0
+     c                   eval      rjmvak = '0'
+      *
+     c                   eval      rjlinj = 9200
+     c                   eval      wslinj = 9200
+     c                   eval      wslito = 9200
+     c                   eval      rjsort = wssort
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_mem2
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+610   *
+     c                   write     rjoulur
+      *
+     c                   eval      w_post = w_post + 1
+     c                   endif
+      *
+      * Investeringsavgift
+      *
+     c                   if        w_iiva <> *zeros
+      *
+     c                   eval      rjkont =radk03
+     c                   eval      rjspes =rads03
+     c                   eval      rjavde =rada03
+      *
+     c                   eval      rjbilk = 93
+E5.20c                   exsr      hbiltxt
+      *
+     c                   eval      rjneto = w_iiva * -1
+     c                   eval      rjmvab = 0
+     c                   eval      rjiavg = 0
+     c                   eval      rjmvak = '0'
+      *
+     c                   eval      rjlinj = 9300
+     c                   eval      wslinj = 9300
+     c                   eval      wslito = 9300
+     c                   eval      rjsort = wssort
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_mem2
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+610   *
+     c                   write     rjoulur
+      *
+     c                   eval      w_post = w_post + 1
+     c                   endif
+      *
+      * Nullstill arbeidsfelt
+      *
+     c                   eval      w_imva = 0
+     c                   eval      w_umva = 0
+     c                   eval      w_iiva = 0
+     c                   eval      w_xmva = 0
+      *
+6.30 c     end_mva_p     tag
+     c                   endsr
+      *
+     c/eject
+      *
+      * Subrutine for behandling av kategorispesifikasjon kunder
+      *
+     c     beh_kkat_sp   begsr
+      *
+6.30 c                   if        w_altin = 'J'
+6.30 c                   goto      end_kun_p
+6.30 c                   endif
+     c                   clear                   rjoulur
+      *
+     c                   eval      rjreid = 'H'
+T5.20c                   eval      rjfirm = w_firms
+     c                   eval      rjbiln = w_4sgb
+     c                   eval      rjraar = w_raar
+     c                   eval      rjrper = w_rper
+     c                   eval      rjtype = 2
+     c                   eval      rjbdat = w_bdat
+     c                   time                    rjfdat
+     c                   eval      rjbunt = w_bunt
+     c                   eval      rjlinj = 9400
+      *
+     c                   eval      rjflgr = l_flgr
+      *
+      * Sorteringsbegrep
+      *
+T5.20c                   eval      wsfirm = rjfirm
+     c                   eval      wsbiln = w_4sgb
+     c                   eval      wsraar = w_raar
+     c                   eval      wsrper = w_rper
+     c                   eval      wstype = 2
+     c                   eval      wsbdat = w_bdat
+     c                   eval      wsbunt = w_bunt
+     c                   eval      wslinj = 9400
+     c                   eval      wslito = 9400
+     c                   eval      wssequ = 5
+      *
+6.20sc                   eval      rjpros = *blank
+     c                   eval      rjakti = *blank
+6.20 c                   eval      rjupro = *blank
+6.20 c                   eval      rjarbo = *blank
+      *
+     c                   eval      rjbilk = 94
+E5.20c                   exsr      hbiltxt
+      *
+      * Legg ut en postering til hovedbok
+      *
+      * Legg ut en postering pr kategori i tabellen
+      *
+     c                   eval      x = 1
+      *
+     c                   dou       x > 9999
+      *
+     c                   if        kbel(x) <> 0
+      *
+     c                   if        x = 9999
+T5.00c                   eval      rjkont = radk05
+T5.00c                   eval      rjavde = rada05
+E5.00c                   eval      rjspes = rads05
+     c                   else
+      *
+     c                   eval      ra11l1_kkod = x
+     c     ra11l1_key    chain     ra11l1
+      *
+     c                   if        %found and
+     c                             rakkto > 0
+     c                   eval      rjkont = rakkto
+     c                   eval      rjspes = raksps
+     c                   eval      rjavde = rakavd
+     c                   endif
+E5.00c                   endif
+      *
+     c                   eval      rjneto = kbel(x)
+      *
+     c                   eval      rjmvab = 0
+     c                   eval      rjiavg = 0
+     c                   eval      rjmvak = '0'
+      *
+     c                   eval      rjsort = wssort
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_mem2
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+610   *
+     c                   write     rjoulur
+      *
+     c                   eval      w_post = w_post + 1
+     c                   endif
+      *
+     c                   eval      x = x + 1
+     c                   enddo
+      *
+     c                   eval      kbel = *zeros
+      *
+6.30 c     end_kun_p     tag
+     c                   endsr
+      *
+     c/eject
+      *
+      * Subrutine for behandling av kategorispesifikasjon leverandører
+      *
+     c     beh_lkat_sp   begsr
+      *
+6.30 c                   if        w_altin = 'J'
+6.30 c                   goto      end_lev_p
+6.30 c                   endif
+     c                   clear                   rjoulur
+      *
+     c                   eval      rjreid = 'H'
+T5.20c                   eval      rjfirm = w_firms
+     c                   eval      rjbiln = w_4sgb
+     c                   eval      rjtype = 2
+     c                   eval      rjbdat = w_bdat
+     c                   time                    rjfdat
+     c                   eval      rjraar = w_raar
+     c                   eval      rjrper = w_rper
+     c                   eval      rjbunt = w_bunt
+     c                   eval      rjlinj = 9500
+      *
+     c                   eval      rjflgr = l_flgr
+      *
+      * Sorteringsbegrep
+      *
+      *
+T5.20c                   eval      wsfirm = rjfirm
+     c                   eval      wsbiln = w_4sgb
+     c                   eval      wstype = 2
+     c                   eval      wsbdat = w_bdat
+     c                   eval      wsraar = w_raar
+     c                   eval      wsrper = w_rper
+     c                   eval      wsbunt = w_bunt
+     c                   eval      wslinj = 9500
+     c                   eval      wslito = 9500
+     c                   eval      wssequ = 5
+      *
+6.20sc                   eval      rjpros = *blank
+     c                   eval      rjakti = *blank
+6.20 c                   eval      rjupro = *blank
+6.20 c                   eval      rjarbo = *blank
+      *
+     c                   eval      rjbilk = 95
+E5.20c                   exsr      hbiltxt
+      *
+      * Legg ut en postering til hovedbok
+      *
+     c                   eval      x = 1
+      *
+     c                   dou       x > 9999
+      *
+     c                   if        lbel(x) <> 0
+      *
+     c                   if        x = 9999
+T5.00c                   eval      rjkont = radk06
+T5.00c                   eval      rjavde = rada06
+E5.00c                   eval      rjspes = rads06
+     c                   else
+      *
+     c                   eval      ra14l1_nkod = x
+     c     ra14l1_key    chain     ra14l1
+      *
+     c                   if        %found and
+     c                             rankto > 0
+     c                   eval      rjkont = rankto
+     c                   eval      rjspes = ransps
+     c                   eval      rjavde = ranavd
+     c                   endif
+E5.00c                   endif
+      *
+     c                   eval      rjneto = lbel(x)
+      *
+     c                   eval      rjmvab = 0
+     c                   eval      rjiavg = 0
+     c                   eval      rjmvak = '0'
+      *
+     c                   eval      rjsort = wssort
+      *
+610  c                   eval      rjnivo = *blank
+610  c                   eval      rjmemb = w_mem2
+610  c                   time                    rjedat
+610  c                   time                    rjetim
+610  c                   eval      rjeusr = l_user
+610   *
+     c                   write     rjoulur
+      *
+     c                   eval      w_post = w_post + 1
+     c                   endif
+      *
+     c                   eval      x = x + 1
+     c                   enddo
+      *
+     c                   eval      lbel = *zeros
+      *
+6.30 c     end_lev_p     tag
+     c                   endsr
+     c/eject
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+T5.20 * Subrutine for å hente bilagstekst                               *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+T5.20c     hbiltxt       begsr
+      *
+s.ss  *    Bruk alltid bilagstekst fra posteringen hvis den finnes
+s.ss c                   if        rjtext = *blank
+T5.20c                   eval      ra01l1_kod = rjbilk
+T5.20c     ra01l1_key    chain     ra01l1
+      *
+T5.20c                   if        %found
+T5.20c                   eval      rjtext = raatxt
+T5.20c                   else
+T5.20c                   eval      rjtext = 'Koden er ugyldig'
+T5.20c                   endif
+s.ss c                   endif
+T5.20c                   endsr
+      *
+     c/eject
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     *inzsr        begsr
+610   * Parameterliste
+610   *
+610  c     *entry        plist
+610  c                   parm                    w_mem1
+610  c                   parm                    w_mem2
+      *
+     c                   move      l_flgr        rjflgr
+      *
+      * Key for kontoplan
+      *
+     c     rhovl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rhovl1_kont
+     c                   kfld                    rhovl1_spes
+     c                   kfld                    rhovl1_avde
+      *
+      * Key for kunder
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for leverandører
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+      *
+      * Key for statusopplysninger - koderegister
+      *
+     c     raa1l1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for statusopplysninger - sist brukte nummer
+      *
+     c     raa4l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    raa4l1_4aar
+      *
+     c     raa4lu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    raa4lu_4aar
+      *
+T5.20 * Key for bilagskode
+      *
+T5.20c     ra01l1_key    klist
+T5.20c                   kfld                    w_firm
+T5.20c                   kfld                    ra01l1_kod
+      *
+      * Key for faste konti
+      *
+     c     ra04l1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for mva-koder
+      *
+     c     ra05l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra05l1_ekod
+      *
+      * Key for kundekategori
+      *
+     c     ra11l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra11l1_kkod
+      *
+      * Key for leverandørkategori
+      *
+     c     ra14l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra14l1_nkod
+      *
+      * Key for transaksjonsfil
+      *
+     c     rjoupf_key    klist
+610  c                   kfld                    rjoupf_nivo
+610  c                   kfld                    rjoupf_memb
+     c                   kfld                    rjoupf_sort
+7.01  * Test om logging skal gjøres
+7.01  *
+7.01   CallP CO402R(l_flgr:w_firm:0:'RF-PROG LOGGING':
+7.01                    co402_verdi1:co402_verdi2);
+7.01   if co402_verdi1 = '1';
+7.01     u_logg = *on;
+7.01   endif;
+
+      *
+     c                   endsr

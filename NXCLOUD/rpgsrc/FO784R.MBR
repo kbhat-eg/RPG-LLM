@@ -1,0 +1,350 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FO784R
+      * Beskrivelse . . : Leser salgsstatistikk og legger ut byggdok
+      *                   for ønsket år/kunde/kundeprosjekt
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       040113 bof  Nytt program
+6.31  *       120416 bof  Fjernet SONOPF, ikke i bruk i pgm.
+6.32  * 6.30  050716 bof  Byggdok/Cob. skal evt. ta mailadr. fra kundeprosjekt
+7.01  *       240220 bof  Cobuilder, men ikke krav til nobbnummer
+7.02  *       190516 bof  Utvidet med parameter for Byggdok eller Cobuilder
+8.01  *PRG2   220622 BOF  Utvidet prisgruppe fra 1 til 2 posisjoner - COMP
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fsstal5    uf   e           k disk    rename(sstapfr:sstal5r)
+      *
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     ffkprl1    if   e           k disk    rename(fkprpfr:fkprl1r)
+6.22 fafpslr    if   e           k disk    rename(afpspfr:afpslrr)
+6.22 frukpl6    if   e           k disk    rename(rukppfr:rukpl6r)
+6.22 famodl1    if   e           k disk    rename(amodpfr:amodl1r)
+6.22 ffbdopf    o  a e             disk
+      *
+6.31 f***opf    o  a e           k disk
+      *
+      * Definering av parametre
+      *
+     d p_list          s             40
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_fnav                951    970
+3.34 d l_user                911    920
+6.22 d l_filg                931    933
+3.36 d l_firm                944    946  0
+      *
+      * Definering av variable i nøkler
+      *
+     d sstal5_paar     s                   like(sfpaar)
+     d sstal5_vkun     s                   like(sfvkun)
+     d sstal5_kpro     s                   like(sfkpro)
+     d rkunl1_kund     s                   like(rkkund)
+     d fkprl1_kund     s                   like(flkund)
+     d fkprl1_kpro     s                   like(flkpro)
+6.22 d amodl1_modu     s                   like(axmodu)
+6.22 d afpslr_ufil     s                   like(l_filg)
+6.22 d afpslr_uide     s                   like(afuide)
+6.22 d rukpl6_kund     s                   like(rukund)
+      *
+      * Definering av variable
+      *
+     d w_dato          s              8
+6.22 d w_btms          s               Z
+6.22 d w_ti26          s             26
+6.22 d w_bnum          s              6
+6.22 d w_firm          s                   like(sffirm)
+6.22 d w_vkun          s                   like(sfvkun)
+6.22 d w_kpro          s                   like(sfkpro)
+6.22 d w_paar          s                   like(sfpaar)
+      *
+6.22 d p_vkun          s                   like(sfvkun)
+6.22 d p_kpro          s                   like(sfkpro)
+6.22 d p_paar          s                   like(sfpaar)
+7.02 d p_bdok          s              1  0
+7.02 d p_cobu          s              1  0
+      *
+6.22 d b_bdo1          s              1    inz(*off)
+6.22 d b_bdo2          s              1    inz(*off)
+6.22 d b_bdo3          s              1    inz(*off)
+6.22 d b_bdo4          s              1    inz(*off)
+6.22 d b_kper          s              1    inz(*off)
+7.02 d b_cobu          s              1    inz(*off)
+7.02 d b_cob1          s              1    inz(*off)
+7.02 d b_cob2          s              1    inz(*off)
+7.02 d b_cob3          s              1    inz(*off)
+7.02 d b_cob4          s              1    inz(*off)
+6.22  *
+6.22  * Definering av konstanter
+6.22  *
+6.22 d lo              c                   'abcdefghijklmnopqrstuvwxyzæøåäö'
+6.22 d up              c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅÄÖ'
+7.01 d u_s701          s              1    inz(*off)                            Klient
+7.01  *
+7.01  * Definering av eksterne prg
+7.01  *
+7.01   dcl-s co402_verdi1  char(1);
+7.01   dcl-s co402_verdi2  char(2048);
+7.01   DCL-PR CO402R EXTPGM('CO402R');
+7.01     p_filgrp            char(3)     const;
+7.01     p_firm              packed(3:0) const;
+7.01     p_lager             packed(2:0) const;
+7.01     p_nokkel            char(50)    const;
+7.01     p_verdi1            char(1);
+7.01     p_verdi2            char(2048);
+7.02   END-PR;
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.22  *
+6.22  * Sjekker om kundeprosjekt skal legge ut ByggDok
+6.22  *
+6.22 c                   eval      b_bdo2 = *off
+6.22 c                   eval      b_bdo4 = *off
+7.02 c                   eval      b_cob2 = *off
+7.02 c                   eval      b_cob4 = *off
+7.02 c                   if        b_bdo1 = *on or
+7.01 c                             b_cob1 = *on
+7.01  *
+6.22 c                   eval      fkprl1_kund = w_vkun
+6.22 c                   eval      fkprl1_kpro = w_kpro
+6.22 c     fkprl1_key    chain     fkprl1r
+6.32 c                   if        %found(fkprl1)
+6.32 c                   if        flbdok = 1 or
+6.32 c                             flcobu = 1
+6.22 c                   time                    w_btms
+6.22 c                   eval      b_bdo2 = *on
+6.32 c                   endif
+7.02 c                   if        p_cobu = 1 and
+7.02 c                             flcobu = 1
+7.02 c                   time                    w_btms
+7.02 c                   eval      b_cob2 = *on
+7.02 c                   endif
+6.22 c                   endif
+6.22  *
+7.02 c                   if        b_bdo2 = *off and
+7.02 c                             b_cob2 = *off
+6.22 c                   goto      avslutt
+6.22 c                   endif
+      *
+      * Leser salgsstatistikk, og oppretter eksportfil
+      *
+     c                   eval      sstal5_paar = w_paar
+     c                   eval      sstal5_vkun = w_vkun
+     c                   eval      sstal5_kpro = w_kpro
+     c     sstal5_key    setll     sstal5
+     c     sstal5_key    reade     sstal5r
+      *
+     c                   dow       not %eof(sstal5)
+      *
+7.01 c                   if        (sfnobb <> 0) or
+7.01 c                             (u_s701 = *on and
+7.01 c                              sfvare <> *blank)
+     c                   exsr      oppdater
+     c                   endif
+      *
+     c     sstal5_key    reade     sstal5r
+     c                   enddo
+7.02  *
+7.02 c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppretting av eksportfil
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppdater      begsr
+      *
+6.22 c                   eval      rkunl1_kund = sfvkun
+6.22 c     rkunl1_key    chain     rkunl1
+6.22  * finner kontaktperson for kunde som har rolle BYGGDOK
+6.22 c                   eval      b_kper  = *off
+6.22 c                   eval      rukpl6_kund = sfvkun
+6.22 c     rukpl6_key    setll     rukpl6
+6.22 c     rukpl6_key    reade     rukpl6
+6.22 c                   dow       not %eof(rukpl6)
+6.22 c     lo:up         xlate     rukrol        rukrol
+6.32 c                   if        rukrol  = 'BYGGDOK' or rukrol = 'COBUILDER'
+6.22 c                   eval      b_kper  = *on
+6.22 c                   goto      fbdo_tag
+6.22 c                   endif
+6.22 c     rukpl6_key    reade     rukpl6
+6.22 c                   enddo
+      *
+6.22 c     fbdo_tag      tag
+6.22 c                   clear                   fbdopfr
+6.22 c                   eval      fwbfir = w_firm
+6.22 c                   eval      fwbkun = sfvkun
+6.22 c                   eval      fwbkpr = sfkpro
+7.02 c                   if        b_bdo2 = *off
+7.02 c                   eval      fwbovf = 9
+7.02 c                   endif
+7.02 c                   if        b_cob2 = *off
+7.02 c                   eval      fwcovf = 9
+7.02 c                   endif
+6.22 c                   if        sfornr <> 0
+6.22 c                   movel     sfornr        fwbnum
+6.22 c                   else
+6.22 c                   movel     sfbong        fwbnum
+     c                   endif
+6.22 c                   eval      fwbnav = rknavn
+6.22 c                   if        b_kper  = *on and
+6.22 c                             ruenav <> *blank and
+6.22 c                             rumail <> *blank
+6.22 c                   eval      fwbper = %trim(ruenav) + ',' +
+6.22 c                                      %trim(rufnav)
+6.22 c                   eval      fwbmai = rumail
+6.22 c                   else
+6.22 c                   eval      fwbper = rknavn
+6.22 c                   eval      fwbmai = rkemal
+6.22 c                   endif
+6.32  * hvis mail på kunde-prosjekt overstyrer det alt
+6.32 c                   if        flmail <> *blank
+6.32 c                   eval      fwbmai = flmail
+6.32 c                   if        flkprs <> *blank
+6.32 c                   eval      fwbper = flkprs
+6.32 c                   endif
+6.32 c                   endif
+6.22 c                   eval      fwbftn = rkftnr
+6.22 c                   move      w_btms        w_ti26
+6.22 c                   eval      fwbtms = w_ti26
+7.01 c                   if        u_s701 = *on
+7.01 c                   movel     sfvare        fwbnob
+7.01 c                   else
+6.22 c                   eval      fwbnob = sfnobb
+7.01 c                   endif
+6.22 c                   time                    fwboda
+6.22 c                   time                    fwboti
+6.22 c                   time                    fwbeda
+6.22 c                   time                    fwbeti
+6.22 c                   eval      fwbous = l_user
+6.22 c                   eval      fwbeus = l_user
+6.22 c                   write     fbdopfr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_paar
+     c                   parm                    p_vkun
+     c                   parm                    p_kpro
+7.02 c                   parm                    p_bdok
+7.02 c                   parm                    p_cobu
+      *
+      * Key for les på salgsstatistikk
+      *
+     c     sstal5_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    sstal5_paar
+     c                   kfld                    sstal5_vkun
+     c                   kfld                    sstal5_kpro
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for oppslag på kunde-prosjekt
+      *
+     c     fkprl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fkprl1_kund
+     c                   kfld                    fkprl1_kpro
+6.22  *
+6.22  * Key for les av moduler Nexstep
+6.22  *
+6.22 c     amodl1_key    klist
+6.22 c                   kfld                    amodl1_modu
+pdf   *
+pdf   * Key for propertiesfil
+pdf   *
+pdf  c     afpslr_key    klist
+pdf  c                   kfld                    afpslr_ufil
+pdf  c                   kfld                    afpslr_uide
+6.22  *
+6.22  * Key for kontakpersonregister
+6.22  *
+6.22 c     rukpl6_key    klist
+6.22 c                   kfld                    w_firm
+6.22 c                   kfld                    rukpl6_kund
+      *
+      *
+      * Kopierer parameter tildatastruktur
+      *
+     c                   eval      w_paar = p_paar
+     c                   eval      w_vkun = p_vkun
+     c                   eval      w_kpro = p_kpro
+      *
+     c                   eval      w_firm = l_firm
+6.22  *
+6.22  * Sjekker om Byggdok skal kjøres forutsetter at
+6.22  * modul er på plass og at
+6.22  *
+6.22 c                   eval      b_bdo1 = *off
+6.22 c                   eval      amodl1_modu = 'BYGGDOK'
+6.22 c     amodl1_key    chain     amodl1
+6.22 c                   if        %found(amodl1)
+6.22 c                   eval      afpslr_ufil = l_filg
+6.22 c                   eval      afpslr_uide = 'BYGGDOK   '
+6.22  *
+6.22  * Sjekk om PDF aktivering er på/av
+6.22  *
+6.22 c     afpslr_key    chain     afpslrr
+6.22 c                   if        %found(afpslr)
+6.22 c                   eval      b_bdo1 = *on
+6.22 c                   endif
+6.22 c                   endif
+7.02  *
+7.02  * Sjekker om Cobuilder skal kjøres forutsetter at
+7.02  * modul er på plass og at
+7.02  *
+7.02 c                   eval      b_cob1 = *off
+7.02 c                   eval      amodl1_modu = 'COBUILDER'
+7.02 c     amodl1_key    chain     amodl1
+7.02 c                   if        %found(amodl1)
+7.02 c                   eval      afpslr_ufil = l_filg
+7.02 c                   eval      afpslr_uide = 'COBUILDER'
+7.02  *
+7.02  * Sjekk om PDF aktivering er på/av
+7.02  *
+7.02 c     afpslr_key    chain     afpslrr
+7.02 c                   if        %found(afpslr)
+7.02 c                   eval      b_cob1 = *on
+7.02 c                   endif
+7.02 c                   endif
+7.01  *
+7.01  * Sjekker om det ikke er krav til nobbnummer
+7.01  *
+7.01   CallP CO402R(l_filg:w_firm:0:'COBU_IKKENOBB':
+7.01   co402_verdi1:co402_verdi2);
+7.01   if co402_verdi1 = '1';
+7.01     u_s701 = *on;
+7.01   endif;
+7.01  *
+      *
+     c                   endsr

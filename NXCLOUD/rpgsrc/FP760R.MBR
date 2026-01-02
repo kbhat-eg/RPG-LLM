@@ -1,0 +1,749 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FP760R
+      * Beskrivelse . . : Spesialpris, innlesing av priser fra regneark
+      *
+      *                   Sletter eksisterende spesialpriser på kunde
+      *                   før innlesing av nye priser
+      *
+      *                   Programmet kalles via FP760C
+      *
+      * Spesialversjon. : Tilsvarer FP755R, men inneholder også kundenr
+      * Tilpasset for . : Skattum Handel
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       241016 HKO  Nytt program
+9.01  *       040917 bof  fjernet kolonne for vareekst.
+9.01  *       230418 bof  utvidet med kundeprosjekt
+9.02  *       171018 bof  Sjekk at lest linje er basisenhet.
+9.03  *       070219 bof  Ekstra kolonn G (rab.1)
+9.03  *       070219 bof  Ekstra kolonn I (ordrenr).
+9.04  *       011019 bof  Ikke kolonne for kundeprosekt eller rabatt
+9.04  *       081019 bof  Skal ha med kolonne for kundeprosjekt
+9.05  *       060420 bof  Ikke sortert pr. kunde, så gen.rydd fjernes
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fflvwpf    uf   e           k disk    rename(flvwpfr:flvwpfr)
+      *
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+9.04 f**arl3    if   e           k disk    rename(vvarpfr:vvarl3r)
+9.04 fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvenl2    if   e           k disk    rename(vvenpfr:vvenl2r)
+     fvltpl1    if   e           k disk    rename(vltppfr:vltpl1r)
+     ffpril3    uf   e           k disk    rename(fpripfr:fpril3r)
+     ffprilu    uf a e           k disk    rename(fpripfr:fprilur)
+     ffprnlu    uf   e           k disk    rename(fprnpfr:fprnlur)
+      *
+      * Definering av Local data area *LDA
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+      *
+      * Definering av Nobb prisformat
+      *
+     d                 ds
+     d d_list                        80
+     d  d_kund                        6  0 overlay(d_list:01)
+     d  d_nobb                        8  0 overlay(d_list:07)
+     d  d_enhe                        3    overlay(d_list:15)
+     d  d_sapr                        9  2 overlay(d_list:18)
+     d  d_kopr                        9  2 overlay(d_list:27)
+     d  d_lety                        1  0 overlay(d_list:36)
+     d  d_fdat                        6  0 overlay(d_list:37)
+     d  d_tdat                        6  0 overlay(d_list:43)
+     d  d_kpro                        6  0 overlay(d_list:49)
+9.03 d  d_rab1                        5  2 overlay(d_list:55)
+9.03 d  d_numm                        6  0 overlay(d_list:60)
+      *
+     d                 ds
+     d d_dato                        10
+     d  d_dd                          2    overlay(d_dato:1)
+     d  d_mm                          2    overlay(d_dato:4)
+     d  d_aa                          4    overlay(d_dato:7)
+     d                 ds
+     d w_dat6                         6
+     d  w_dd                          2    overlay(w_dat6:1)
+     d  w_mm                          2    overlay(w_dat6:3)
+     d  w_aa                          2    overlay(w_dat6:5)
+      *
+     d w_hel           s              7
+9.03 d w_hel3          s              3
+     d w_des           s              2
+     d w_sapr          s              9
+     d w_kopr          s              9
+9.03 d w_rab1          s              5
+     d w_lety          s              1
+     d w_pris          s              9
+9.03 d w_raba          s              5
+      *
+      * Definering av variable i nøkler
+      *
+     d rkunl1_kund     s                   like(rkkund)
+9.04 d*vvarl3_nobb     s                   like(vvnobb)
+9.04 d vvarl1_vare     s                   like(vvvare)
+     d vvenl2_vare     s                   like(vevare)
+     d vvenl2_saen     s                   like(vesaen)
+     d vltpl1_lety     s                   like(vylety)
+     d fpril3_kund     s                   like(fpkund)
+     d fpril3_kpro     s                   like(fpkpro)
+     d fprilu_prgr     s                   like(fpprgr)
+     d fprilu_rkat     s                   like(fprkat)
+     d fprilu_kkat     s                   like(fpkkat)
+     d fprilu_kund     s                   like(fpkund)
+     d fprilu_kpro     s                   like(fpkpro)
+     d fprilu_vare     s                   like(fpvare)
+     d fprilu_enhe     s                   like(fpenhe)
+     d fprilu_lety     s                   like(fplety)
+     d fprnlu_nkun     s                   like(fpnkun)
+     d fprnlu_nkpr     s                   like(fpnkpr)
+      *
+      * Definering av variable
+      *
+     d w_dato          s               d   datfmt(*iso)
+      *
+     d w_firm          s                   like(fpfirm)
+     d w_enh1          s                   like(veenhe)
+     d w_enh2          s                   like(veenhe)
+     d w_enh3          s                   like(veenhe)
+     d w_omr1          s                   like(veomre)
+     d w_omr2          s                   like(veomre)
+     d w_omr3          s                   like(veomre)
+     d w_sap1          s                   like(fpsapr)
+     d w_sap2          s                   like(fpsapr)
+     d w_sap3          s                   like(fpsapr)
+     d w_kop1          s                   like(fpkopr)
+     d w_kop2          s                   like(fpkopr)
+     d w_kop3          s                   like(fpkopr)
+      *
+     d w_posi          s              2  0
+     d w_posp          s              2  0
+     d st              s              2  0
+     d w_kunx          s              6
+     d w_kprx          s              6
+9.03 d w_numx          s              6
+     d w_nobx          s              8
+      *
+     d b_feil          s              1    inz(*off)
+      *
+     d s_kund          s                   like(fpkund)
+      *
+      * Konstanter
+      *
+     d c_digi          s             15    inz('0123456789 ')
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      s_kund = 0
+      *
+      * Leser og oppretter/oppdaterer spesialpriser
+      *
+     c                   read      flvwpfr
+     c                   dow       not %eof
+     c                   exsr      utled_sdv
+     c                   if        b_feil = *off
+     c                   exsr      oppdater
+     c                   endif
+     c                   read      flvwpfr
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utleding av datastruktur
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     utled_sdv     begsr
+      *
+     c                   eval      w_kprx = *Blank
+     c                   eval      w_numx = *Blank
+     c                   eval      d_list = *blank
+     c                   eval      b_feil = *off
+      *
+     c     '"':' '       xlate     fwirad        fwirad
+      *
+      * Kundenr
+     c                   eval      w_posi = %scan(';':fwirad)
+     c                   eval      w_kunx =
+     c                               %trim(%subst(fwirad:1:w_posi-1))
+     c     c_digi        check     w_kunx                                 70
+     c                   if        *in70 = *on
+     c                   eval      b_feil = *on
+     c                   goto      end_utled
+     c                   endif
+     c                   select
+     c                   when      %len(%trim(w_kunx)) = 5
+     c                   eval      w_kunx = '0' + %trim(w_kunx)
+     c                   when      %len(%trim(w_kunx)) = 4
+     c                   eval      w_kunx = '00' + %trim(w_kunx)
+     c                   when      %len(%trim(w_kunx)) = 3
+     c                   eval      w_kunx = '000' + %trim(w_kunx)
+     c                   when      %len(%trim(w_kunx)) = 2
+     c                   eval      w_kunx = '0000' + %trim(w_kunx)
+     c                   when      %len(%trim(w_kunx)) = 1
+     c                   eval      w_kunx = '00000' + %trim(w_kunx)
+     c                   endsl
+     c                   move      w_kunx        d_kund
+      *
+      * Kunde prosjekt
+9.04 c                   eval      fwirad = %subst(fwirad:w_posi+1:512-w_posi)
+9.04 c                   eval      w_posi = %scan(';':fwirad)
+9.04 c                   eval      w_kprx =
+9.04 c                               %trim(%subst(fwirad:1:w_posi-1))
+9.04 c                   if        w_kprx <> *blank
+9.04 c     c_digi        check     w_kprx                                 70
+9.04 c                   if        *in70 = *on
+9.04 c                   eval      b_feil = *on
+9.04 c                   goto      end_utled
+9.04 c                   endif
+9.04 c                   select
+9.04 c                   when      %len(%trim(w_kprx)) = 5
+9.04 c                   eval      w_kprx = '0' + %trim(w_kprx)
+9.04 c                   when      %len(%trim(w_kprx)) = 4
+9.04 c                   eval      w_kprx = '00' + %trim(w_kprx)
+9.04 c                   when      %len(%trim(w_kprx)) = 3
+9.04 c                   eval      w_kprx = '000' + %trim(w_kprx)
+9.04 c                   when      %len(%trim(w_kprx)) = 2
+9.04 c                   eval      w_kprx = '0000' + %trim(w_kprx)
+9.04 c                   when      %len(%trim(w_kprx)) = 1
+9.04 c                   eval      w_kprx = '00000' + %trim(w_kprx)
+9.04 c                   endsl
+9.04 c                   else
+9.04 c                   eval      w_kprx = '000000'
+9.04 c                   endif
+9.04 c                   move      w_kprx        d_kpro
+9.04 c****               eval      d_kpro = 0
+      * Nobbnr
+     c                   eval      fwirad = %subst(fwirad:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':fwirad)
+     c                   eval      w_nobx =
+     c                               %trim(%subst(fwirad:1:w_posi-1))
+     c     c_digi        check     w_nobx                                 70
+     c                   if        *in70 = *on
+     c                   eval      b_feil = *on
+     c                   goto      end_utled
+     c                   endif
+     c                   move      w_nobx        d_nobb
+      * varetekst
+9.01 c*                  eval      fwirad = %subst(fwirad:w_posi+1:512-w_posi)
+9.01 c*                  eval      w_posi = %scan(';':fwirad)
+      * enhet
+     c                   eval      fwirad = %subst(fwirad:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':fwirad)
+     c                   eval      d_enhe = %trim(%subst(fwirad:1:w_posi-1))
+      * salgspris
+     c                   eval      fwirad = %subst(fwirad:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':fwirad)
+     c                   eval      w_sapr = %trim(%subst(fwirad:1:w_posi-1))
+     c                   eval      w_posp = %scan(',':w_sapr)
+     c                   if        w_posp > 0
+     c                   eval      st     = 7 - (w_posp - 1)
+     c                   eval      w_hel  = *blank
+     c                   eval      %subst(w_hel:st+1:w_posp-1) =
+     c                                      %trim(%subst(w_sapr:1:w_posp-1))
+     c                   eval      w_des  = %trim(%subst(w_sapr:w_posp+1:2))
+     c                   move      w_des         w_pris
+     c                   movel     w_hel         w_pris
+     c                   move      w_pris        d_sapr
+     c                   else
+     c                   eval      d_sapr = 0
+     c                   endif
+      * kostpris
+     c                   eval      fwirad = %subst(fwirad:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':fwirad)
+     c                   eval      w_kopr = %trim(%subst(fwirad:1:w_posi-1))
+     c                   eval      w_posp = %scan(',':w_kopr)
+     c                   if        w_posp > 0
+     c                   eval      st     = 7 - (w_posp - 1)
+     c                   eval      w_hel  = *blank
+     c                   eval      %subst(w_hel:st+1:w_posp-1) =
+     c                                      %trim(%subst(w_kopr:1:w_posp-1))
+     c                   eval      w_des  = %trim(%subst(w_kopr:w_posp+1:2))
+     c                   move      w_des         w_pris
+     c                   movel     w_hel         w_pris
+     c                   move      w_pris        d_kopr
+     c                   else
+     c                   eval      d_kopr = 0
+     c                   endif
+9.03  * rabatt 1
+9.03 c*                   eval      fwirad = %subst(fwirad:w_posi+1:512-w_posi)
+9.03 c*                   eval      w_posi = %scan(';':fwirad)
+9.03 c*                   eval      w_rab1 = %trim(%subst(fwirad:1:w_posi-1))
+9.03 c*                   eval      w_posp = %scan(',':w_rab1)
+9.03 c*                   if        w_posp > 0
+9.03 c*                   eval      st     = 3 - (w_posp - 1)
+9.03 c*                   eval      w_hel3 = *blank
+9.03 c*                   eval      %subst(w_hel3:st+1:w_posp-1) =
+9.03 c*                                      %trim(%subst(w_rab1:1:w_posp-1))
+9.03 c*                   eval      w_des  = %trim(%subst(w_rab1:w_posp+1:2))
+9.03 c*                   move      w_des         w_raba
+9.03 c*                   movel     w_hel3        w_raba
+9.03 c*                   move      w_raba        d_rab1
+9.03 c*                   else
+9.03 c                   eval      d_Rab1 = 0
+9.03 c*                   endif
+9.03  * leveringstype
+     c                   eval      fwirad = %subst(fwirad:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':fwirad)
+     c                   eval      w_lety = %trim(%subst(fwirad:1:w_posi-1))
+     c     c_digi        check     w_lety                                 70
+     c                   if        *in70 = *on
+     c                   eval      b_feil = *on
+     c                   goto      end_utled
+     c                   endif
+     c                   if        w_lety = *blank
+     c                   eval      d_lety = 0
+     c                   else
+     c                   move      w_lety        d_lety
+     c                   endif
+9.03  *
+9.03  * ordrenr
+9.03 c*                   eval      fwirad = %subst(fwirad:w_posi+1:512-w_posi)
+9.03 c*                   eval      w_posi = %scan(';':fwirad)
+9.03 c*                   eval      w_numx =
+9.03 c*                               %trim(%subst(fwirad:1:w_posi-1))
+9.03 c*                   if        w_numx <> *blank
+9.03 c*     c_digi        check     w_numx                                 70
+9.03 c*                   if        *in70 = *on
+9.03 c*                   eval      b_feil = *on
+9.03 c*                   goto      end_utled
+9.03 c*                   endif
+9.03 c*                   select
+9.03 c*                   when      %len(%trim(w_numx)) = 5
+9.03 c*                   eval      w_numx = '0' + %trim(w_numx)
+9.03 c*                   when      %len(%trim(w_numx)) = 4
+9.03 c*                   eval      w_numx = '00' + %trim(w_numx)
+9.03 c*                   when      %len(%trim(w_numx)) = 3
+9.03 c*                   eval      w_numx = '000' + %trim(w_numx)
+9.03 c*                   when      %len(%trim(w_numx)) = 2
+9.03 c*                   eval      w_numx = '0000' + %trim(w_numx)
+9.03 c*                   when      %len(%trim(w_numx)) = 1
+9.03 c*                   eval      w_numx = '00000' + %trim(w_numx)
+9.03 c*                   endsl
+9.03 c*                   else
+9.03 c*                   eval      w_numx = '000000'
+9.03 c*                   endif
+9.03 c*                   move      w_numx        d_numm
+     c                   eval      d_numm = 0
+9.03  * fra dato
+     c                   eval      fwirad = %subst(fwirad:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':fwirad)
+     c                   eval      d_dato = %trim(%subst(fwirad:1:w_posi-1))
+     c                   if        %len(%trim(d_dato)) = 9
+     c                   eval      d_dato = '0' + %subst(d_dato:1:9)
+     c                   endif
+     c                   exsr      konv_dato
+     c                   move      w_dat6        d_fdat
+      * til dato
+     c                   eval      fwirad = %subst(fwirad:w_posi+1:11-1)
+     c                   eval      w_posi = %scan(';':fwirad)
+     c                   eval      d_dato = %trim(%subst(fwirad:1:10))
+     c                   if        %len(%trim(d_dato)) = 9
+     c                   eval      d_dato = '0' + %subst(d_dato:1:9)
+     c                   endif
+     c                   exsr      konv_dato
+     c                   move      w_dat6        d_tdat
+      *
+     c     end_utled     endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppretting/oppdatering av spesialpriser
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppdater      begsr
+      *
+      * Avbryter dersom kunde, nobb-nummer eller pris ikke er utfylt
+      *
+     c                   if        d_kund = 0 or
+     c                             d_nobb = 0
+     c                   leavesr
+     c                   endif
+     c                   if        d_sapr = 0 and
+     c                             d_rab1 = 0
+     c                   leavesr
+     c                   endif
+
+      *
+      * Avbryter dersom kunde ikke finnes
+      *
+     c                   eval      rkunl1_kund = d_kund
+     c     rkunl1_key    chain     rkunl1
+     c                   if        not %found
+     c                   leavesr
+     c                   endif
+      *
+      * Avbryter dersom vare ikke finnes
+      *
+9.04 c**                 eval      vvarl1_vare = d_nobb
+9.04 c                   movel     d_nobb        vvarl1_vare
+9.04 c     vvarl1_key    chain     vvarl1
+     c                   if        not %found
+     c                   leavesr
+     c                   endif
+      *
+      * Avbryter dersom lest linje ikke er basisenhet.
+     c                   if        vvenhe <> d_Enhe
+     c                   leavesr
+     c                   endif
+      *
+      * Sletter alle eksisterende spesialpriser for kunde ved
+      * brudd på kunde
+      *
+b.bb  * skal ikke slette denne gangen
+9.05 c*                  if        d_kund <> s_kund
+9.05  *
+9.05 c*                  eval      fpril3_kund = d_kund
+9.05 c*                  eval      fpril3_kpro = 0
+9.05 c*    fpril3_key    setll     fpril3
+9.05 c*    fpril3_key    reade     fpril3r
+9.05 c*                  dow       not %eof
+9.05 c*                  delete    fpril3r
+9.05 c*    fpril3_key    reade     fpril3r
+9.05 c*                  enddo
+9.05  *
+9.05 c*                  eval      fprnlu_nkun = d_kund
+9.05 c*                  eval      fprnlu_nkpr = 0
+9.05 c*    fprnlu_key    setll     fprnlu
+9.05 c*    fprnlu_key    reade     fprnlur
+9.05 c*                  dow       not %eof
+9.05 c*                  delete    fprnlur
+9.05 c*    fprnlu_key    reade     fprnlur
+9.05 c*                  enddo
+9.05  *
+9.05 c*                  endif
+9.05  *
+     c                   eval      s_kund = d_kund
+      *
+      * Henter tre salgsenheter fra varen
+      *
+     c                   eval      w_enh1 = *blank
+     c                   eval      w_enh2 = *blank
+     c                   eval      w_enh3 = *blank
+     c                   eval      w_omr1 = 0
+     c                   eval      w_omr2 = 0
+     c                   eval      w_omr3 = 0
+      *
+     c                   eval      vvenl2_vare = vvvare
+     c                   eval      vvenl2_saen = 1
+     c     vvenl2_key    setll     vvenl2
+     c     vvenl2_key2   reade     vvenl2
+     c                   dow       not %eof
+      *
+     c                   select
+     c                   when      w_enh1 = *blank
+     c                   eval      w_enh1 = veenhe
+     c                   eval      w_omr1 = veomre
+     c                   when      w_enh1 <> *blank and
+     c                             w_enh2 = *blank
+     c                   eval      w_enh2 = veenhe
+     c                   eval      w_omr2 = veomre
+     c                   when      w_enh1 <> *blank and
+     c                             w_enh2 <> *blank and
+     c                             w_enh3 = *blank
+     c                   eval      w_enh3 = veenhe
+     c                   eval      w_omr3 = veomre
+     c                   leave
+     c                   endsl
+      *
+     c     vvenl2_key2   reade     vvenl2
+     c                   enddo
+      *
+      * Avbryter dersom enhet fra ark ikke finnes på varen
+      *
+     c                   if        w_enh1 <> d_enhe and
+     c                             w_enh2 <> d_enhe and
+     c                             w_enh3 <> d_enhe
+     c                   leavesr
+     c                   endif
+      *
+      * Avbryter dersom leveringstype ikke finnes
+      *
+     c                   eval      vltpl1_lety = d_lety
+     c     vltpl1_key    chain     vltpl1
+     c                   if        not %found
+     c                   leavesr
+     c                   endif
+      *
+      * Finner priser for alle salgsenheter
+      *
+     c                   eval      w_sap1 = 0
+     c                   eval      w_sap2 = 0
+     c                   eval      w_sap3 = 0
+     c                   eval      w_kop1 = 0
+     c                   eval      w_kop2 = 0
+     c                   eval      w_kop3 = 0
+      *
+     c                   select
+     c                   when      d_enhe = w_enh1
+     c                   eval      w_sap1 = d_sapr
+     c                   eval      w_sap2 = w_sap1 * w_omr2 / w_omr1
+     c                   eval      w_sap3 = w_sap1 * w_omr3 / w_omr1
+     c                   eval      w_kop1 = d_kopr
+     c                   eval      w_kop2 = w_kop1 * w_omr2 / w_omr1
+     c                   eval      w_kop3 = w_kop1 * w_omr3 / w_omr1
+     c                   when      d_enhe = w_enh2
+     c                   eval      w_sap2 = d_sapr
+     c                   eval      w_sap1 = w_sap2 * w_omr1 / w_omr2
+     c                   eval      w_sap3 = w_sap2 * w_omr3 / w_omr2
+     c                   eval      w_kop2 = d_kopr
+     c                   eval      w_kop1 = w_kop2 * w_omr1 / w_omr2
+     c                   eval      w_kop3 = w_kop2 * w_omr3 / w_omr2
+     c                   when      d_enhe = w_enh3
+     c                   eval      w_sap3 = d_sapr
+     c                   eval      w_sap1 = w_sap3 * w_omr1 / w_omr3
+     c                   eval      w_sap2 = w_sap3 * w_omr2 / w_omr3
+     c                   eval      w_kop3 = d_kopr
+     c                   eval      w_kop1 = w_kop3 * w_omr1 / w_omr3
+     c                   eval      w_kop2 = w_kop3 * w_omr2 / w_omr3
+     c                   endsl
+      *
+      * Oppdaterer/oppretter spesialpris
+      *
+      * - enhet 1
+      *
+     c                   clear                   fprilur
+      *
+     c                   eval      fprilu_prgr = *blank
+     c                   eval      fprilu_rkat = 0
+     c                   eval      fprilu_kkat = 0
+     c                   eval      fprilu_kund = d_kund
+     c                   eval      fprilu_kpro = d_kpro
+     c                   eval      fprilu_vare = vvvare
+     c                   eval      fprilu_enhe = w_enh1
+     c                   eval      fprilu_lety = d_lety
+     c     fprilu_key    chain     fprilur
+      *
+     c                   eval      fpfirm = w_firm
+     c                   eval      fpprgr = *blank
+     c                   eval      fprkat = 0
+     c                   eval      fpkkat = 0
+     c                   eval      fpkund = d_kund
+     c                   eval      fpkpro = d_kpro
+     c                   eval      fpvare = vvvare
+     c                   eval      fpenhe = w_enh1
+     c                   eval      fplety = d_lety
+     c     *dmy          move      d_fdat        fpfdat
+     c     *dmy          move      d_tdat        fptdat
+     c                   eval      fpsapr = w_sap1
+     c                   eval      fpkopr = w_kop1
+9.03 c                   eval      fprab1 = d_rab1
+     c                   eval      fprab2 = 0
+9.03 c                   eval      fpnumm = d_numm
+      *
+     c                   eval      fpeusr = l_user
+     c                   time                    fpedat
+     c                   time                    fpetim
+      *
+     c                   if        %found(fprilu)
+     c                   time                    fpedat
+     c                   time                    fpetim
+     c                   eval      fpeusr = l_user
+     c                   update    fprilur
+     c                   else
+     c                   time                    fpodat
+     c                   time                    fpotim
+     c                   eval      fpousr = l_user
+     c                   time                    fpedat
+     c                   time                    fpetim
+     c                   eval      fpeusr = l_user
+     c                   write     fprilur
+     c                   endif
+      *
+      * - enhet 2
+      *
+     c                   if        w_enh2 <> *blank
+      *
+     c                   clear                   fprilur
+      *
+     c                   eval      fprilu_enhe = w_enh2
+     c     fprilu_key    chain     fprilur
+      *
+     c                   eval      fpfirm = w_firm
+     c                   eval      fpprgr = *blank
+     c                   eval      fprkat = 0
+     c                   eval      fpkkat = 0
+     c                   eval      fpkund = d_kund
+     c                   eval      fpkpro = d_kpro
+     c                   eval      fpvare = vvvare
+     c                   eval      fpenhe = w_enh2
+     c                   eval      fplety = d_lety
+     c     *dmy          move      d_fdat        fpfdat
+     c     *dmy          move      d_tdat        fptdat
+     c                   eval      fpsapr = w_sap2
+     c                   eval      fpkopr = w_kop2
+9.03 c                   eval      fprab1 = d_rab1
+     c                   eval      fprab2 = 0
+9.03 c                   eval      fpnumm = d_numm
+      *
+     c                   eval      fpeusr = l_user
+     c                   time                    fpedat
+     c                   time                    fpetim
+      *
+     c                   if        %found(fprilu)
+     c                   time                    fpedat
+     c                   time                    fpetim
+     c                   eval      fpeusr = l_user
+     c                   update    fprilur
+     c                   else
+     c                   time                    fpodat
+     c                   time                    fpotim
+     c                   eval      fpousr = l_user
+     c                   time                    fpedat
+     c                   time                    fpetim
+     c                   eval      fpeusr = l_user
+     c                   write     fprilur
+     c                   endif
+      *
+     c                   endif
+      *
+      * - enhet 3
+      *
+     c                   if        w_enh3 <> *blank
+      *
+     c                   clear                   fprilur
+      *
+     c                   eval      fprilu_enhe = w_enh3
+     c     fprilu_key    chain     fprilur
+      *
+     c                   eval      fpfirm = w_firm
+     c                   eval      fpprgr = *blank
+     c                   eval      fprkat = 0
+     c                   eval      fpkkat = 0
+     c                   eval      fpkund = d_kund
+     c                   eval      fpkpro = d_kpro
+     c                   eval      fpvare = vvvare
+     c                   eval      fpenhe = w_enh3
+     c                   eval      fplety = d_lety
+     c     *dmy          move      d_fdat        fpfdat
+     c     *dmy          move      d_tdat        fptdat
+     c                   eval      fpsapr = w_sap3
+     c                   eval      fpkopr = w_kop3
+9.03 c                   eval      fprab1 = d_rab1
+     c                   eval      fprab2 = 0
+9.03 c                   eval      fpnumm = d_numm
+      *
+     c                   eval      fpeusr = l_user
+     c                   time                    fpedat
+     c                   time                    fpetim
+      *
+     c                   if        %found(fprilu)
+     c                   time                    fpedat
+     c                   time                    fpetim
+     c                   eval      fpeusr = l_user
+     c                   update    fprilur
+     c                   else
+     c                   time                    fpodat
+     c                   time                    fpotim
+     c                   eval      fpousr = l_user
+     c                   time                    fpedat
+     c                   time                    fpetim
+     c                   eval      fpeusr = l_user
+     c                   write     fprilur
+     c                   endif
+      *
+     c                   endif
+      *
+      * Sletter rad i arbeidsfil
+      *
+     c                   delete    flvwpfr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for konvertere dato
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     konv_dato     begsr
+      *
+     c                   eval      w_dd = d_dd
+     c                   eval      w_mm = d_mm
+     c                   move      d_aa          w_aa
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for oppslag på vare
+      *
+9.04 c     vvarl1_key    klist
+     c                   kfld                    w_firm
+9.04 c                   kfld                    vvarl1_vare
+      *
+      * Key for oppdatering av spesialpris
+      *
+     c     fpril3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fpril3_kund
+     c                   kfld                    fpril3_kpro
+      *
+     c     fprilu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fprilu_prgr
+     c                   kfld                    fprilu_rkat
+     c                   kfld                    fprilu_kkat
+     c                   kfld                    fprilu_kund
+     c                   kfld                    fprilu_kpro
+     c                   kfld                    fprilu_vare
+     c                   kfld                    fprilu_enhe
+     c                   kfld                    fprilu_lety
+      *
+     c     fprilu_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    fprilu_prgr
+     c                   kfld                    fprilu_rkat
+      *
+      * Key for oppdatering av spesialpris notat
+      *
+     c     fprnlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fprnlu_nkun
+     c                   kfld                    fprnlu_nkpr
+      *
+      * Key for les på vare-enhet
+      *
+     c     vvenl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl2_vare
+     c                   kfld                    vvenl2_saen
+      *
+     c     vvenl2_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl2_vare
+      *
+      * Key for oppslag på leveringstype
+      *
+     c     vltpl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltpl1_lety
+      *
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   endsr

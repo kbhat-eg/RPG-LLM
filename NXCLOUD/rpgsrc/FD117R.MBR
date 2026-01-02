@@ -1,0 +1,824 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FD117R
+      * Beskrivelse . . : Ordre-linje, oppdat. av pakkeregister
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       261004 ASK  Nytt program
+      * 6.10  220609 BSA  Oppdatert med sporingsinformasjon
+6.NU  * R6.30 260514 bsa  Programmet gjennomgått mtp nummerutvidelser.
+8.01  *PRG2   210622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffodtl1    if   e           k disk    rename(fodtpfr:fodtl1r)
+     ffspsl1    if   e           k disk    rename(fspspfr:fspsl1r)
+     ffspslr    if   e           k disk    rename(fspspfr:fspslrr)
+     ffspslu    uf a e           k disk    rename(fspspfr:fspslur)
+     fmtpalr    if   e           k disk    rename(mtpapfr:mtpalrr)
+     fmtpalu    uf a e           k disk    rename(mtpapfr:mtpalur)
+     fmupalu    uf a e           k disk    rename(mupapfr:mupalur)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+      *
+     ffd117d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(fsfirm)
+     d p_numm          s                   like(fsnumm)
+     d p_suff          s                   like(fssuff)
+     d p_line          s                   like(fsline)
+     d p_vare          s                   like(vvvare)
+     d p_totm          s                   like(fdanta)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d fodtl1_numm     s                   like(fdnumm)
+     d fodtl1_suff     s                   like(fdsuff)
+     d fodtl1_line     s                   like(fdline)
+     d fspsl1_numm     s                   like(fsnumm)
+     d fspsl1_suff     s                   like(fssuff)
+     d fspsl1_line     s                   like(fsline)
+     d fspsl1_pakk     s                   like(fspakk)
+     d fspslr_numm     s                   like(fsnumm)
+     d fspslr_suff     s                   like(fssuff)
+     d fspslr_line     s                   like(fsline)
+     d fspslr_pakk     s                   like(fspakk)
+     d fspslu_numm     s                   like(fsnumm)
+     d fspslu_suff     s                   like(fssuff)
+     d fspslu_line     s                   like(fsline)
+     d fspslu_pakk     s                   like(fspakk)
+     d mtpalr_numm     s                   like(mtnumm)
+     d mtpalu_numm     s                   like(mtnumm)
+     d vvarl1_vare     s                   like(vvvare)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(fsfirm)
+     d w_udat          s               d   datfmt(*iso)
+     d w_utim          s               t   timfmt(*iso)
+     d w_totm          s             11  3
+     d w_pakk          s                   like(fspakk)
+     d w_leng          s                   like(fsleng)
+     d w_totl          s              6  1
+     d w_ltel          s              2  0
+6.NU d w_orda          s              8
+     d w_lina          s              6
+      *
+     d b_endr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+5.31 d b_feil          s              1    inz(*off)
+5.31 d b_nyrg          s              1    inz(*off)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * w_curn - Current recordnummer på siden
+      * w_virn - Vis den side som inneholder denne record.
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(10)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+     c                   eval      *in30 = *on
+     c                   eval      *in31 = *on
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   eval      b2totl = w_totm
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inki
+     c                   call      'MT100R'
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      nxt_key
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Sjekk inntasing på registreringslinje
+      *
+     c                   if        b2pakk <> 0
+     c                   if        b_endr = *off
+      *
+     c                   if        b2leng = 0
+     c                   exsr      les_pakk
+     c                   else
+     c                   exsr      reg_pakk
+     c                   endif
+     c                   else
+     c                   exsr      endr_pakk
+     c                   endif
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   goto      b2tagb
+      *
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      p_totm = w_totm
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   eval      b2pakk = 0
+     c                   eval      b2leng = 0
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   eval      fspsl1_pakk = b1pakk
+     c                   else
+     c                   eval      fspsl1_pakk = 0
+     c                   endif
+     c*                  eval      fspsl1_pakk = 0
+      *
+     c     fspsl1_key    setll     fspsl1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+     c                   eval      b_forn = *off
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+      *
+     c                   eval      b2pakk = b1pakk
+     c                   eval      b2leng = b1leng
+     c                   eval      w_leng = b1leng
+     c                   eval      b1valg = 0
+     c                   eval      b_endr = *on
+     c                   eval      *in30 = *off
+     c                   eval      *in31 = *off
+     c                   eval      *in32 = *on
+      *
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      fspslu_pakk = b1pakk
+     c                   eval      fspslr_pakk = b1pakk
+     c                   exsr      slett_pakk
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for les av pakkeinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     les_pakk      begsr
+      *
+      * Sjekk om pakke allerede er registrert - blir endring
+      *
+     c                   eval      fspslr_pakk = b2pakk
+     c     fspslr_key    chain     fspslr
+     c                   if        %found
+     c                   eval      b_endr = *on
+     c                   endif
+      *
+      * Les pakke for sjekk av status og finne restlengde.
+      *
+     c                   eval      mtpalr_numm = b2pakk
+     c     mtpalr_key    chain     mtpalr
+     c                   if        not %found
+     c                   goto      end_nypak
+     c                   endif
+      *
+     c                   if        mtstat <> ' ' and
+     c                             mtstat <> 'D'
+     c                   eval      b2leng = 0
+     c                   goto      end_nypak
+     c                   endif
+      *
+     c                   if        b_endr = *off
+     c                   eval      b2leng = mttotr
+     c                   else
+     c                   eval      b2leng = fsleng
+     c                   eval      w_leng = fsleng
+     c                   endif
+      *
+     c                   eval      *in30 = *off
+     c                   eval      *in31 = *off
+     c                   eval      *in32 = *on
+      *
+     c     end_nypak     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling / opprettelse av pakke/ordrelinje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     reg_pakk      begsr
+      *
+      * Registrer pakkespesifikasjon på ordre
+      *
+     c                   eval      fspslu_pakk = b2pakk
+     c     fspslu_key    chain     fspslu
+     c                   if        %found
+     c                   goto      end_reg
+     c                   endif
+      *
+     c                   eval      fsfirm = w_firm
+     c                   eval      fsnumm = p_numm
+     c                   eval      fssuff = p_suff
+     c                   eval      fsline = p_line
+     c                   eval      fspakk = b2pakk
+     c                   eval      fsleng = b2leng
+     c                   if        b2leng <> mttotr
+     c                   eval      fsdelt = 'D'
+     c                   endif
+      *
+6.10 c                   time                    fsodat
+6.10 c                   time                    fsotim
+6.10 c                   eval      fsousr = l_user
+6.10 c                   time                    fsedat
+6.10 c                   time                    fsetim
+6.10 c                   eval      fseusr = l_user
+     c                   write     fspslur
+      *
+      * Oppdaterer pakkeregister etter registrering
+      *
+     c                   eval      mtpalu_numm = b2pakk
+     c     mtpalu_key    chain     mtpalur
+     c                   if        %found
+     c                   eval      mttotr = mttotr - b2leng
+     c                   if        mttotr = 0
+     c                   eval      mtstat = 'B'
+     c                   else
+     c                   eval      mtstat = 'D'
+     c                   endif
+6.10 c                   time                    mtedat
+6.10 c                   time                    mtetim
+6.10 c                   eval      mteusr = l_user
+     c                   update    mtpalur
+     c                   endif
+      *
+      * Legg ut post i pakkehistorikk
+      *
+     c                   eval      mufirm = w_firm
+     c                   eval      munumm = b2pakk
+     c                   eval      mudato = w_udat
+     c                   eval      mutime = w_utim
+6.NU c                   eval      mutext = 'Reg.  ord. ' + w_orda
+     c                   eval      muleng = b2leng * -1
+     c                   eval      muuser = l_user
+      *
+6.10 c                   time                    muodat
+6.10 c                   time                    muotim
+6.10 c                   eval      muousr = l_user
+6.10 c                   time                    muedat
+6.10 c                   time                    muetim
+6.10 c                   eval      mueusr = l_user
+     c                   write     mupalur
+      *
+     c                   eval      b_forn = *on
+     c                   eval      b2pakk = 0
+     c                   eval      b2leng = 0
+     c                   eval      *in30 = *on
+     c                   eval      *in31 = *on
+      *
+      *
+     c     end_reg       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av endring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     endr_pakk     begsr
+      *
+      * Hent pakkeinformasjon
+      *
+     c                   eval      mtpalr_numm = b2pakk
+     c     mtpalr_key    chain     mtpalr
+     c                   if        not %found
+     c                   goto      end_endr
+     c                   endif
+      *
+     c                   eval      fspslu_pakk = b2pakk
+     c     fspslu_key    chain     fspslur
+      *
+     c                   if        %found
+     c                   if        b2leng <> (mttotr + w_leng)
+     c                   eval      fsdelt = 'D'
+     c                   else
+     c                   eval      fsdelt = ' '
+     c                   endif
+     c                   eval      fsleng = b2leng
+6.10 c                   time                    fsedat
+6.10 c                   time                    fsetim
+6.10 c                   eval      fseusr = l_user
+     c                   update    fspslur
+     c                   endif
+      *
+      * Oppdaterer pakkeregister etter endring
+      *
+     c                   eval      mtpalu_numm = b2pakk
+     c     mtpalu_key    chain     mtpalur
+     c                   if        %found
+     c                   eval      mttotr = mttotr + w_leng - b2leng
+     c                   if        mttotr = 0
+     c                   eval      mtstat = 'B'
+     c                   else
+     c                   eval      mtstat = 'D'
+     c                   endif
+6.10 c                   time                    mtedat
+6.10 c                   time                    mtetim
+6.10 c                   eval      mteusr = l_user
+     c                   update    mtpalur
+     c                   endif
+      *
+      * Legg ut post i pakkehistorikk
+      *
+     c                   eval      mufirm = w_firm
+     c                   eval      munumm = b2pakk
+     c                   eval      mudato = w_udat
+     c                   eval      mutime = w_utim
+6.NU c                   eval      mutext = 'Endr. ord. ' + w_orda
+     c                   eval      muleng = b2leng * -1
+     c                   eval      muuser = l_user
+      *
+6.10 c                   time                    muodat
+6.10 c                   time                    muotim
+6.10 c                   eval      muousr = l_user
+6.10 c                   time                    muedat
+6.10 c                   time                    muetim
+6.10 c                   eval      mueusr = l_user
+     c                   write     mupalur
+      *
+     c                   eval      b_forn = *on
+     c                   eval      b2pakk = 0
+     c                   eval      b2leng = 0
+     c                   eval      *in30 = *on
+     c                   eval      *in31 = *on
+     c                   eval      b_endr = *off
+      *
+     c     end_endr      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     slett_pakk    begsr
+      *
+     c     fspslr_key    chain     fspslr
+      *
+     c                   eval      d1numm = fsnumm
+     c                   eval      d1pakk = fspakk
+     c                   eval      d1leng = fsleng
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_slett
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter pakketre/ordrelinje
+      *
+     c                   eval      fspslu_pakk = b1pakk
+     c     fspslu_key    chain     fspslur
+     c                   delete    fspslur
+      *
+      * Oppdaterer pakkeregister etter sletting
+      *
+     c                   eval      mtpalu_numm = b1pakk
+     c     mtpalu_key    chain     mtpalur
+     c                   if        %found
+     c                   eval      mttotr = mttotr + fsleng
+     c                   if        mttotr = mttotl
+     c                   eval      mtstat = ' '
+     c                   else
+     c                   eval      mtstat = 'D'
+     c                   endif
+6.10 c                   time                    mtedat
+6.10 c                   time                    mtetim
+6.10 c                   eval      mteusr = l_user
+     c                   update    mtpalur
+     c                   endif
+      *
+      * Legg ut post i pakkehistorikk
+      *
+     c                   eval      mufirm = w_firm
+     c                   eval      munumm = b1pakk
+     c                   eval      mudato = w_udat
+     c                   eval      mutime = w_utim
+6.NU c                   eval      mutext = 'Slett ord. ' + w_orda
+     c                   eval      muleng = fsleng
+     c                   eval      muuser = l_user
+      *
+6.10 c                   time                    muodat
+6.10 c                   time                    muotim
+6.10 c                   eval      muousr = l_user
+6.10 c                   time                    muedat
+6.10 c                   time                    muetim
+6.10 c                   eval      mueusr = l_user
+     c                   write     mupalur
+      *
+     c     end_slett     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+     c                   eval      w_stel = 0
+     c                   eval      w_totm = 0
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      fspsl1
+      *
+     c                   if        %eof or
+     c                             fsnumm <> p_numm or
+     c                             fssuff <> p_suff or
+     c                             fsline <> p_line
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1pakk = fspakk
+     c                   eval      b1leng = fsleng
+     c                   eval      b1delt = fsdelt
+      *
+     c                   eval      w_totm = w_totm + fsleng
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     fspsl1_key    setgt     fspsl1
+     c                   readp     fspsl1
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     fspsl1
+      *
+     c                   if        %eof or                                      EOF
+     c                             fsnumm <> p_numm or
+     c                             fssuff <> p_suff or
+     c                             fsline <> p_line
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1pakk = fspakk
+     c                   eval      b1leng = fsleng
+     c*!!                eval      b1totl = *zero
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     fspsl1_key    setll     fspsl1
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for reset av key
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     nxt_key       begsr
+      *
+     c                   if        *in15 = *off
+     c*                  eval      fspsl1_num2 = fspsl1_numm
+     c*                  eval      fspsl1_suf2 = fspsl1_suff
+     c*                  eval      fspsl1_lin2 = fspsl1_line
+     c*                  eval      fspsl1_pak2 = b1pakk
+     c     fspsl1_key    setll     fspsl1
+     c                   endif
+      *
+     c     end_nxt       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering på riktig side ved ny linje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     pos_lin       begsr
+      *
+     c                   eval      w_pakk = *zero
+     c                   eval      w_ltel = *zero
+      *
+     c                   eval      fspsl1_numm = p_numm
+     c                   eval      fspsl1_suff = p_suff
+     c                   eval      fspsl1_line = p_line
+     c     fspsl1_key    setll     fspsl1
+     c     fspsl1_key    reade     fspsl1
+      *
+     c                   dow       not %eof
+     c                   eval      w_ltel = w_ltel + 1
+     c                   if        w_ltel = 1
+     c                   eval      w_pakk = fspakk
+     c                   endif
+     c                   if        w_ltel = c_sfil
+     c                   eval      w_ltel = *zero
+     c                   endif
+      *
+     c     fspsl1_key    reade     fspsl1
+     c                   enddo
+      *
+     c*                  eval      fspsl1_num2 = fspsl1_numm
+     c*                  eval      fspsl1_suf2 = fspsl1_suff
+     c*                  eval      fspsl1_lin2 = fspsl1_line
+     c*                  eval      fspsl1_pak2 = w_pakk
+     c     fspsl1_key    setll     fspsl1
+      *
+     c     end_pos       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+6.NU c                   parm                    p_numm
+     c                   parm                    p_suff
+     c                   parm                    p_line
+     c                   parm                    p_vare
+     c                   parm                    p_totm
+      *
+      * Key for oppslag på ordre-linje
+      *
+     c     fodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtl1_numm
+     c                   kfld                    fodtl1_suff
+     c                   kfld                    fodtl1_line
+      *
+      * Key for posisjonering på ordre/pakketrelinje
+      *
+     c     fspsl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fspsl1_numm
+     c                   kfld                    fspsl1_suff
+     c                   kfld                    fspsl1_line
+     c                   kfld                    fspsl1_pakk
+      *
+      * Key for oppslag på ordre/pakketrelinje
+      *
+     c     fspslr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fspslr_numm
+     c                   kfld                    fspslr_suff
+     c                   kfld                    fspslr_line
+     c                   kfld                    fspslr_pakk
+      *
+      * Key for oppdatering av ordre/pakketrelinje
+      *
+     c     fspslu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fspslu_numm
+     c                   kfld                    fspslu_suff
+     c                   kfld                    fspslu_line
+     c                   kfld                    fspslu_pakk
+      *
+      * Key for oppslag på pakkeregister
+      *
+     c     mtpalr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mtpalr_numm
+      *
+      * Key for oppdatering av pakkeregister
+      *
+     c     mtpalu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mtpalu_numm
+      *
+      * Key for les av vareregister
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Legge parameterverdier inn i nøkler
+      *
+     c                   eval      w_firm = p_firm
+      *
+     c                   eval      fodtl1_numm = p_numm
+     c                   eval      fspsl1_numm = p_numm
+     c                   eval      fspslr_numm = p_numm
+     c                   eval      fspslu_numm = p_numm
+      *
+     c                   eval      fodtl1_suff = p_suff
+     c                   eval      fspsl1_suff = p_suff
+     c                   eval      fspslr_suff = p_suff
+     c                   eval      fspslu_suff = p_suff
+      *
+     c                   eval      fodtl1_line = p_line
+     c                   eval      fspsl1_line = p_line
+     c                   eval      fspslr_line = p_line
+     c                   eval      fspslu_line = p_line
+      *
+     c                   move      p_numm        w_orda
+     c                   move      p_line        w_lina
+      *
+      * Henter dagens dato og klokkeslett
+      *
+     c                   time                    w_udat
+     c                   time                    w_utim
+      *
+      * Hent vareinformasjon til heading
+      *
+     c                   eval      vvarl1_vare = p_vare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+     c                   movel     vvvare        b2vare
+     c                   eval      b2vtxt = vvtek1
+     c                   endif
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c     fspsl1_key    setll     fspsl1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

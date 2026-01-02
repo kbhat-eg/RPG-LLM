@@ -1,0 +1,1764 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  System. . . . . : ASLAGR
+      *  Program . . . . : LI715R
+      *  Beskrivelse . . : Kontrollprog. EDI/faktura mot bestilling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Spesialversjon. :
+      *  Tilpasset for . :
+      *
+      *  Referanse  Dato   Endringsbeskrivelse                     Sign.
+      *  --------- ------  -------------------------------------------------
+      *       160204 GRo  Nytt program
+      * 6.10  170609 BSA  Oppdatert med sporingsinformasjon
+6.11  *       090210 bof  Std. oppslag på ean-nr
+6.12  * 6.10  280710 bsa  Oppdaterer hode hvis det legges til linjer ifht
+6.12  *                   opprinnelig bestilling.
+6.13  * 6.10  230512 bsa  Skal prioritere GTIN nummer iflg NEB standard
+6.14  * 6.10  140912 bsa  Nødfiks for å unngå at programmet "tryner". Må rydde
+6.14  *                   opp i håndteringen av 14 siffers GTIN nummer.
+6.20  *  6.10  011111 bsa Forenklet test mot skaffevarer må også gjelde ved rekontroll
+6.20  *                   og ikke bare ved innlesing. Tar også med sjekk mot av-
+6.20  *                   vikende enheter. (ref 6.21 i LI703R)
+6.21  *  6.10  100112 ASK Lagt inn konvertering til store bokstaver ved enh. kontroll
+6.22  *  6.20  120312 bsa Feilkode skal ikke settes, hvis det ikke er feil på linjenivå.
+6.23  *  6.20  291112 bsa Test mot generell feilkode er ikke på track (ref 6.20/6.22)
+6.24  *  6.20  031014 bsa Trekker ut rabatter ved sjekk av differanser
+6.nu  *  6.30  050614 bof  Utvidelser mtp. nummerutvidelse
+6.30  *  6.30  130515 bkv  Endret LVAR pga økt fra 15 til 20 tegn
+6.31  *  6.30  081117 bsa  Innfører litt mer slingringsmonn ved omregning
+6.32  *  6.30  130918 bsa  Justerer sjekk mot beløpsavvik.
+6.33  *  6.30  081018 bof  Utvidet med trelast sortiment
+6.34  * 6.30  191218 bsa  Kan ikke sjekke mot logistikkvare hvis vi
+6.34  *                   ikke opererer med NOBB nummer.
+6.35  * 6.30  070519 bsa  Hvis NOBB funnet via lev.varenummer, må vi også
+6.35  *                   sjekke bestilling.
+6.36  * 6.30  070519 bsa  Om bestilling finnes, har ingen betydning for status på linje
+6.37  *K0000  290119 bsa  Kan bli låssituasjoner
+7.01  *K000   211016 bsa  Innfører kontroll mot potensiell enhetsproblematikk
+7.01  *K000               Automatisk omregning av enheter
+7.01  *K000               Konverterer automatisk PCE enhet til STK
+7.02  *K000   230317 bsa  GTIN nummer er 14 siffer
+7.03  *K000   210521 bsa  Sjekker også summering av EDI meldinga. Egen status.
+7.03  *K000               Hentet inn fra MGR
+7.04  *K000   220518 bsa  Hvis leverandøren er merket med at enheter ikke
+7.04  *K000               skal regnes om, endres GTIN nummer og "manuelle"
+7.04  *K000               enheter bevares.
+7.05  *K000   220518 bsa  Alle linjer legges ut i omregningstabell for at
+7.05  *K000               det blir enklere å måle leveringskvalitet fra leverandørene.
+7.06  *K0000  150621 bsa  Status 3 og 4 skal overstyre alle andre.
+      *
+8.01  *K0000  230621 BSA  Utvidet meldingsnummer fra 6-8 siffer
+8.02  *K0000  271021 BSA  Hvis GTIN og NOBB er 0, flagg det som ukjent
+8.03  *K0000  310322 BSA  Skriver over mvakoden hvis manuell omregning
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+f 6.34*
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av linjenummersekvenser (2 første siffer i linjenr LIMLIN)
+      *
+      *    10 : Hodeinformasjon
+      *    20 : Partsinformasjon
+      *    30 : Referanser
+      *    40 : Transportinformasjon
+      *    50 : Linjer
+      *    55 : Linjer fra best. (ikke match i EDI-melding)
+      *    60 : Tillegg/fradrag hodenivå
+      *    65 : Fritekst hodenivå
+      *    90 : Totaler
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fledil1    if   e           k disk    rename(ledipfr:ledil1r)
+     flohel1    if   e           k disk    rename(lohepfr:lohel1r)
+     flodtl1    if   e           k disk    rename(lodtpfr:lodtl1r)
+     flodtlv    if   e           k disk    rename(lodtpfr:lodtlvr)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+     frlevl5    if   e           k disk    rename(rlevpfr:rlevl5r)
+     fledilu    uf a e           k disk    rename(ledipfr:ledilur)
+     fledilr    if a e           k disk    rename(ledipfr:ledilrr)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvarl3    if   e           k disk    rename(vvarpfr:vvarl3r)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     fvltyl1    if   e           k disk    rename(vltypfr:vltyl1r)
+     fjvarl3    if   e           k disk    rename(jvarpfr:jvarl3r)
+     fltoel1    if   e           k disk    rename(ltoepfr:ltoel1r)
+6.20 ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+7.04 flekol1    if   e           k disk    rename(lekopfr:lekol1r)
+7.04 fvvenl1    if   e           k disk    rename(vvenpfr:vvenl1r)
+7.04 fjvpklr    if   e           k disk    rename(jvpkpfr:jvpklrr)
+7.05 fgedllu    uf a e           k disk    rename(gedlpfr:gedllur)
+      *
+      *
+      * Definering av array
+      *
+     d a_line          s              4  0 dim(1000)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(lifirm)
+     d p_mtyp          s                   like(litype)
+     d p_mnum          s                   like(limnum)
+     d p_numm          s                   like(linumm)
+     d p_suff          s                   like(lisuff)
+     d p_stat          s              2  0
+6.20 d p_antu          s             11  3
+6.20 d p_anti          s             11  3
+7.03 d p_esta          s              1
+      *
+      * Definering av LDA
+      *
+     d                uds
+6.10 d l_user                911    920
+     d l_firm                944    946  0
+      *
+      * Definering av variable i nøkler
+      *
+     d lohel1_numm     s                   like(lonumm)
+     d lohel1_suff     s                   like(losuff)
+     d lodtl1_numm     s                   like(ldnumm)
+     d lodtl1_suff     s                   like(ldsuff)
+     d lodtl1_line     s                   like(ldline)
+     d lodtlv_vare     s                   like(ldvare)
+     d lodtlx_vare     s                   like(ldvare)
+     d rlevl1_levr     s                   like(rllevr)
+     d rlevl5_eanl     s                   like(rleanl)
+     d ledilu_type     s                   like(litype)
+     d ledilu_mnum     s                   like(limnum)
+     d ledilu_mlin     s                   like(limlin)
+     d ledilr_type     s                   like(litype)
+     d ledilr_mnum     s                   like(limnum)
+     d ledilr_mlin     s                   like(limlin)
+     d ledil1_type     s                   like(litype)
+     d ledil1_mnum     s                   like(limnum)
+     d vvarl1_vare     s                   like(vvvare)
+     d vvarl3_nobb     s                   like(vvnobb)
+     d votyl1_otyp     s                   like(vaotyp)
+     d vltyl1_ltyp     s                   like(ldltyp)
+     d jvarl3_nobb     s                   like(jvnobb)
+6.20 d fohel1_numm     s                   like(fonumm)
+6.20 d fohel1_suff     s                   like(fosuff)
+7.04 d lekol1_kmty     s                   like(lekmty)
+7.04 d lekol1_ktyp     s                   like(lektyp)
+7.04 d lekol1_kid1     s                   like(lekid1)
+7.04 d lekol1_kid2     s                   like(lekid2)
+7.04 d lekol1_kkod     s                   like(lekkod)
+7.04 d vvenl1_vare     s                   like(vevare)
+7.04 d vvenl1_enhe     s                   like(veenhe)
+7.04 d jvpklr_vare     s                   like(jwvare)
+7.05 d gedllu_type     s                   like(gltype)
+7.05 d gedllu_mnum     s                   like(glmnum)
+7.05 d gedllu_mlin     s                   like(glmlin)
+      *
+      * Definering av øvrige variable
+      *
+     d w_firm          s                   like(lifirm)
+     d w_fexn_lin      s              6  0
+     d w_bbest         s             15  2
+     d w_bfakt         s             15  2
+     d w_ldor          s                   like(lildor)
+     d b_diff          s              1    inz(*off)
+     d w_line          s                   like(ldline)
+     d w_suff          s                   like(ldsuff)
+6.11 d w_eann          s             14  0
+6.11 d w_east          s              1
+6.11 d w_eava          s                   like(vvvare)
+6.11 d w_eaen          s                   like(vvenhe)
+6.13 d w_nobb          s                   like(vvnobb)
+6.24 d w_bnet          s             15  2
+6.31 d w_antb          s             13  2
+6.31 d w_anto          s             13  2
+6.33 d w_lv_vare       s                   like(vvvare)
+7.04 d w_katg          s                   like(rlkatg)
+     d x1              s              4  0
+     d x2              s              4  0
+7.01 d w_stat          s              1
+7.01 d w_fenh          s              3
+7.01 d w_ksap          s             15  3
+7.01 d w_brto          s             13  2
+7.01 d w_brab          s             11  2
+7.01 d w_rbel          s             11  2
+7.01 d p_gtin          s             14  0
+7.01 d x_vare          s             15
+7.01 d p_genh          s              3
+7.01 d x_nobb          s              8  0
+7.01 d x_stat          s              1
+7.01 d p_anta          s             11  3
+7.01 d p_antx          s             11  3
+7.01 d p_anto          s             11  2
+7.01 d w_lsta          s              1
+7.01 d w_levr          s                   like(rllevr)
+7.04 d p_levr          s              6  0
+      *
+     d b_fakt          s              1    inz(*off)
+     d b_fakh          s              1    inz(*off)
+     d b_fakl          s              1    inz(*off)
+     d b_fnob          s              1    inz(*off)
+     d b_fant          s              1    inz(*off)
+6.20 d b_fobt          s              1    inz(*off)
+7.01 d b_omre          s              1    inz(*off)
+7.04 d b_enhe          s              1    inz(*off)
+      *
+      *  Def. av datastrukturer for EDI-fakt. (lagret i LEDIPF, felt LIMELD)
+      *
+      * FAKTURA Hode
+      *
+     d d_fakh1         ds
+     d  d_fh_dtyp                     3
+     d  d_fh_fanr                    35
+     d  d_fh_fako                     3
+     d  d_fh_ldat                      d   datfmt(*iso)
+     d  d_fh_best                    20
+     d  d_fh_lord                    20
+     d  d_fh_lfak                    20
+     d  d_fh_sean                    13  0
+     d  d_fh_snav                    30
+     d  d_fh_fean                    13  0
+     d  d_fh_fnav                    30
+     d  d_fh_fad1                    30
+     d  d_fh_fad2                    30
+     d  d_fh_fste                    30
+     d  d_fh_forg                    20
+     d  d_fh_kref                    20
+     d  d_fh_lref                    20
+     d  d_fh_valk                     3
+     d  d_fh_ffda                      d   datfmt(*iso)
+     d  d_fh_levb                     3
+     d  d_fh_forf                      d   datfmt(*iso)
+      *
+      * Tillegg/fradragslinjer
+      *
+     d d_fakh2         ds
+     d  d_fh_tsig                     3
+     d  d_fh_tkod                     3
+     d  d_fh_ttek                    30
+     d  d_fh_tpro                     4  2
+     d  d_fh_tbel                     8  2
+     d  d_fh_apro                     4  2
+      *
+      * Fritekst/hodelinje
+      *
+     d d_fakh3         ds
+     d  d_fh_ftxq                     3
+     d  d_fh_ftxt                    70
+      *
+      * Fakturareferanser/hode
+      *
+     d d_fakh4         ds
+     d  d_fh_bstn                    35
+     d  d_fh_ordr                    35
+     d  d_fh_fakk                    35
+     d  d_fh_paks                    35
+     d  d_fh_kunr                    35
+     d  d_fh_proj                    35
+     d  d_fh_lvfa                    35
+     d  d_fh_ofav                    35
+     d  d_fh_plnr                    35
+     d  d_fh_konr                    35
+     d  d_fh_kidn                    35
+      *
+      * Faktura partsinfo./hode
+      *
+     d d_fakh5         ds
+     d  d_fh_part                     3
+     d  d_fh_pean                    13  0
+     d  d_fh_pnav                    30
+     d  d_fh_pad1                    30
+     d  d_fh_pad2                    30
+     d  d_fh_pste                    30
+     d  d_fh_porg                    20
+      *
+      * Faktura transport/lev. - hode
+      *
+     d d_fakh6         ds
+     d  d_fh_trmo                     3
+     d  d_fh_trna                    35
+     d  d_fh_lebe                     3
+      *
+      * FAKTURA Linje
+      *
+     d d_fakl          ds
+     d  d_fl_llin                     6  0
+7.02 d* d_fl_vean                    13  0
+7.02 d  d_fl_vean                    14  0
+     d  d_fl_vnob                     8  0
+     d  d_fl_vlev                    15
+     d  d_fl_tek1                    35
+     d  d_fl_tek2                    35
+     d  d_fl_bkva                    15  3
+     d  d_fl_benh                     3
+     d  d_fl_lkva                    15  3
+     d  d_fl_lenh                     3
+     d  d_fl_fkva                    15  3
+     d  d_fl_fenh                     3
+     d  d_fl_bnet                    15  2
+     d  d_fl_bbto                    15  2
+     d  d_fl_prkv                     3
+     d  d_fl_pris                    15  3
+     d  d_fl_penh                     3
+     d  d_fl_prpr                     9  0
+     d  d_fl_bnum                    20
+     d  d_fl_blin                     6  0
+     d  d_fl_mvap                     4  2
+     d  d_fl_sig1                     3
+     d  d_fl_kod1                     3
+     d  d_fl_bel1                     9  2
+     d  d_fl_pro1                     5  2
+     d  d_fl_sig2                     3
+     d  d_fl_kod2                     3
+     d  d_fl_bel2                     9  2
+     d  d_fl_pro2                     5  2
+     d  d_fl_sig3                     3
+     d  d_fl_kod3                     3
+     d  d_fl_bel3                     9  2
+     d  d_fl_pro3                     5  2
+     d  d_fl_sig4                     3
+     d  d_fl_kod4                     3
+     d  d_fl_bel4                     9  2
+     d  d_fl_pro4                     5  2
+     d  d_fl_sig5                     3
+     d  d_fl_kod5                     3
+     d  d_fl_bel5                     9  2
+     d  d_fl_pro5                     5  2
+     d  d_fl_sig6                     3
+     d  d_fl_kod6                     3
+     d  d_fl_bel6                     9  2
+     d  d_fl_pro6                     5  2
+7.01 d  d_fl_vevr                    15
+8.03 d  d_fl_mvak                     1
+7.01 d  d_fl_manu                     3
+      *
+      * Fakturatotallinjer
+      *
+     d d_fakt          ds
+     d  d_ft_ftot                    15  2
+     d  d_ft_teks                    15  2
+     d  d_ft_tmva                    15  2
+     d  d_ft_mvgr                    15  2
+     d  d_ft_veks                    15  2
+     d  d_ft_vink                    15  2
+     d  d_ft_stil                    15  2
+     d  d_ft_sfra                    15  2
+7.04  *
+7.04 d x_levr          ds
+7.04 d  x_kid1_10                    10
+7.04 d    x_kid1                      6  0 overlay(x_kid1_10:1)
+6.21  *
+6.21  * Definering av konstanter
+6.21  *
+6.21 d lo              c                   'abcdefghijklmnopqrstuvwxyzæøåäö'
+6.21 d up              c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅÄÖ'
+      *
+6.33 C/Exec SQL
+6.33 C+  Set Option DatFmt=*ISO
+6.33 C/End-Exec
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Hoved program styrerutine - les av innposter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Sjekk gyldige meldingstype for dette kontr.prog.
+      *
+     c                   if        p_mtyp <> 'FAKT'
+     c                   eval      p_stat = 1
+     c                   goto      end_pgm
+     c                   endif
+      *
+      * Nullstille statuser på EDI-records
+      *
+     c                   exsr      reset_stat
+      *
+      * Finn informasjon på meldingshode
+      *
+     c                   eval      ledilr_mlin = 100001
+     c     ledilr_key    chain     ledilr
+     c                   if        not %found
+     c                   eval      p_stat = 2
+     c                   goto      end_pgm
+     c                   else
+     c                   eval      d_fakh1 = limeld
+     c                   exsr      sjk_hode
+     c                   endif
+      *
+     c*                  if        b_fakh = *on
+     c                   exsr      sjk_part
+     c*                  endif
+      *
+     c                   eval      ledilr_mlin = 900001
+     c     ledilr_key    chain     ledilr
+     c                   if        not %found
+     c                   eval      p_stat = 3
+     c                   goto      end_pgm
+     c                   else
+     c                   eval      d_fakt = limeld
+     c                   exsr      sjk_tot
+     c                   endif
+      *
+     c                   exsr      sjk_lin
+7.03  * Sjekker beløp
+7.03 c                   exsr      sjk_belop
+      *
+7.01  * Sjekk om det er problemer med enheter
+7.01 c                   exsr      sjk_enhet
+7.04  * Hvis feilstatus fra før settes denne tilbake.
+7.04 c                   if        p_esta <> *blanks
+7.04 c                   eval      ledilu_type = 'FAKT'
+7.04 c                   eval      ledilu_mnum = limnum
+7.04 c                   eval      ledilu_mlin = 100001
+7.04 c     ledilu_key    chain     ledilu
+7.04 c                   if        %found
+7.04 c                   eval      listat = p_esta
+7.04 c                   update    ledilur
+7.04 c                   endif
+7.04 c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     end_pgm       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *  Subrutine for å finne eventuelle enhetsproblemer
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01 c     sjk_enhet     begsr
+7.01  *
+7.01 c                   eval      w_stat = *blanks
+7.01 c                   eval      w_lsta = *blanks
+7.01  *
+7.01 c                   eval      ledilu_type = 'FAKT'
+7.01 c                   eval      ledilu_mnum = limnum
+7.01 c                   eval      ledilu_mlin = 500001
+7.01 c     ledilu_key    setll     ledilu
+7.01 c                   read      ledilu
+7.01  *
+7.01 c                   dow       not %eof and
+7.01 c                             limlin < 550000
+7.01  *
+7.06 c                   if        listat <> '3' and
+7.06 c                             listat <> '4'
+7.01  *
+7.01 c                   eval      d_fakl = limeld
+7.01  *
+7.01  * Sjekk om fritekstlinje
+7.01  *
+7.01 c                   if        d_fl_vnob = 0 and
+7.01 c                             d_fl_fenh = *blank and
+7.01 c                             d_fl_fkva = 0
+7.01 c                   unlock    ledilu
+7.01 c                   goto      les_nyline
+7.01 c                   endif
+7.01  *
+7.01  /Free
+7.01            w_fenh = %xlate(lo:up:d_fl_fenh);
+7.01  /End-free
+7.01  *
+7.01  * Hvis enhet fra EDI meldingen er PCE, settes den til STK og logges
+7.01  *
+7.01 c                   if        w_fenh = 'PCE'
+7.01 c                   eval      p_genh = 'STK'
+7.01 c                   eval      p_anto = d_fl_fkva
+7.01 c                   eval      w_ksap = d_fl_pris
+7.01 c                   eval      w_lsta = 'A'
+7.05 c                   exsr      gen_logg_lin
+7.01 c                   eval      d_fl_fenh = p_genh
+7.01 c                   eval      d_fl_manu = '(A)'
+7.01 c                   eval      listat = *blanks
+7.01 c                   eval      limeld = d_fakl
+7.01 c                   update    ledilur
+7.01 c                   goto      les_nyline
+7.01 c                   endif
+7.05  *
+7.05  * Hent enhet fra GTIN nummer
+7.05  *
+7.05 c                   if        d_fl_vean = 0
+7.05 c                   eval      limeld = d_fakl
+7.05 c                   eval      w_lsta = 'G'
+7.05 c                   eval      p_anto = d_fl_fkva
+7.05 c                   eval      w_ksap = d_fl_pris
+7.05 c                   exsr      gen_logg_lin
+7.05 c                   unlock    ledilu
+7.05 c                   goto      les_nyline
+7.05 c                   endif
+7.01  *
+7.01 c                   eval      p_gtin = d_fl_vean
+7.01 c                   eval      x_vare = *blanks
+7.01 c                   eval      p_genh = *blanks
+7.01 c                   eval      x_nobb = 0
+7.01 c                   eval      x_stat = *blanks
+7.01 c                   call      'VE717R'
+7.01 c                   parm                    w_firm
+7.01 c                   parm                    p_gtin
+7.01 c                   parm                    X_vare
+7.01 c                   parm                    p_genh
+7.01 c                   parm                    X_nobb
+7.01 c                   parm                    x_stat
+7.01  *
+7.01 c                   if                      %trim(p_genh) = *blanks
+7.01 c                   eval      w_stat = 'A'
+7.01 c                   eval      listat = 'A'
+7.05 c                   eval      limeld = d_fakl
+7.05 c                   eval      p_anto = d_fl_fkva
+7.05 c                   eval      w_ksap = d_fl_pris
+7.05 c                   exsr      gen_logg_lin
+7.05 c                   update    ledilur
+7.05 c                   goto      les_nyline
+7.01 c                   endif
+7.01  *
+7.01 c                   if                      %trim(p_genh) <> *blanks and
+7.01 c                                           %trim(p_genh) <> %trim(w_fenh)
+7.01 c                   eval      b_omre = *on
+7.04 c                   endif
+7.04  *
+7.04  * Sjekk mot tilleggsregister om omregning skal skje
+7.04  *
+7.04 c                   if        b_omre = *on
+7.04 c                   exsr      sjk_omr
+7.04 c                   endif
+7.04  *
+7.04 c                   if        b_omre = *on
+7.01  * Forsøk med omregning
+7.01 c                   exsr      recalc_linje
+7.01 c                   if        b_omre = *off
+7.01 c                   eval      w_stat = 'A'
+7.01 c                   eval      listat = 'A'
+7.05 c                   eval      w_lsta = 'E'
+7.05 c                   exsr      gen_logg_lin
+7.05 c                   update    ledilur
+7.05 c                   goto      les_nyline
+7.03 c                   else
+7.05 c                   eval      w_lsta = 'E'
+7.05 c                   exsr      gen_logg_lin
+7.01 c                   eval      d_fl_fkva = p_anto
+7.01 c                   eval      d_fl_fenh = p_genh
+7.01 c                   eval      d_fl_penh = p_genh
+7.01 c                   eval      d_fl_pris = w_ksap
+7.01 c                   eval      d_fl_manu = '(A)'
+7.01 c                   eval      listat = *blanks
+7.01 c                   eval      limeld = d_fakl
+7.05 c                   update    ledilur
+7.05 c                   goto      les_nyline
+7.05 c                   endif
+7.04 c                   else
+7.04  * Omregning skal ikke gjøres - bytte GTIN ?
+7.04 c                   if                      %trim(p_genh) <> *blanks and
+7.04 c                                           %trim(p_genh) <> %trim(w_fenh)
+7.04  * OK, da benytter vi GTIN til angitt enhet
+7.04 c                   eval      p_levr = lildor
+7.04 c                   eval      x_stat = *blanks
+7.04 c                   call      'VE713R'
+7.04 c                   parm                    w_firm
+7.04 c                   parm                    p_levr
+7.04 c                   parm                    x_vare
+7.04 c                   parm                    w_fenh
+7.04 c                   parm                    p_gtin
+7.04 c                   parm                    x_stat
+7.04  * Oppdater
+7.04 c                   if        p_gtin <> 0
+7.04 c                   eval      d_fl_vean = p_gtin
+7.04 c                   eval      listat = *blanks
+7.04 c                   eval      limeld = d_fakl
+7.04 c                   eval      w_lsta = 'G'
+7.04 c                   eval      p_anto = d_fl_fkva
+7.04 c                   eval      w_ksap = d_fl_pris
+7.04 c                   eval      p_genh = w_fenh
+7.04 c                   exsr      gen_logg_lin
+7.04 c                   update    ledilur
+7.04 c                   goto      les_nyline
+7.04 c                   else
+7.04  * Er angitt enhet gyldig for varen ?
+7.04 c                   exsr      sjk_edienh
+7.04  *
+7.04 c                   if        b_enhe = *on
+7.04 c                   eval      d_fl_vean = 0
+7.04 c                   eval      listat = *blanks
+7.04 c                   eval      limeld = d_fakl
+7.04 c                   eval      w_lsta = 'M'
+7.04 c                   eval      p_anto = d_fl_fkva
+7.04 c                   eval      w_ksap = d_fl_pris
+7.04 c                   eval      p_genh = w_fenh
+7.04 c                   exsr      gen_logg_lin
+7.04 c                   update    ledilur
+7.04 c                   goto      les_nyline
+7.04 c                   else
+7.04 c                   eval      limeld = d_fakl
+7.04 c                   eval      w_lsta = 'E'
+7.04 c                   exsr      gen_logg_lin
+7.04 c                   update    ledilur
+7.07 c                   goto      les_nyline
+7.04 c                   endif
+7.04  *
+7.04 c                   endif
+7.04  *
+7.01 c                   endif
+7.01 c                   endif
+7.04  * Legg ut linje for logging - er ikke mange som kommer hit (tror jeg)
+7.04 c                   eval      limeld = d_fakl
+7.04 c                   eval      w_lsta = 'O'
+7.04 c                   eval      p_anto = d_fl_fkva
+7.04 c                   eval      w_ksap = d_fl_pris
+7.04 c                   exsr      gen_logg_lin
+7.01  *
+7.06 c                   endif
+7.01  *
+7.01 c                   update    ledilur
+7.01  *
+7.01 c     les_nyline    tag
+7.01 c                   read      ledilu
+7.01 c                   enddo
+7.01  *
+7.01 c                   if        not %eof
+7.01 c                   unlock    ledilu
+7.01 c                   endif
+7.01  *
+7.01 c                   if        w_stat <> *blanks
+7.01 c                   eval      ledilu_type = 'FAKT'
+7.01 c                   eval      ledilu_mnum = limnum
+7.01 c                   eval      ledilu_mlin = 100001
+7.01 c     ledilu_key    chain     ledilu
+7.01 c                   if        %found and
+7.01 c                             listat = *blanks
+7.01 c                   eval      listat = w_stat
+7.01 c                   update    ledilur
+7.01 c                   else
+7.01 c                   unlock    ledilu
+7.01 c                   endif
+7.01 c                   endif
+7.01  *
+7.01 c                   endsr
+7.01  *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  * Regner om antall til GTIN nummerets enhet. Gjelder også pris
+7.01  * NB Beløpet skal ikke endres.
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01 c     recalc_linje  begsr
+7.01  *
+7.01 c                   eval      w_brto = 0
+7.01 c                   eval      w_brab = 0
+7.01 c                   eval      p_antx = 0
+7.01 c                   eval      p_anto = 0
+7.01 c                   eval      p_anta = d_fl_fkva
+7.01  *
+7.01 c                   call      'VA770R'
+7.01 c                   parm                    w_firm
+7.01 c                   parm                    x_vare
+7.01 c                   parm                    w_fenh
+7.01 c                   parm                    p_anta
+7.01 c                   parm                    p_genh
+7.01 c                   parm                    p_antx
+7.01  * Avrunder til kun to desimaler, som benyttes videre
+7.01 c                   eval(h)   p_anto = p_antx
+7.01  * Hvis retur er forskjellig fra 0, regn om pris og oppdater
+7.01 c                   if        p_anto = 0
+7.01 c                   eval      b_omre = *off
+7.01 c                   goto      recalc_end
+7.01 c                   endif
+7.01  *
+7.01 c                   if        d_fl_bbto <> 0
+7.01 c                   eval      w_brto = d_fl_bbto
+7.01 c                   else
+7.01 c                   eval(h)   w_brto = (d_fl_pris * d_fl_fkva)
+7.01 c                   endif
+7.01  *
+7.01 c                   eval(h)   w_ksap = w_brto / p_anto
+7.01  *
+7.01 c     recalc_end    endsr
+7.01  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for sjekk av hodeinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjk_hode      begsr
+      *
+     c                   eval      b_fakh = *off
+     c                   eval      lohel1_numm = linumm
+     c                   eval      lohel1_suff = lisuff
+      *
+     c                   eval      ledilu_type = litype
+     c                   eval      ledilu_mnum = limnum
+     c                   eval      ledilu_mlin = limlin
+      *
+      * Sjekk at bestilling finnes
+      *
+     c     lohel1_key    chain     lohel1
+     c                   if        %found
+     c                   eval      b_fakh = *on
+     c                   else
+6.20 c                   eval      b_fobt = *off
+     c     ledilu_key    chain     ledilur
+6.37 c                   if        %found
+     c                   if        listat = *blank
+     c                   eval      listat = '1'
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   update    ledilur
+     c                   leavesr
+6.37 c                   else
+6.37 c                   unlock    ledilu
+     c                   endif
+6.37 c                   endif
+     c                   endif
+      *
+      * Sjekk ordretype
+      *
+     c                   if        lootyp <> *blank
+     c                   eval      votyl1_otyp = lootyp
+     c     votyl1_key    chain     votyl1
+     c                   if        not %found or
+     c                             vaosys <> 1 or
+     c                             vaoakk <> 2
+     c     ledilu_key    chain     ledilur
+6.37 c                   if        %found
+     c                   if        listat = *blank
+     c                   eval      listat = '4'
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   update    ledilur
+6.37 c                   else
+6.37 c                   unlock    ledilu
+     c                   endif
+6.37 c                   endif
+     c                   endif
+     c                   endif
+6.20  * Hvis ordren er koblet mot ordre, kan vi tillate forenklet kontroll
+6.20 c                   if        loornr = 0
+6.20 c                   eval      b_fobt = *off
+6.20 c                   endif
+6.20  * Sjekk at ordren finnes.
+6.20 c                   if        b_fobt = *on
+6.20 c                   eval      fohel1_numm = loornr
+6.20 c                   eval      fohel1_suff = loorsu
+6.20 c     fohel1_key    chain     fohel1
+6.20 c                   if        %eof
+6.20 c                   eval      b_fobt = *off
+6.20 c                   endif
+6.20 c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for sjekk av partsinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjk_part      begsr
+      *
+     c                   eval      w_ldor = *zero
+      *
+     c                   eval      ledilr_mlin = 200000
+     c     ledilr_key    setll     ledilr
+     c                   read      ledilr
+      *
+     c                   dow       limlin < 300000 and
+     c                             not %eof
+      *
+     c                   eval      d_fakh5 = limeld
+      *
+     c                   if        d_fh_part = 'SU '
+     c                   if        loldor <> 0
+     c                   eval      rlevl1_levr = loldor
+     c     rlevl1_key    chain     rlevl1
+     c                   if        %found
+     c                   if        rleanl <> d_fh_pean
+     c     ledilu_key    chain     ledilur
+6.37 c                   if        %found
+     c                   if        listat = *blank
+     c                   eval      listat = '2'
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   update    ledilur
+6.37 c                   else
+6.37 c                   unlock    ledilu
+     c                   endif
+6.37 c                   endif
+     c                   else
+     c                   eval      w_ldor = loldor
+     c                   endif
+     c                   endif
+      *
+     c                   else
+      *
+     c                   eval      rlevl5_eanl = d_fh_pean
+     c     rlevl5_key    chain     rlevl5
+     c                   if        not %found
+     c     ledilu_key    chain     ledilur
+6.37 c                   if        %found
+     c                   eval      listat = '2'
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   update    ledilur
+6.37 c                   endif
+     c                   else
+     c                   eval      w_ldor = rllevr
+     c                   endif
+      *
+     c                   endif
+     c                   endif
+      *
+     c                   read      ledilr
+     c                   enddo
+      *
+     c                   if        listat = *blank
+     c                   if        w_ldor <> *zero
+     c                   eval      ledilu_mlin = 100001
+     c     ledilu_key    chain     ledilur
+     c                   if        %found
+     c                   eval      lildor = w_ldor
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   update    ledilur
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for sjekk av totalinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjk_tot       begsr
+      *
+     c                   eval      b_fakt = *off
+     c                   eval      lohel1_numm = linumm
+     c                   eval      lohel1_suff = lisuff
+      *
+     c                   eval      ledilu_type = litype
+     c                   eval      ledilu_mnum = limnum
+     c                   eval      ledilu_mlin = limlin
+      *
+     c     lohel1_key    chain     lohel1
+     c                   if        %found
+     c                   eval      b_fakt = *on
+     c                   endif
+      *
+      * Sjekk ordretotal
+      *
+     c     ledilu_key    chain     ledilur
+     c                   if        %found
+     c                   if        listat = *blank
+     c                   if        b_fakt = *off
+     c                   eval      listat = '1'
+     c                   else
+6.24 c                   eval      w_bnet = lototi - lototr
+6.24 c**                 if        lototi <> d_ft_teks
+6.24 c                   if        w_bnet <> d_ft_teks
+6.24 c**                 eval      w_bbest = lototi
+6.24 c                   eval      w_bbest = lototi - lototr
+     c                   eval      w_bfakt = d_ft_teks
+     c                   exsr      sjk_toleranse
+     c                   if        b_diff = *on
+     c                   eval      listat = '5'
+     c                   endif
+     c                   endif
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   update    ledilur
+      *
+     c                   eval      ledilu_mlin = 100001
+     c     ledilu_key    chain     ledilur
+     c                   if        %found and
+6.24 c**                           lototi <> d_ft_teks
+6.24 c                             (lototi - lototr) <> d_ft_teks
+     c                   if        listat = *blank
+6.24 c**                 eval      w_bbest = lototi
+6.24 c                   eval      w_bbest = lototi - lototr
+     c                   eval      w_bfakt = d_ft_teks
+     c                   exsr      sjk_toleranse
+     c                   if        b_diff = *on
+     c                   eval      listat = '5'
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   update    ledilur
+     c                   endif
+     c                   endif
+6.37 c                   else
+6.37 c                   unlock    ledilu
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for sjekk av linjeinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjk_lin       begsr
+      *
+     c                   eval      b_fakh = *off
+     c                   exsr      slett_glin
+      *
+     c                   eval      ledilu_type = litype
+     c                   eval      ledilu_mnum = limnum
+     c                   eval      ledilu_mlin = 500000
+      *
+     c     ledilu_key    setll     ledilu
+     c                   read      ledilu
+      *
+     c                   dow       limlin > 500000 and
+     c                             limlin < 600000 and
+     c                             not %eof
+      *
+     c                   eval      d_fakl = limeld
+     c                   eval      listat = *blank
+8.02  * Flagg ukjent vare
+8.02 c                   if        d_fl_vnob = 0 and
+8.02 c                             d_fl_vean = 0
+8.02 c                   eval      listat = '4'
+8.02 c                   endif
+      *
+     c                   if        d_fl_vnob <> 0 or
+     c                             d_fl_vean <> 0
+     c                   exsr      finn_nobb
+     c                   if        b_fakl = *on
+     c                   exsr      lin_ktrl
+     c                   endif
+     c                   endif
+      *
+     c                   if        b_fakl = *off
+6.36 c**                 if        b_fobt = *off
+     c                   eval      listat = '4'
+6.36 c**                 endif
+     c                   endif
+      *
+     c                   if        listat <> *blank
+     c                   eval      b_fakh = *on
+     c                   endif
+      *
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   update    ledilur
+      *
+     c                   read      ledilu
+     c                   enddo
+6.37  * Hvis ikke eof, vil vi ha en potensiell låssituasjon.
+6.37 c                   if        not %eof(ledilu)
+6.37 c                   unlock    ledilu
+6.37 c                   endif
+      *
+     c                   if        b_fakh = *on
+     c                   exsr      oppd_hode
+     c                   endif
+      *
+     c                   exsr      kryss_sjekk
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for sletting av genererte linjer mot bestilling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     slett_glin    begsr
+      *
+     c                   eval      ledilu_type = litype
+     c                   eval      ledilu_mnum = limnum
+     c                   eval      ledilu_mlin = 550000
+      *
+     c     ledilu_key    setll     ledilu
+     c                   read      ledilu
+      *
+     c                   dow       limlin < 600000 and
+     c                             not %eof
+     c                   delete    ledilur
+     c                   read      ledilu
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for nullstilling av meldingsstatus
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     reset_stat    begsr
+      *
+     c                   eval      ledilu_type = p_mtyp
+     c                   eval      ledilu_mnum = p_mnum
+     c                   eval      ledilu_mlin = *zero
+      *
+     c     ledilu_key    setll     ledilu
+     c                   read      ledilu
+      *
+     c                   dow       not %eof and
+     c                             limnum = p_mnum
+     c                   eval      listat = *blank
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   update    ledilur
+      *
+     c                   read      ledilu
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å finne bestillingslinje fra NOBB-nr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     finn_nobb     begsr
+      *
+     c                   eval      b_fakl = *off
+     c                   eval      b_fnob = *off
+6.13  * EAN - flyttet foran innhenting via NOBB nr pga NEB std
+6.13 c                   if        d_fl_vean <> 0
+6.13  * Finn varenummer via ean
+6.13 c                   eval      w_east = *blanks
+6.13 c                   eval      w_eaen = *blanks
+6.13 c                   eval      w_eava = *blanks
+6.13 c                   eval      w_nobb = 0
+6.13 c                   eval      w_eann = d_fl_vean
+6.13 c                   call      'VE717R  '
+6.13 c                   parm                    w_firm
+6.13 c                   parm                    w_eann
+6.13 c                   parm                    w_eava
+6.13 c                   parm                    w_eaen
+6.13 c                   parm                    w_nobb
+6.13 c                   parm                    w_east
+6.13 c                   if        w_east = '1'
+6.13 c                   eval      lodtlv_vare = w_eava
+6.13 c                   eval      b_fnob = *on
+6.13 c                   endif
+6.13 c                   endif
+      *
+6.13  * Finn varenummer via Nobb-nr
+      *
+6.13 c                   if        b_fnob = *off
+6.34 c                   if        d_fl_vnob <> 0
+      * finn evt logistikkvarernr
+6.33  * sjekker om logistikk-vare
+6.33 c                   eval      w_lv_vare = *blank
+6.33 c/exec sql
+6.33 c+ select jvqvnr
+6.33 c+ into   :w_lv_vare
+6.33 c+ from   jvklpf
+6.33 c+ where  jvquno = :d_fl_vnob and jvqfir = :w_firm
+6.33 c+ fetch first 1 rows only
+6.33 c/end-exec
+      *
+6.34 c                   else
+6.34 c                   eval      w_lv_vare = *blank
+6.34 c                   endif
+6.34  *
+6.33 c                   if        w_lv_vare <> *blank
+6.33 c                   eval      lodtlv_vare = w_lv_vare
+6.35 c                   eval      b_fnob = *on
+6.33 c                   else
+     c                   if        d_fl_vnob <> 0
+     c                   eval      vvarl3_nobb = d_fl_vnob
+     c     vvarl3_key    chain     vvarl3r
+     c                   if        %found
+     c                   eval      b_fnob = *on
+     c                   eval      lodtlv_vare = vvvare
+     c                   else
+     c                   eval      jvarl3_nobb = d_fl_vnob
+     c     jvarl3_key    chain     jvarl3r
+     c                   if        %found
+     c                   eval      b_fnob = *on
+     c                   eval      lodtlv_vare = jvvare
+     c                   endif
+     c                   endif
+     c                   endif
+6.33 c                   endif
+6.13 c                   endif
+6.13  * Hvis ikke funnet avslutter vi jobben
+6.13 c                   if        b_fnob = *off
+6.13 c                   goto      end_nobb
+6.13 c                   endif
+6.13  * EAN
+6.13 c*                  if        b_fnob = *off  and
+6.13 c*                            d_fl_vean <> 0
+6.13  * Finn varenummer via ean
+6.13  *
+6.13 c*                  eval      w_eann = d_fl_vean
+6.13 c*                  call      'VE710R  '
+6.13 c*                  parm                    w_firm
+6.13 c*                  parm                    w_eann
+6.13 c*                  parm                    w_eava
+6.13 c*                  parm                    w_eaen
+6.13 c*                  parm                    w_east
+6.13 c*                  if        w_east = '1'
+6.13 c*                  eval      lodtlv_vare = w_eava
+6.13 c*                  else
+6.13 c*                  goto      end_nobb
+6.13 c*                  endif
+6.13 c*                  endif
+      *
+      * Finn bestillingslinje på eget varenummer - prøver først å finne
+      * eksakt antall
+      *
+     c     lodtlv_key    setll     lodtlv
+     c     lodtlv_key    reade     lodtlv
+      *
+     c                   dow       not %eof
+      *
+     c                   if        p_numm = *zero
+     c                   if        ldnumm = linumm
+     c                   move      ldline        liline
+     c                   move      ldsuff        lisuff
+     c                   eval      b_fakl = *on
+     c                   goto      end_nobb
+     c                   endif
+     c                   endif
+      *
+     c                   if        p_numm <> *zero
+     c                   if        ldnumm = p_numm
+     c                   if        ldsuff = p_suff
+     c                   if        ldanta = d_fl_fkva
+     c                   move      ldline        liline
+     c                   move      ldsuff        lisuff
+     c                   eval      b_fakl = *on
+     c                   goto      end_nobb
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c     lodtlv_key    reade     lodtlv
+     c                   enddo
+      *
+      * Finn bestillingslinje på eget varenummer - hvis ikke funnet før
+      *
+     c     lodtlv_key    setll     lodtlv
+     c     lodtlv_key    reade     lodtlv
+      *
+     c                   dow       not %eof
+      *
+     c                   if        p_numm = *zero
+     c                   if        ldnumm = linumm
+     c                   move      ldline        liline
+     c                   move      ldsuff        lisuff
+     c                   eval      b_fakl = *on
+     c                   goto      end_nobb
+     c                   endif
+     c                   endif
+      *
+     c                   if        b_fakl = *off
+     c                   if        p_numm <> *zero
+     c                   if        ldnumm = p_numm
+     c                   if        ldsuff = p_suff
+     c                   move      ldline        liline
+     c                   move      ldsuff        lisuff
+     c                   eval      b_fakl = *on
+     c                   goto      end_nobb
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c     lodtlv_key    reade     lodtlv
+     c                   enddo
+      *
+     c     end_nobb      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å sjekke bestillingslinje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     lin_ktrl      begsr
+6.20  * Flyttet sekvens  - tester mot enheter først
+6.21 c     lo:up         xlate     d_fl_fenh     d_fl_fenh
+6.20 c                   if        d_fl_fenh <> ldenh1
+6.20 c                   if        b_fobt = *off
+6.20 c                   eval      listat = '6'
+6.20 c**                 leavesr
+6.20 c                   endif
+6.20 c                   endif
+      *
+     c                   if        d_fl_fkva <> ldanta
+6.20 c                   if        b_fobt = *off
+6.20 c                   if        d_fl_fenh <> ldenh1
+6.20 c                   exsr      omr_enhet
+6.20 c                   else
+     c                   eval      listat = '5'
+     c**                 leavesr
+6.20 c                   endif
+6.20 c                   endif
+     c                   endif
+      *
+6.20 c                   if        listat <> *blank
+6.20 c                   leavesr
+6.20 c                   endif
+      *
+     c*                  if        d_fl_pris <> 0 and
+     c*                            d_fl_pris <> ldipny
+6.32 c**                 if        d_fl_bnet <> 0 and
+6.32 c                   if        d_fl_bnet <> (ldipny * ldanta)
+     c                   eval(h)   w_bbest = ldipny * ldanta
+     c                   eval      w_bfakt = d_fl_bnet
+     c                   exsr      sjk_toleranse
+     c                   if        b_diff = *on
+6.20 c                   if        b_fobt = *off
+     c                   eval      listat = '7'
+     c                   leavesr
+6.20 c                   endif
+     c                   endif
+     c                   endif
+      *
+     c     end_lin       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for oppdat. hodepost m/generell feilkode (linjefeil)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppd_hode     begsr
+      *
+     c                   eval      ledilu_mlin = 100001
+      *
+     c     ledilu_key    chain     ledilur
+     c                   if        %found
+6.23 c                   if        b_fobt = *off
+6.23 c                   if        listat = ' ' or
+6.23 c                             listat = '1'
+6.20 c**6.22                       listat = *blank
+     c                   eval      listat = '3'
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   update    ledilur
+     c                   endif
+6.23 c                   endif
+     c                   endif
+      *
+     c     end_oppd      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å kryssjekke EDI-meldinger mot bestilling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     kryss_sjekk   begsr
+      *
+     c                   eval      ledil1_type = litype
+     c                   eval      w_fexn_lin = 550000
+      *
+     c                   eval      lodtl1_numm = linumm
+     c                   eval      lodtl1_suff = lisuff
+     c     lodtl1_key    setll     lodtl1
+     c     lodtl1_key    reade     lodtl1
+      *
+     c                   dow       not %eof(lodtl1)
+      *
+     c                   eval      vltyl1_ltyp = ldltyp
+     c     vltyl1_key    chain     vltyl1r
+     c                   if        %found
+     c                   if        valktx <> 1
+     c                   eval      ledil1_mnum = p_mnum
+     c     ledil1_key    setll     ledil1
+     c     ledil1_key    reade     ledil1
+      *
+     c                   dow       not %eof(ledil1)
+     c                   if        ldline = liline
+      * sjekker i array om denne linje er matchet tidligere
+     c                   eval      x1 = 1
+     c     ldline        lookup    a_line(x1)                             90
+     c                   if        *in90 = *off
+      * hvis den ikke finnes legges den inn - den er funnet
+     c                   eval      x2 = x2 + 1
+     c                   eval      x1 = x2
+     c                   eval      a_line(x1) = ldline
+     c                   leave
+     c                   endif
+     c                   endif
+     c     ledil1_key    reade     ledil1
+     c                   enddo
+     c                   if        %eof(ledil1)
+     c                   eval      w_fexn_lin = w_fexn_lin + 1
+     c                   eval      lifirm = w_firm
+     c                   eval      litype = p_mtyp
+     c                   eval      limnum = p_mnum
+     c                   eval      limlin = w_fexn_lin
+     c                   eval      liline = ldline
+     c                   eval      limeld = *blank
+     c                   exsr      bygg_xedil
+6.12 c                   eval      b_fakh = *on
+6.10 c                   time                    liodat
+6.10 c                   time                    liotim
+6.10 c                   eval      liousr = l_user
+6.10 c                   time                    liedat
+6.10 c                   time                    lietim
+6.10 c                   eval      lieusr = l_user
+     c                   write     ledilur
+     c                   endif
+      *
+     c                   endif
+     c                   endif
+      *
+     c     lodtl1_key    reade     lodtl1
+     c                   enddo
+6.12  * Det at vi legger til ei linje, tilsier at det er "avvik" på edi/bestilling
+6.12 c                   if        b_fakh = *on
+6.12 c                   exsr      oppd_hode
+6.12 c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å bygge manglende bestillingslinje i EDI-file (55)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bygg_xedil    begsr
+      *
+     c                   clear                   d_fakl
+      *
+     c                   eval      vvarl1_vare = ldvare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+6.11  *
+6.13 c**                 call      'VE711R'
+6.13 c                   call      'VE713R'
+6.11 c                   parm                    w_firm
+6.13 c                   parm                    loldor
+6.11 c                   parm                    ldvare
+6.11 c                   parm                    ldenh1
+6.11 c                   parm                    w_eann
+6.11 c                   parm                    w_east
+6.11 c                   if        w_east = '1'
+7.02 c**                 if        w_eann < 10000000000000
+     c                   eval      d_fl_vean = w_eann
+7.02 c**                 endif
+     c                   endif
+     c                   eval      d_fl_vnob = vvnobb
+6.30 c*                  eval      d_fl_vlev = vvlvar
+6.30 c                   movel     vvlvar        d_fl_vlev
+     c                   else
+     c                   eval      d_fl_vnob = ldnobb
+6.30 c*                  eval      d_fl_vlev = ldlvar
+6.30 c                   movel     ldlvar        d_fl_vlev
+     c                   eval      d_fl_vean = *zero
+     c                   endif
+      *
+     c                   eval      d_fl_tek1 = ldtek1
+     c                   eval      d_fl_tek2 = ldtek2
+     c                   eval(h)   d_fl_bkva = ldanta
+     c                   eval      d_fl_benh = ldenh1
+     c                   eval      d_fl_pris = ldkpny
+      *
+     c                   eval      limeld = d_fakl
+6.20 c                   if        b_fobt = *off
+     c                   eval      listat = '3'
+6.20 c                   endif
+      *
+     c     end_bygg      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Sjekk om akseptabel prisdiff. ift. toleranse/EDI
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjk_toleranse begsr
+      *
+     c                   eval      b_diff = *off
+      *
+      * Leser toleransetabell
+      *
+     c     ltoel1_key    chain     ltoel1
+     c                   if        not %found
+     c                   eval      b_diff = *on
+     c                   leavesr
+     c                   endif
+      *
+      * Sjekk om fakt.beløp lavere enn beløp som ikke skal avrundes
+      *
+     c                   if        w_bfakt < laetg0
+     c                   eval      b_diff = *on
+     c                   leavesr
+     c                   endif
+      *
+      * Sjekk om fakt.beløp lavere enn avviksgrense 1
+      *
+     c                   if        w_bfakt < laetg1
+     c                   if        %abs(w_bfakt - w_bbest) > laeav1
+     c                   eval      b_diff = *on
+     c                   endif
+     c                   leavesr
+     c                   endif
+      *
+      * Sjekk om fakt.beløp lavere enn avviksgrense 2
+      *
+     c                   if        w_bfakt < laetg2
+     c                   if        %abs(w_bfakt - w_bbest) > laeav2
+     c                   eval      b_diff = *on
+     c                   endif
+     c                   leavesr
+     c                   endif
+      *
+      * Sjekk om fakt.beløp lavere enn avviksgrense 3
+      *
+     c                   if        w_bfakt < laetg3
+     c                   if        %abs(w_bfakt - w_bbest) > laeav3
+     c                   eval      b_diff = *on
+     c                   endif
+     c                   leavesr
+     c                   endif
+      *
+      * Sjekk om fakt.beløp lavere enn avviksgrense 4
+      *
+     c                   if        w_bfakt < laetg4
+     c                   if        %abs(w_bfakt - w_bbest) > laeav4
+     c                   eval      b_diff = *on
+     c                   endif
+     c                   leavesr
+     c                   endif
+      *
+      * Sjekk om fakt.beløp høyere enn avviksgrense 4
+      *
+     c                   if        w_bfakt >= laetg4
+     c                   if        %abs(w_bfakt - w_bbest) > laeav5
+     c                   eval      b_diff = *on
+     c                   endif
+     c                   leavesr
+     c                   endif
+      *
+     c     end_sjk       endsr
+      *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  * Subrutine for behandling av spørring
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  *
+6.20 c     omr_enhet     begsr
+6.20  *
+6.20  * Regn om til bestilt enhet hvis det avvikende enheter
+6.20  *
+6.20 c                   eval      p_antu = 0
+6.20 c                   eval      p_anti = d_fl_fkva
+6.20 c                   call      'VA770R'
+6.20 c                   parm                    w_firm
+6.20 c                   parm                    ldvare
+6.20 c**                 parm                    w_lenh
+6.20 c                   parm                    d_fl_fenh
+6.20 c**                 parm                    w_anta
+6.20 c                   parm                    p_anti
+6.20 c                   parm                    ldenh1
+6.20 c                   parm                    p_antu
+6.20  *
+6.31  * Tillater litt mer slingringsmonn ved omregning
+6.31  *
+6.31 c                   eval(h)   w_antb = ldanta
+6.31 c                   eval(h)   w_anto = p_antu
+6.20  *
+6.31 c**                 if        p_antu <> ldanta
+6.31 c                   if        w_antb <> w_anto
+6.20 c                   eval      listat = '5'
+6.20 c                   else
+6.20 c                   eval      listat = *blank
+6.20 c                   endif
+6.20  *
+6.20 c     end_enhet     endsr
+6.20  *
+7.03  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.03  *  Subrutine for sjekk av beløp, og flagge avvik
+7.03  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.03  *
+7.03 c     sjk_belop     begsr
+7.03  *
+7.03 c                   eval      p_esta = *blanks
+7.03 c                   call      'LI717R'
+7.03 c                   parm                    litype
+7.03 c                   parm                    limnum
+7.03 c                   parm                    p_esta
+7.03  *
+7.03 c                   if        p_esta <> *blank
+7.03 c                   eval      ledilu_mlin = 100001
+7.03 c     ledilu_key    chain     ledilur
+7.03 c                   if        %found
+7.03 c                   eval      listat = p_esta
+7.03 c                   time                    liedat
+7.03 c                   time                    lietim
+7.03 c                   eval      lieusr = l_user
+7.03 c                   update    ledilur
+7.03 c                   endif
+7.03 c                   endif
+7.03  *
+7.03 c                   endsr
+7.03  *
+7.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.04  *  Subrutine for å sjekke om leverandøren skal omregnes
+7.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.04  *
+7.04 c     sjk_omr       begsr
+7.04  *
+7.04 c                   eval      lekol1_kmty = 'F'
+7.04 c                   eval      lekol1_ktyp = '1'
+7.04 c                   eval      x_kid1 = w_ldor
+7.04 c                   eval      lekol1_kid1 = x_kid1_10
+7.04 c                   eval      lekol1_kid2 = *blanks
+7.04 c                   eval      lekol1_kkod = '1'
+7.04 c     lekol1_key    chain     lekol1
+7.04 c                   if        %found
+7.04 c                   eval      b_omre = *off
+7.04 c                   endif
+7.04  *
+7.04 c                   if        b_omre = *on and
+7.04 c                             w_katg <> 0
+7.04 c                   eval      lekol1_ktyp = '3'
+7.04 c                   movel     w_katg        lekol1_kid1
+7.04 c     lekol1_key    chain     lekol1
+7.04 c                   if        %found
+7.04 c                   eval      b_omre = *off
+7.04 c                   endif
+7.04 c                   endif
+7.04  *
+7.04 c                   endsr
+7.04  *
+7.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.04  *  Subrutine for å sjekke om gyldig enhet på EDI meldinga
+7.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.04  *
+7.04 c     sjk_edienh    begsr
+7.04  *
+7.04 c                   eval      b_enhe = *off
+7.04  *
+7.04 c                   movel     d_fl_vnob     vvenl1_vare
+7.04 c                   eval      vvenl1_enhe = w_fenh
+7.04 c     vvenl1_key    chain     vvenl1
+7.04 c                   if        %found
+7.04 c                   eval      b_enhe = *on
+7.04 c                   leavesr
+7.04 c                   endif
+7.04  *
+7.04 c                   movel     d_fl_vnob     jvpklr_vare
+7.04 c     jvpklr_key    setll     jvpklr
+7.04 c     jvpklr_key    reade     jvpklr
+7.04 c                   dow       not %eof
+7.04  *
+7.04 c                   if        jwenhe = w_fenh
+7.04 c                   eval      b_enhe = *on
+7.04 c                   iter
+7.04 c                   endif
+7.04  *
+7.04 c     jvpklr_key    reade     jvpklr
+7.04 c                   enddo
+7.04  *
+7.04 c                   endsr
+7.04  *
+7.05  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.05  * Logger transaksjonen vi gjør om
+7.05  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.05  *
+7.05 c     gen_logg_lin  begsr
+7.05  *
+7.05 c                   eval      gedllu_type = 'FAKT'
+7.05 c                   eval      gedllu_mnum = limnum
+7.05 c                   eval      gedllu_mlin = limlin
+7.05 c     gedllu_key    chain     gedllu
+7.05 c                   if        not %found
+7.05 c                   eval      glfirm = w_firm
+7.05 c                   eval      gltype = 'FAKT'
+7.05 c                   eval      glmnum = limnum
+7.05 c                   eval      glmlin = limlin
+7.05 c                   time                    glmdat
+7.05 c                   time                    glmtid
+7.05 c                   eval      glstat = w_lsta
+7.05 c                   eval      glldor = w_levr
+7.05 c                   eval      glgtin = d_fl_vean
+7.05 c                   eval      glnobb = d_fl_vnob
+7.05 c                   eval      gleenh = w_fenh
+7.05 c                   eval      glekva = d_fl_fkva
+7.05 c                   eval      glesap = d_fl_pris
+7.05 c                   eval      gloenh = p_genh
+7.05 c                   eval      glokva = p_anto
+7.05 c                   eval      glosap = w_ksap
+7.05  *
+7.05 c                   time                    glodat
+7.05 c                   time                    glotim
+7.05 c                   eval      glousr = l_user
+7.05 c                   time                    gledat
+7.05 c                   time                    gletim
+7.05 c                   eval      gleusr = l_user
+7.05  *
+7.05 c                   write     gedllur
+7.05 c                   else
+7.05 c                   unlock    gedllu
+7.05 c                   endif
+7.05  *
+7.05 c                   endsr
+7.05  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_mtyp
+     c                   parm                    p_mnum
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+     c                   parm                    p_stat
+      *
+      *  Key for les av BESTILLING-HODE
+      *
+     c     lohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lohel1_numm
+     c                   kfld                    lohel1_suff
+      *
+      *  Key for les BESTILLING-LINJE
+      *
+     c     lodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lodtl1_numm
+     c                   kfld                    lodtl1_suff
+      *
+      *  Key for les BESTILLING-LINJE på varenummer
+      *
+     c     lodtlv_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lodtlv_vare
+      *
+      *  Key for les BESTILLING-LINJE på varenummer
+      *
+     c     lodtlx_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lodtlv_vare
+      *
+      *  Key for les av LEVERANDØR
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+      *
+      * Key for les av leverandør på EAN - lokasjonsnummer
+      *
+     c     rlevl5_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl5_eanl
+      *
+      * Key for oppdatering av EDI-mottaksfil
+      *
+     c     ledilu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ledilu_type
+     c                   kfld                    ledilu_mnum
+     c                   kfld                    ledilu_mlin
+      *
+      * Key for les av EDI-mottaksfil
+      *
+     c     ledilr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ledilr_type
+     c                   kfld                    ledilr_mnum
+     c                   kfld                    ledilr_mlin
+      *
+      * Key for les av EDI-mottaksfil
+      *
+     c     ledil1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ledil1_type
+     c                   kfld                    ledil1_mnum
+      *
+      * Key for les av vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for les av vare på nobb-nummer
+      *
+     c     vvarl3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl3_nobb
+      *
+      * Key for les av vare på nobb-nummer (Vareadm.)
+      *
+     c     jvarl3_key    klist
+     c                   kfld                    jvarl3_nobb
+      *
+      * Key for les av ordretype-register
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      * Key for linjetyper
+      *
+     c     vltyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltyl1_ltyp
+6.20  *
+6.20  *  Key for les ordrehode
+6.20  *
+6.20 c     fohel1_key    klist
+6.20 c                   kfld                    w_firm
+6.20 c                   kfld                    fohel1_numm
+6.20 c                   kfld                    fohel1_suff
+      *
+      * Key for oppslag på toleranse/EDI
+      *
+     c     ltoel1_key    klist
+     c                   kfld                    w_firm
+7.04  *
+7.04  *  Key for posisjonering av endringslogg antall
+7.04  *
+7.04 c     lekol1_key    klist
+7.04 c                   kfld                    w_firm
+7.04 c                   kfld                    lekol1_kmty
+7.04 c                   kfld                    lekol1_ktyp
+7.04 c                   kfld                    lekol1_kid1
+7.04 c                   kfld                    lekol1_kid2
+7.04 c                   kfld                    lekol1_kkod
+7.04  *
+7.04  *  Key for sjekk av enhet
+7.04  *
+7.04 c     vvenl1_key    klist
+7.04 c                   kfld                    w_firm
+7.04 c                   kfld                    vvenl1_vare
+7.04 c                   kfld                    vvenl1_enhe
+7.04  *
+7.04  *  Key for sjekk av enhet
+7.04  *
+7.04 c     jvpklr_key    klist
+7.04 c                   kfld                    jvpklr_vare
+7.05  *
+7.05  *  Key for posisjonering av endringslogg antall
+7.05  *
+7.05 c     gedllu_key    klist
+7.05 c                   kfld                    w_firm
+7.05 c                   kfld                    gedllu_type
+7.05 c                   kfld                    gedllu_mnum
+7.05 c                   kfld                    gedllu_mlin
+      *
+      *  Legger inn firmanummer
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      ledil1_type = p_mtyp
+     c                   eval      ledil1_mnum = p_mnum
+     c                   eval      ledilr_type = p_mtyp
+     c                   eval      ledilr_mnum = p_mnum
+      *
+     c                   eval      p_stat = *zero
+     c                   eval      x1 = 0
+     c                   eval      x2 = 0
+6.20  * Hent inn informasjon om toleransegrenser
+6.20 c                   eval      b_fobt = *off
+6.20 c     ltoel1_key    chain     ltoel1
+6.20  * Reset forenklet sjekk av bestilling hvis kode er satt
+6.20 c                   if        laefob = 'J'
+6.20 c                   eval      b_fobt = *on
+6.20 c                   endif
+6.20  *
+     c                   endsr

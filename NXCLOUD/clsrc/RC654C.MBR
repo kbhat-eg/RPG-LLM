@@ -1,0 +1,107 @@
+             PGM
+
+/* Definere parametere og variabler                                  */
+
+             DCL        VAR(&FIRM)  TYPE(*CHAR) LEN(3)
+             DCL        VAR(&WMM1)  TYPE(*CHAR) LEN(10) VALUE('INKA    ')
+             DCL        VAR(&PSKR)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&PARA)  TYPE(*CHAR) LEN(6)
+
+             DCL        VAR(&IN03) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&BTCH) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&WALI) TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO) TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&MLD1) TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD2) TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD3)  TYPE(*CHAR) LEN(50)
+             DCL        VAR(&MLD4)  TYPE(*CHAR) LEN(50)
+             DCL        VAR(&SVAR)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&IN12) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&CO402_KEY) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&CO402_V1)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&CO402_V2)  TYPE(*CHAR) LEN(2048)
+             dcl        var(&fgr)       type(*char) len(3)
+             dcl        var(&fix)       type(*char) len(3)
+             dcl        var(&fir)       type(*dec)  len(3 0) value(0)
+             dcl        var(&lag)       type(*dec)  len(3 0) value(0)
+             dcl        var(&m1)        type(*char) len(50)
+             dcl        var(&m2)        type(*char) len(50)
+             dcl        var(&m3)        type(*char) len(50)
+
+/* Henter verdier i fra LDA.                                         */
+
+             RTVDTAARA  DTAARA(*LDA (944 3)) RTNVAR(&FIRM)
+             CHGVAR     VAR(%SST(&WMM1 5 3)) VALUE(&FIRM)
+
+/*   Sjekk om firmaet kjører Inkasso                               */
+             CHGVAR     VAR(&CO402_KEY) VALUE('INKASSO')
+             rtvdtaara  dtaara(*lda (931 3)) rtnvar(&fgr)
+             chgvar     var(&fir)       VALUE(&firm)
+             CALL       PGM(CO402R) PARM(&FGR &fir &LAG &CO402_KEY +
+                          &CO402_V1 &CO402_V2)
+
+             IF         COND(&CO402_V1 *ne '1') THEN(do)
+              CHGVAR     VAR(&WALI) VALUE(8)
+              CHGVAR     VAR(&WAPO) VALUE(5)
+              CHGVAR     VAR(&MLD3) VALUE('Dette firmaet er ikke satt opp +
+                                             med inkasso.      ')
+              CHGVAR     VAR(&MLD4) VALUE('Kontakt EG dersom du ønsker +
+                                            inkasso-rutine')
+              CALL       PGM(AA007R)  PARM(&mld3 &mld4 &svar &in12)
+              goto       cmdlbl(endpgm)
+             enddo
+
+             RTVDTAARA  DTAARA(*LDA (482 6)) RTNVAR(&para)
+
+             CHKOBJ     OBJ(RKWAPF) OBJTYPE(*FILE) MBR(&WMM1)
+             MONMSG     MSGID(CPF9815) EXEC(DO)
+             CHGVAR     VAR(&WALI) VALUE(14)
+             CHGVAR     VAR(&WAPO) VALUE(2)
+             CHGVAR     VAR(&MLD1) VALUE('Inkassoforslag finnes ikke ')
+             CHGVAR     VAR(&MLD2) VALUE('Rutinen avsluttes!!    ****')
+             CALL       PGM(AA011C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+
+             if         cond(&para *ne 'RC650R') then(do)
+             chgvar     var(&Wali) value(14)
+             chgvar     var(&wapo) value(2)
+             chgvar     var(&m1) value('Er det lenge siden du kjørte forslag?')
+             chgvar     var(&m2) value('Sjekk at parameter er riktig utfylt')
+/*           call       pgm(AA011C)  parm(&WALI &WAPO &MLD1 &MLD2)      */
+             call       pgm(AA031R)  parm(&M1 &M2 &M3)
+             ovrdbf     file(rkwapf) mbr(&wmm1)
+             call       pgm(rc650r)  parm(&in03)
+             if         cond(&in03 *eq '1') then(do)
+               goto     cmdlbl(endpgm)
+             enddo
+             enddo
+
+   /*  Henter inn parameter fra RKWAPF til UDS                           */
+             OVRDBF     FILE(RKWAPF) MBR(&WMM1)
+             CALL       PGM(RC654R)
+
+             RTVDTAARA  DTAARA(*LDA (469 1))  RTNVAR(&PSKR)
+
+/* Sjekk om det finnes poster for å legge ut inkassoforslag      */
+
+             CHKOBJ     OBJ(RKWBPF) OBJTYPE(*FILE) MBR(&WMM1)
+             MONMSG     MSGID(CPF9815) EXEC(DO)
+             CHGVAR     VAR(&WALI) VALUE(14)
+             CHGVAR     VAR(&WAPO) VALUE(2)
+             CHGVAR     VAR(&MLD1) VALUE('Inkassoforslag finnes ikke ')
+             CHGVAR     VAR(&MLD2) VALUE('Rutinen avsluttes!!    ****')
+             CALL       PGM(AA011C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+
+/* Call av utskriftsprogram til batch/demand                         */
+
+             IF         COND(&BTCH *EQ '1') THEN(SBMJOB +
+                        CMD(CALL PGM(RC655C)) JOB(INKASSO) MSGQ(*NONE))
+
+             ELSE       CMD(CALL PGM(RC655C))
+
+             DLTOVR     FILE(RKWAPF)
+
+ ENDPGM:     ENDPGM

@@ -1,0 +1,455 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : SH300R
+      * Beskrivelse . . : Tilbakeføring av inng.faktura til bestilling
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       300404 ASK  Nytt program
+      * 6.10  180609 BSA  Oppdatert med sporingsinformasjon
+6.11  *       070812 bof  Oppdatere lager når bestilling dannes
+6.nu  * 6.30  050614 bof  endring i forb. nummerutvidelse
+6.30  * 6.30  160914 bsa  Mvakode må overføres
+6.31  * 6.30  040615 bkv  Bestilling økt fra 6 til 8
+      *
+8.01  *  800   271022 bsa  Legg også ut referanse på tilleggsregister.
+8.01  *  800               Brukes ved utsendelse av EDI bestilling fra
+8.01  *  800               ny EDI modul (NGN).
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *    60-69 = Fileindikatorer chain etc.
+      *    70-79 = Arbeidsindikatorer i sub-rutiner
+      *    80-89 = Arbeidsindikatorer ordinære
+      *    90-99 = Benyttes ved std. sub-rutiner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fsihel1    if   e           k disk    rename(sihepfr:sihel1r)
+     fsidtl1    if   e           k disk    rename(sidtpfr:sidtl1r)
+     flohelu    uf a e           k disk    rename(lohepfr:lohelur)
+     flodtlu    uf a e           k disk    rename(lodtpfr:lodtlur)
+     flstsl1    if   e           k disk    rename(lstspfr:lstsl1r)
+8.01 flotii2    uf a e           k disk    rename(lotist:lotii2r)
+8.01 ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(shfirm)
+     d p_aarr          s                   like(shaarr)
+     d p_binr          s                   like(shbinr)
+     d p_numm          s                   like(shnumm)
+     d p_suff          s                   like(shsuff)
+     d p_otyp          s                   like(shotyp)
+6.11  *
+6.11  * Datastruktur for lageroppdatering
+6.11  *
+6.11 d                 ds
+6.nu d h_rec                        128
+6.11 d  h_vare                       15    overlay(h_rec)
+6.11 d  h_lage                        2  0 overlay(h_rec:16)
+6.11 d  h_dato                         d   overlay(h_rec:18) datfmt(*iso)
+6.11 d  h_time                         t   overlay(h_rec:28) timfmt(*iso)
+6.11 d  h_otyp                        2    overlay(h_rec:36)
+6.11 d  h_ltyp                        2    overlay(h_rec:38)
+6.11 d  h_anta                       11  3 overlay(h_rec:40)
+6.11 d  h_kopr                        9  2 overlay(h_rec:51)
+6.11 d  h_refr                       20    overlay(h_rec:60)
+6.11 d  h_syst                        1    overlay(h_rec:80)
+6.11 d  h_altk                        2    overlay(h_rec:81)
+6.11 d  h_rest                        1    overlay(h_rec:83)
+6.11 d  h_type                        1    overlay(h_rec:84)
+6.11 d  h_enhe                        3    overlay(h_rec:85)
+6.11 d  h_inlr                        1    overlay(h_rec:88)
+6.11 d  h_lety                        1    overlay(h_rec:89)
+6.nu d  h_onum                        8  0 overlay(h_rec:90)
+6.nu d  h_olin                        4  0 overlay(h_rec:98)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+6.10 d l_user                911    920
+     d l_fnav                951    980
+      *
+      * Definering av variabler i nøkler
+      *
+     d sihel1_aarr     s                   like(shaarr)
+     d sihel1_binr     s                   like(shbinr)
+     d sihel1_numm     s                   like(shnumm)
+     d sihel1_suff     s                   like(shsuff)
+     d sidtl1_aarr     s                   like(slaarr)
+     d sidtl1_binr     s                   like(slbinr)
+     d sidtl1_numm     s                   like(slnumm)
+     d sidtl1_suff     s                   like(slsuff)
+     d lohelu_numm     s                   like(lonumm)
+     d lohelu_suff     s                   like(losuff)
+     d lodtlu_numm     s                   like(ldnumm)
+     d lodtlu_suff     s                   like(ldsuff)
+     d lodtlu_line     s                   like(ldline)
+8.01 d fohel1_numm     s                   like(fonumm)
+8.01 d fohel1_suff     s                   like(fosuff)
+      *
+      * Definering av variable
+      *
+      *
+     d w_firm          s                   like(shfirm)
+     d w_aarr          s                   like(shaarr)
+     d w_levr          s                   like(shldor)
+     d w_binr          s                   like(shbinr)
+     d w_kode          s              1
+     d w_fell          s              6
+     d w_type          s              2
+     d w_fast          s             10
+6.nu d w_numm          s              8  0
+6.11 d w_toti          s                   like(lototi)
+6.nu d w_hrec          s            128
+6.11 d w_v001          s              1
+6.31 d w_numa          s              8
+6.11 d w_lina          s              4
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Leser fakturahode og danner bestillingshode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sihel1_key    chain     sihel1
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   exsr      hntnum
+     c                   eval      lohelu_numm = w_numm
+     c                   eval      lohelu_suff = 0
+     c     lohelu_key    chain     lohelu
+     c                   if         %found
+     c                   goto      avslutt
+     c                   else
+     c                   eval      lofirm = w_firm
+     c                   eval      lonumm = w_numm
+     c                   eval      losuff = 0
+     c                   eval      lootyp = p_otyp
+     c                   eval      lolage = shlage
+     c                   eval      lokref = shkref
+     c                   eval      lobdat = shbdat
+     c                   eval      loldat = shldat
+     c                   eval      lobetb = shbetb
+     c                   eval      loinnk = shinnk
+     c                   eval      lodist = shdist
+     c                   eval      lolmat = shlmat
+     c                   eval      lolbet = shlbet
+     c                   eval      lovalk = shvalk
+     c                   eval      lorkat = shrkat
+     c                   eval      losped = shsped
+     c                   eval      lokjor = shkjor
+     c                   eval      lomkod = shmkod
+     c                   eval      lolele = shlele
+      *
+     c                   eval      loldor = shldor
+     c                   eval      lolena = shlena
+     c                   eval      lonavn = shnavn
+     c                   eval      loadr1 = shadr1
+     c                   eval      loadr2 = shadr2
+     c                   eval      losted = shsted
+     c                   eval      loavde = shavde
+     c                   eval      lokont = shkont
+     c                   eval      lospes = shspes
+     c                   eval      loproj = shproj
+     c                   eval      loakti = shakti
+     c                   eval      lovref = shvref
+     c                   eval      lodref = shdref
+     c                   eval      lorekv = shrekv
+     c                   eval      lolmtx = shlmtx
+     c                   eval      lolbtx = shlbtx
+     c                   eval      lorabp = shrabp
+      *
+     c                   eval      lonett = shnett
+     c                   eval      lobrut = shbrut
+     c                   eval      lokoli = shkoli
+     c                   eval      lowsid = shwsid
+     c                   eval      louser = shuser
+     c                   eval      lodate = shdate
+     c                   eval      lotime = shtime
+      *
+     c                   eval      lofkda = shfkda
+     c                   eval      loffda = shffda
+     c                   eval      lomoda = shmoda
+     c                   eval      lototf = shtotf
+      *
+     c                   eval      loornr = shornr
+     c                   eval      loorsu = shorsu
+     c                   eval      loflev = shflev
+     c                   eval      losfak = shlfnr
+6.10 c                   time                    lodate
+6.10 c                   time                    lotime
+6.10 c                   eval      louser = l_user
+6.10 c                   time                    loedat
+6.10 c                   time                    loetim
+6.10 c                   eval      loeusr = l_user
+     c                   write     lohelur
+8.01  *
+8.01  * Legg ut post på tilleggsregister
+8.01  *
+8.01 c     lohelu_key    chain     lotii2r
+8.01 c                   if        not %found
+8.01  *
+8.01 c                   if        loornr <> 0
+8.01 c                   eval      fohel1_numm = loornr
+8.01 c                   eval      fohel1_suff = loorsu
+8.01 c     fohel1_key    chain     fohel1
+8.01 c                   if        %found(fohel1)
+8.01 c                   if        folety = 1
+8.01 c                   eval      lotko2 = 'B'
+8.01 c                   else
+8.01 c                   eval      lotko2 = 'L'
+8.01 c                   endif
+8.01 c                   else
+8.01 c                   eval      lotko2 = 'L'
+8.01 c                   endif
+8.01 c                   else
+8.01 c                   eval      lotko2 = 'L'
+8.01 c                   endif
+8.01  *
+8.01 c                   eval      lotfir = w_firm
+8.01 c                   eval      lotnum = lonumm
+8.01 c                   eval      lotsuf = losuff
+8.01  *
+8.01 c                   time                    loteda
+8.01 c                   time                    loteti
+8.01 c                   eval      loteus = l_user
+8.01  *
+8.01 c                   write     lotii2r
+8.01 c                   endif
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Leser historikk linjer og skriver tilbake til bestillingslinjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sidtl1_key    setll     sidtl1
+     c     sidtl1_key    reade     sidtl1
+      *
+     c                   dow       not %eof
+      *
+     c                   eval      lodtlu_numm = w_numm
+     c                   eval      lodtlu_suff = 0
+     c                   eval      lodtlu_line = slline
+     c     lodtlu_key    chain     lodtlu
+     c                   if         %found
+     c                   delete    lodtlur
+     c                   endif
+      *
+     c                   eval      ldfirm = w_firm
+     c                   eval      ldnumm = w_numm
+     c                   eval      ldsuff = 0
+     c                   eval      ldline = slline
+     c                   eval      ldotyp = p_otyp
+     c                   eval      ldltyp = slltyp
+     c                   eval      ldvare = slvare
+     c                   eval      ldenh1 = slenh1
+     c                   eval      ldlage = sllage
+     c                   eval      ldtek1 = sltek1
+     c                   eval      ldtek2 = sltek2
+     c                   eval      ldlvre = sllvre
+     c                   eval      ldnobb = slnobb
+     c                   eval      ldogrp = slogrp
+     c                   eval      ldhgrp = slhgrp
+     c                   eval      ldugrp = slugrp
+      *
+     c                   eval      ldanta = slanta
+     c                   eval      ldipny = slipny
+     c                   eval      ldkpny = slkpny
+     c                   eval      ldrab1 = slrab1
+     c                   eval      ldrab2 = slrab2
+      *
+     c                   eval      ldsumi = slkjop
+     c                   eval      ldsumk = slkost
+6.30 c                   eval      ldomva = slomva
+      *
+     c                   eval      ldornu = slornr
+     c                   eval      ldorsu = slorsu
+     c                   eval      ldorli = slorli
+      *
+     c                   eval      ldproj = slproj
+     c                   eval      ldakti = slakti
+6.10 c                   time                    ldodat
+6.10 c                   time                    ldotim
+6.10 c                   eval      ldousr = l_user
+6.10 c                   time                    ldedat
+6.10 c                   time                    ldetim
+6.10 c                   eval      ldeusr = l_user
+     c                   write     lodtlur
+6.11 c                   eval      w_toti = w_toti + (ldipny * ldanta)
+6.11 c                   exsr      oppd_lager
+      *
+     c     sidtl1_key    reade     sidtl1
+      *
+     c                   enddo
+6.11  *
+6.11  * oppdaterer best.hode med totaler
+6.11  *
+6.11 c                   eval      lohelu_numm = w_numm
+6.11 c                   eval      lohelu_suff = 0
+6.11 c     lohelu_key    chain     lohelu
+6.11 c                   if         %found
+6.11 c                   eval      lototi = w_toti
+6.11 c                   update    lohelur
+6.11 c                   endif
+6.11  *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Henter/Oppdatering av NUMMER-REGISTER
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hntnum        begsr
+      *
+     c                   eval      w_kode = '0'
+     c                   move      laabrk        w_fell
+     c                   move      p_otyp        w_type
+     c                   move      l_wsid        w_fast
+      *
+      *  Kaller opp subprogram for henting av nummer fra NUMMER-REGISTER
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_numm
+      *
+     c                   endsr
+6.11  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.11  *  Oppdatering av Lager                                           *
+6.11  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.11  *
+6.11 c     oppd_lager    begsr
+6.11  *
+6.11  *  Legger over verdier i overførings-felter
+6.11  *
+6.11 c                   eval      h_vare = ldvare
+6.11 c                   eval      h_lage = ldlage
+6.11 c                   eval      h_enhe = ldenh1
+6.11 c                   eval      h_dato = *loval
+6.11 c                   eval      h_time = *loval
+6.11 c                   eval      h_otyp = lootyp
+6.11 c                   eval      h_ltyp = ldltyp
+6.11  *
+6.11 c                   eval      h_anta = ldanta
+6.11 c                   eval      h_kopr = ldkpny
+6.11  *
+6.11 c                   eval      h_syst = 'L'
+6.11 c                   eval      h_altk = *blank
+6.11 c                   eval      h_rest = *blank
+6.11 c                   eval      h_lety = *blank
+6.11 c                   eval      h_onum = ldnumm
+6.11 c                   eval      h_olin = ldline
+6.11 c                   move      ldnumm        w_numa
+6.11 c                   move      ldline        w_lina
+6.11 c                   eval      h_refr = 'B:' + w_numa +
+6.11 c                                      ' L:' + w_lina
+6.11  *
+6.11  *  Kaller opp lageroppdaterings-program
+6.11  *
+6.11 c                   eval      w_hrec = h_rec
+6.11  *
+6.11 c                   call      'VL001R'
+6.11 c                   parm                    w_v001
+6.11 c                   parm                    w_hrec
+6.11  *
+6.11 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_aarr
+     c                   parm                    p_binr
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+     c                   parm                    p_otyp
+      *
+      * Key for oppslag på faktura-hode-register
+      *
+     c     sihel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    sihel1_aarr
+     c                   kfld                    sihel1_binr
+     c                   kfld                    sihel1_numm
+     c                   kfld                    sihel1_suff
+      *
+      * Key for les på faktura-detalj-register
+      *
+     c     sidtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    sidtl1_aarr
+     c                   kfld                    sidtl1_binr
+     c                   kfld                    sidtl1_numm
+     c                   kfld                    sidtl1_suff
+      *
+      *  Key for oppdatering av BESTILLING
+      *
+     c     lohelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lohelu_numm
+     c                   kfld                    lohelu_suff
+      *
+      *  Key for oppdatering av BESTILLINGSLINJER
+      *
+     c     lodtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lodtlu_numm
+     c                   kfld                    lodtlu_suff
+     c                   kfld                    lodtlu_line
+      *
+      *  Key for STATUS-KODER
+      *
+     C     lstsl1_key    klist
+     C                   kfld                    w_firm
+8.01  *
+8.01  *  Key for oppdatering av ordre
+8.01  *
+8.01 c     fohel1_key    klist
+8.01 c                   kfld                    w_firm
+8.01 c                   kfld                    fohel1_numm
+8.01 c                   kfld                    fohel1_suff
+      *
+      * Henter parameter-verdier
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      sihel1_aarr = p_aarr
+     c                   eval      sihel1_binr = p_binr
+     c                   eval      sihel1_numm = p_numm
+     c                   eval      sihel1_suff = p_suff
+     c                   eval      sidtl1_aarr = p_aarr
+     c                   eval      sidtl1_binr = p_binr
+     c                   eval      sidtl1_numm = p_numm
+     c                   eval      sidtl1_suff = p_suff
+      *
+      * Leser statusregister
+      *
+     C     lstsl1_key    chain     lstsl1
+      *
+     c                   endsr

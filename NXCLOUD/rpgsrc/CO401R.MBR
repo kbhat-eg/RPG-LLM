@@ -1,0 +1,221 @@
+     HDFTACTGRP(*NO)
+     h option(*nodebugio : *srcstmt) datedit(*dmy)
+     HDECEDIT(',')
+      /free
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : CO401R
+      * Beskrivelse . . : Konfiguering av tilpassninger
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       170318 BKV  Nytt program
+      *
+      * Programmet får inn en parameter for tilpassning.
+      *   firma
+      *   avd
+      *   nøkkel
+      * Programmet retunerer verdien som angir om tilpassning er
+      * aktivert eller ikke
+      *   nøkkelverdi
+      *
+      * Nøkkelverdi vil typisk være 0 eller 1, men kan ha andre verdier hvis behov
+      *
+      * Hvis ikke nøkkel ikke finnes settes nøkkelverdi til ''
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Prototype grensesnitt-definisjoner
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+       dcl-pr P_AB700R extpgm('AB700R');
+         p_jnav        char(15);
+         p_jbid        char(41);
+         p_jtxt        char(35);
+       end-pr;
+      *
+       dcl-pr P_AB705R extpgm('AB705R');
+         p_jbid        char(41);
+         p_jsts        packed(2:0);
+         p_jmld        char(200);
+       end-pr;
+      *
+       dcl-pr P_AB710R extpgm('AB710R');
+         p_jnav        char(15);
+         p_jbid        char(41);
+       end-pr;
+      *
+       dcl-pr CO401R  extpgm('CO401R');
+         p_firma         packed(3);
+         systemnavn      char(50);
+         p_avd           packed(4);
+         p_nokkel        char(50) const;
+         p_nokkel_verdi  char(256);
+       end-pr;
+      *
+      * Parametere til jobblogging
+       dcl-s p_jnav          char(15);
+       dcl-s p_jtxt          char(35);
+       dcl-s p_jbid          char(41);
+       dcl-s p_jsts          packed(2:0);
+       dcl-s p_stat          char(1);
+       dcl-s p_jmld          char(200);
+      *
+      * Arbeidsvariabler
+       dcl-s messageId       char(10);
+       dcl-s messageId1      varchar(7);
+       dcl-s messageId2      like(messageId1);
+       dcl-s messagetext     varchar(32740);
+       dcl-s sqlquery char(1024);
+       dcl-s currentSqlState char(35);
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * CALL PGM(CO401R) PARM(firma avd konfig_nokkel retur_verdi)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       dcl-pi CO401R;
+         firma         packed(3);
+         systemnavn    char(50);
+         avd           packed(4);
+         nokkel        char(50) const;
+         nokkel_verdi  char(256);
+       end-pi;
+      *
+       nokkel_verdi = FindNokkelVerdi(firma : systemnavn : avd : nokkel);
+      *
+       if (p_jbid <> '');
+         EndLogging();
+       endif;
+      *
+       *inlr = *on;
+       return;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Finn Leverandørens varenummer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       dcl-proc FindNokkelVerdi;
+         dcl-pi *N char(256);
+           firmaNr       packed(3);
+           systemnavnet  char(50);
+           avdNr         packed(4);
+           nokkelen      char(50) const;
+         end-pi;
+
+         dcl-s uten_avd          packed(4) inz(0);
+         dcl-s uten_systemnavn   packed(4) inz(0);
+         dcl-s verdi  varchar(256);
+         verdi = *blank;
+
+         // det er valgtbart om spørring skal ta hensyn til systemnavn og avd
+         if (systemnavnet = *blank);
+            uten_systemnavn = 1;   // hvis systemnavn er blankt, ikke ta hensyn til systemnavn
+         endif;
+         if (avdNr < 0);  // hvis avdnr er -1, ikke ta hensyn til avd
+            uten_avd = 1;
+         endif;
+
+        exec SQL
+          declare c1 cursor for
+             select verdi from inavst where firma = :firmaNr
+                 and (systemnavn = :systemnavnet or 1 = :uten_systemnavn )
+                 and (avdeling = :avdNr or 1 = :uten_avd)
+                 and nokkel = :nokkelen
+                 for read only;
+
+         exec sql
+           Open c1;
+
+         if sqlcod <> 0 and sqlcod <> 100;
+           currentSqlState = 'SqlCode ' + %char(sqlcode)
+             + ' SqlState ' + sqlstate;
+           exec sql Get Diagnostics Condition 1
+              :messageText = MESSAGE_TEXT,
+              :messageId = DB2_MESSAGE_ID,
+              :messageId1 = DB2_MESSAGE_ID1,
+              :messageId2 = DB2_MESSAGE_ID2;
+           ErrorLogging(%trim(currentSqlState) + ' Msg: ' + messageText
+             + ' MsgId: ' + messageId + ' MsgId2: ' + messageId2);
+           exec sql close c1;
+           return '';
+         endif;
+
+         exec sql
+           Fetch c1 INTO :verdi;
+
+         exec sql close c1;
+
+         return verdi;
+       end-proc;
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Start JobLogging
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       dcl-proc StartLogging;
+         p_jnav = 'CO401R';
+         p_jtxt = 'Konfiguering av tilpassninger';
+         CallP P_AB700R (p_jnav : p_jbid : p_jtxt);
+       end-proc;
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Logg feil
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       dcl-proc ErrorLogging;
+         dcl-pi *N;
+           message char(800) value;
+         end-pi;
+         dcl-s msgpart char(200) inz('');
+
+         if (p_jbid = '');
+           StartLogging();
+         endif;
+
+         p_jsts = 50;
+         if message = *blank;
+           message = 'Alvorlig feil oppstod i CO401R';
+         endif;
+         if %len(%trim(message)) > 600;
+           msgpart = %trim(%subst(message:1:200));
+           CallP P_AB705R (p_jbid : p_jsts : msgpart);
+           msgpart = %trim(%subst(message:201:200));
+           CallP P_AB705R (p_jbid : p_jsts : msgpart);
+           msgpart = %trim(%subst(message:401:200));
+           CallP P_AB705R (p_jbid : p_jsts : msgpart);
+           msgpart = %trim(%subst(message:601));
+           CallP P_AB705R (p_jbid : p_jsts : msgpart);
+         elseif %len(%trim(message)) > 400;
+           msgpart = %trim(%subst(message:1:200));
+           CallP P_AB705R (p_jbid : p_jsts : msgpart);
+           msgpart = %trim(%subst(message:201:200));
+           CallP P_AB705R (p_jbid : p_jsts : msgpart);
+           msgpart = %trim(%subst(message:401));
+           CallP P_AB705R (p_jbid : p_jsts : msgpart);
+         elseif %len(%trim(message)) > 200;
+           msgpart = %trim(%subst(message:1:200));
+           CallP P_AB705R (p_jbid : p_jsts : msgpart);
+           msgpart = %trim(%subst(message:201));
+           CallP P_AB705R (p_jbid : p_jsts : msgpart);
+         else;
+           CallP P_AB705R (p_jbid : p_jsts : message);
+         endif;
+
+       end-proc;
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avsluttende JobLogging
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       dcl-proc EndLogging;
+         if (p_stat = '1');
+           p_jsts = 50;
+           if p_jmld = *blank;
+             p_jmld = 'Alvorlig feil oppstod i CO401R';
+           endif;
+           CallP P_AB705R (p_jbid : p_jsts : p_jmld);
+         endif;
+
+         CallP P_AB710R (p_jnav : p_jbid );
+       end-proc;
+      *
+      /end-free
+      *

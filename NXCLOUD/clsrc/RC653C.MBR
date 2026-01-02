@@ -1,0 +1,117 @@
+             PGM
+
+/* Definere parametere og variabler                                  */
+
+             DCL        VAR(&FIRM)  TYPE(*CHAR) LEN(3)
+             DCL        VAR(&WMM1)  TYPE(*CHAR) LEN(10) VALUE('INKA    ')
+             DCL        VAR(&IN03)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&BTCH)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&WSID)  TYPE(*CHAR) LEN(10)
+             DCL        VAR(&WALI)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&MLD1)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD2)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD3)  TYPE(*CHAR) LEN(50)
+             DCL        VAR(&MLD4)  TYPE(*CHAR) LEN(50)
+             DCL        VAR(&SVAR)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&IN12) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&PSKR)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&CO402_KEY) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&CO402_V1)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&CO402_V2)  TYPE(*CHAR) LEN(2048)
+             dcl        var(&map)       type(*char) len(70)
+             dcl        var(&grp)       type(*char) len(10)
+             dcl        var(&fgr)       type(*char) len(3)
+             dcl        var(&fix)       type(*char) len(3)
+             dcl        var(&fir)       type(*dec)  len(3 0) value(0)
+             dcl        var(&lag)       type(*dec)  len(3 0) value(0)
+
+/* Henter verdier i fra LDA.                                         */
+
+             RTVDTAARA  DTAARA(*LDA (469 1))  RTNVAR(&PSKR)
+             RTVDTAARA  DTAARA(*LDA (944 3)) RTNVAR(&FIRM)
+
+/*   Sjekk om firmaet kjører Inkasso                               */
+             CHGVAR     VAR(&CO402_KEY) VALUE('INKASSO')
+             rtvdtaara  dtaara(*lda (931 3)) rtnvar(&fgr)
+             chgvar     var(&fir)       VALUE(&firm)
+             CALL       PGM(CO402R) PARM(&FGR &fir &LAG &CO402_KEY +
+                          &CO402_V1 &CO402_V2)
+
+             IF         COND(&CO402_V1 *ne '1') THEN(do)
+              CHGVAR     VAR(&WALI) VALUE(8)
+              CHGVAR     VAR(&WAPO) VALUE(5)
+              CHGVAR     VAR(&MLD3) VALUE('Dette firmaet er ikke satt opp +
+                                             med inkasso.      ')
+              CHGVAR     VAR(&MLD4) VALUE('Kontakt EG dersom du ønsker +
+                                            inkasso-rutine')
+              CALL       PGM(AA007R)  PARM(&mld3 &mld4 &svar &in12)
+              goto       cmdlbl(end)
+             enddo
+
+             CHGVAR     VAR(%SST(&WMM1 5 3)) VALUE(&FIRM)
+
+             IF         COND(&PSKR *NE 'J') THEN(DO)
+             GOTO       CMDLBL(END)
+             ENDDO
+
+/* Program for printerstyring                                        */
+
+             CALL       PGM(AP600R) PARM('RC653 ' '1' '0' &IN03 &BTCH)
+
+             IF         COND(&IN03 *EQ '1') THEN(GOTO CMDLBL(END))
+
+/* Overstyring av printerfile                                        */
+
+             CALL       PGM(AP601C)    PARM('RC653P' &BTCH)
+
+/*  sjekk om kunde bruker excel_ark ut av inkassovarsel          */
+             CHGVAR   VAR(&CO402_KEY) VALUE('INKASSOFORSLAGTILEXCEL')
+             rtvdtaara dtaara(*lda (944 3)) rtnvar(&fix)
+             rtvdtaara dtaara(*lda (931 3)) rtnvar(&fgr)
+             chgvar    var(&fir)   value(&fix)
+             CALL     PGM(CO402R) PARM(&FGR &FIR &LAG &CO402_KEY +
+                          &CO402_V1 &CO402_V2)
+             IF       COND(&CO402_V1 *EQ '1') THEN(do)
+                      chgvar var(&map) value('\asp\' *cat &fgr +
+                        *cat '\Inkasso')
+/*  \asp\xxx\Inkasso                                                 */
+                 crtdir   dir(&map)
+                 monmsg   msgid(cpfa0a0)
+                 chgaut obj(&map) user(*Public) dtaaut(*exclude) +
+                                  objaut(*none)
+                 rtvusrprf grpprf(&grp)
+                 if  cond(&grp *ne '*NONE') then(do)
+                   chgaut obj(&map) user(&grp) dtaaut(*rwx) +
+                                  objaut(*none) subtree(*all)
+                   monmsg   msgid(cpd0078 cpa0702)
+                 enddo
+/*  \asp\xxx\Inkasso\Forslag                                         */
+                 chgvar var(&map) value(&map *tcat '\Forslag')
+                 crtdir   dir(&map)
+                 monmsg   msgid(cpfa0a0)
+             enddo
+
+
+/* Utskrift                                                          */
+
+             OVRDBF     FILE(RKWAPF) MBR(&WMM1)
+             OVRDBF     FILE(RKWBPF) MBR(&WMM1)
+
+             CALL       PGM(RC653R)
+
+             DLTOVR     FILE(RKWAPF)
+             DLTOVR     FILE(RKWBPF)
+             MONMSG     MSGID(CPF3200)
+
+             CALL       PGM(AP606C)    PARM('RC653P')
+
+             IF         COND(&BTCH *NE '1') THEN(DO)
+                CHGVAR     VAR(&WALI) VALUE(6)
+                CHGVAR     VAR(&WAPO) VALUE(40)
+                CHGVAR     VAR(&MLD1) VALUE('Utskrift av forslag')
+                CHGVAR     VAR(&MLD2) VALUE('Ferdig      ')
+                CALL       PGM(AA011C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             ENDDO
+
+ END:        ENDPGM

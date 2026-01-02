@@ -1,0 +1,202 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VE720R
+      * Beskrivelse . . : Henter gtinnr ut fra gitt varenr på salgsenh1
+      *                   og nobb-lev.nr på vare
+      *                   Hvis gtinnr ikke finnes på vveppf, brukes veanpf
+      *                   Sjekker GTIN kode i VA og returnerer riktig GTIN
+      *                   Koden returneres alfanumerisk (p_eann)
+      *
+      *                   Input : firma, varenr.
+      *                   Output: ean.nr  status (1 = ok)
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       190619 ask  Nytt program
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvarlr    if   e           k disk    rename(vvarpfr:vvarlrr)
+     fvvenl2    if   e           k disk    rename(vvenpfr:vvenl2r)
+     fvveplr    if   e           k disk    rename(vveppfr:vveplrr)
+     fveanl2    if   e           k disk    rename(veanpfr:veanl2r)
+      *
+      * Definering av variable i nøkler
+      *
+     d vvarlr_firm     s                   like(vvfirm)
+     d vvarlr_vare     s                   like(vvvare)
+     d vvenl2_firm     s                   like(vefirm)
+     d vvenl2_vare     s                   like(vevare)
+     d vvenl2_saen     s                   like(vesaen)
+     d veanl2_firm     s                   like(vxfirm)
+     d veanl2_vare     s                   like(vxvare)
+     d vveplr_pfir     s                   like(vepfir)
+     d vveplr_pvar     s                   like(vepvar)
+     d vveplr_penh     s                   like(vepenh)
+     d vveplr_pldo     s                   like(vepldo)
+      *
+     d w_sae1          s                   like(vxenhe)
+     d w_eann          s                   like(vxeann)
+9.02 d w_gtin          s             14
+9.02 d w_gtyp          s              6
+9.02 d w_enhe          s              3
+      *
+      * Definering av pamametre
+      *
+     d p_firm          s                   like(vxfirm)
+     d p_eann          s             14
+     d p_vare          s                   like(vxvare)
+     d p_enhe          s                   like(vxenhe)
+     d p_stat          s              1
+      *
+     d                uds
+     d l_user                911    920
+     d l_sfir                944    946  0
+     d l_savd                947    950  0
+     d l_lagr               1001   1002  0
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+      * Initierer output-parametre
+      *
+     c                   eval      p_eann = *blank
+     c                   eval      p_stat = *blank
+      *
+     c                   eval      vvarlr_firm = p_firm
+     c                   eval      vvarlr_vare = p_vare
+     c     vvarlr_key    chain     vvarlr
+     c                   if        not %found(vvarlr)
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Henter eannr salgsenhet 1
+      *
+     c                   eval      vvenl2_firm = p_firm
+     c                   eval      vvenl2_vare = p_vare
+     c                   eval      vvenl2_saen = 1
+     c     vvenl2_key    chain     vvenl2
+     c                   if        %found(vvenl2)
+     c                   eval      w_sae1 = vxenhe
+     c                   eval      vveplr_pfir = p_firm
+     c                   eval      vveplr_pvar = p_vare
+     c                   eval      vveplr_penh = veenhe
+     c                   eval      vveplr_pldo = vvldor
+     c     vveplr_key    chain     vveplr
+     c                   if        %found(vveplr) and
+     c                             vepgti <> 0
+     c                   eval      w_eann = vepgti
+     c                   eval      w_enhe = veenhe
+     c                   eval      p_stat = '1'
+     c                   goto      sjk_gtin
+     c                   endif
+     c                   endif
+      *
+      * hvis gtin ikke fantes på vare-enhet-prisgiver - prøv veanpf
+      *
+     c                   if        p_stat = *blank
+     *
+     c                   eval      veanl2_firm = p_firm
+     c                   eval      veanl2_vare = p_vare
+     c     veanl2_key    setll     veanl2
+     c     veanl2_key    reade     veanl2                                 91
+     c                   dow       *in91 = *off
+      * Har vi match på enhet ? (Først enhet 1)
+     c                   if        w_sae1 = vxenhe and
+     c                             vxeann <> 0
+     c                   eval      w_eann = vxeann
+     c                   eval      w_enhe = vxenhe
+     c                   eval      p_stat = '1'
+     c                   goto      sjk_gtin
+     c                   endif
+     c     veanl2_key    reade     veanl2                                 91
+     c                   enddo
+      *
+     c                   endif
+      *
+      * Leser GTIN informasjon i VA og bygger riktig GTIN
+      *
+     c     sjk_gtin      tag
+     c                   if        w_enhe <> *blanks
+     c/exec sql
+     c+ select jwgtyp
+     c+ into   :w_gtyp
+     c+ from   jvpkpf
+     c+ where  jwvare = :vvvare and
+     c+        jwenhe = :w_enhe and
+     c+        jwgtyp <> '     '
+     c+ fetch first 1 rows only
+     c/end-exec
+      *
+     c                   eval      w_gtin = %editc(w_eann:'X')
+     c                   select
+     c                   when      w_gtyp = 'GTIN8 '
+     c                   eval      p_eann = %subst(w_gtin:7:8)
+     c                   when      w_gtyp = 'GTIN12'
+     c                   eval      p_eann = %subst(w_gtin:3:12)
+     c                   when      w_gtyp = 'GTIN13'
+     c                   eval      p_eann = %subst(w_gtin:2:13)
+     c                   when      w_gtyp = 'GTIN14'
+     c                   eval      p_eann = w_gtin
+     c                   endsl
+     c                   endif
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+      *
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_vare
+     c                   parm                    p_eann
+     c                   parm                    p_stat
+      *
+      * Key for les på vareenhets-register
+      *
+     c     vvenl2_key    klist
+     c                   kfld                    vvenl2_firm
+     c                   kfld                    vvenl2_vare
+     c                   kfld                    vvenl2_saen
+      *
+      * Key for les på ean-register
+      *
+     c     veanl2_key    klist
+     c                   kfld                    veanl2_firm
+     c                   kfld                    veanl2_vare
+      *
+      *
+      * Key for les på vareregister
+      *
+     c     vvarlr_key    klist
+     c                   kfld                    vvarlr_firm
+     c                   kfld                    vvarlr_vare
+      *
+      * Key for les på vareenhets-register
+      *
+     c     vveplr_key    klist
+     c                   kfld                    vveplr_pfir
+     c                   kfld                    vveplr_pvar
+     c                   kfld                    vveplr_penh
+     c                   kfld                    vveplr_pldo
+      *
+     c                   endsr

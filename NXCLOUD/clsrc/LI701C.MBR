@@ -1,0 +1,82 @@
+             PGM
+
+/* Initiering av parametre.                                          */
+
+             DCL        VAR(&WPBANK) TYPE(*CHAR) LEN(2) VALUE('ED')
+             DCL        VAR(&WPIN03) TYPE(*DEC) LEN(1 0)
+             DCL        VAR(&WPLINJ) TYPE(*DEC) LEN(2 0) VALUE(2)
+             DCL        VAR(&WPPOSI) TYPE(*DEC) LEN(3 0) VALUE(43)
+             DCL        VAR(&WPKODE) TYPE(*DEC) LEN(1 0) VALUE(0)
+             DCL        VAR(&WPVALG) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&WPPRGM) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&WPTYPE) TYPE(*DEC) LEN(1 0)
+             DCL        VAR(&WPAKTI) TYPE(*DEC) LEN(1 0)
+
+/* Legg til ASTELE i bibliotekslisten hvis det mangler               */
+
+/*           ADDLIBLE   LIB(ASTELE) POSITION(*LAST)                  */
+/*           MONMSG     MSGID(CPF2103)                               */
+
+/* Tester på om program er aktivt:                                   */
+
+             CHGVAR     VAR(&WPPRGM) VALUE('BANK      ')
+             CHGVAR     VAR(&WPTYPE) VALUE('1')
+             CHGVAR     VAR(&WPAKTI) VALUE('0')
+
+          CALL       PGM(GLCHKPGM) PARM(&WPPRGM &WPTYPE &WPAKTI)
+
+/* Program er aktivt!:                                               */
+          IF   COND(&WPAKTI *EQ 1) THEN(DO)
+               CHGVAR     VAR(&WPVALG) VALUE('4')
+               CALL       PGM(GL124R) PARM(&WPIN03 &WPVALG +
+                                           &WPLINJ &WPPOSI &WPKODE)
+               GOTO       CMDLBL(END)
+
+          ENDDO
+
+/* Program er ikke aktivt.  Det settes nå AKTIVT!                    */
+
+          IF   COND(&WPAKTI *EQ 0) THEN(DO)
+               CHGVAR     VAR(&WPTYPE) VALUE('0')
+               CALL       PGM(GLCHKPGM) PARM(&WPPRGM &WPTYPE &WPAKTI)
+          ENDDO
+
+
+             CLRPFM     FILE(DIRUIE)
+
+/* Starter ICF-kommunikasjonsprogram for å HENTE data                */
+/* Programmet legger data ut på samlefile GRETPF:                    */
+
+             CALL       PGM(BF202R) PARM(&WPIN03 &WPBANK)
+
+/* Tester på om program skal avsluttes.                              */
+
+                   IF         COND(&WPIN03 *EQ 1) THEN(DO)
+                   GOTO       CMDLBL(EOJ)
+                   ENDDO
+
+/* Tømmer mottaksfil før kopiering                                   */
+
+             CLRPFM     FILE(LWERPF)
+
+/* Kopierer over til mottaksfil:                                     */
+
+             CPYF       FROMFILE(ADB/GRETPF) TOFILE(*LIBL/LWERPF) +
+                          MBROPT(*ADD) FMTOPT(*NOCHK)
+             MONMSG     MSGID(CPF0000)
+
+
+/* Tømmer GRETPF                                                     */
+
+             CLRPFM     FILE(ADB/GRETPF)
+
+             RCLRSC
+
+/* Sletter Kontrollmember:                                           */
+
+ EOJ:
+             CHGVAR     VAR(&WPTYPE) VALUE('2')
+             CHGVAR     VAR(&WPPRGM) VALUE('BANK      ')
+             CALL       PGM(GLCHKPGM) PARM(&WPPRGM &WPTYPE &WPAKTI)
+ END:
+             ENDPGM

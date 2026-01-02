@@ -1,0 +1,868 @@
+      /TITLE  ASOKON Arbeid med avtaleregister
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      * System  . . . . : ASOKON                                        *
+      * Program . . . . : GL114R                                        *
+      * Beskrivelse . . : Arbeid med avtaleregister                     *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      * Spesialversjon. :                                               *
+      * Tilpasset for . :                                               *
+      *                                                                 *
+      * Referanse  Dato   Endringsbeskrivelse                      Sign.*
+      * --------- ------  ----------------------------------------------*
+      *           260195  Nytt program januar-1995                 RH   *
+      *                                                                 *
+      * 08110     081100  Lagt inn mulighet for at et firma kan ha RH   *
+      *                   flere bankkontoer.                       RH   *
+      *                                                                 *
+      * 20120     201200  Utvidet avtaleregisteret til å ha med:   RH   *
+      *                   --> Sone                                 RH   *
+      *                   --> Hovedbokskonto- Avd og Spes.         RH   *
+      *                   --> Beskrivelse av lokasjon.             RH   *
+      *                                                                 *
+      * 17123     171203  Skjult feltene for HBOK, AVD og SPES.    RH   *
+7.xx  * 7.00      170117  Endringer reltart til ny GUI. NB Kan kun BSA  *
+7.xx  *                   gjelde DDS.
+      *                                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      *  BRUK AV INDIKATORER                                            *
+      *                                                                 *
+      *       KC = F3  = Exit                                           *
+      *       KE = F5  = Forny                                          *
+      *       KL = F12 = Annuller                                       *
+      *                                                                 *
+      *       LR = Avslutt program                                      *
+      *   SUBFILE-1:                                                    *
+      *       10 = Roll                                                 *
+      *       12 = Sfldsp                                               *
+      *       13 = Sfldspctl                                            *
+      *       14 = Sflclr                                               *
+      *       15 = Sflend                                               *
+      *       16 = Readc 16 on, no more records                         *
+      *                                                                 *
+      *    30-59 = Varsle m/feilmeldinger/skjermindikatorer             *
+      *       40 = Er på dersom avtale kun skal VISES.                  *
+      *       41 = Er på dersom avtale skal slettes, og viser           *
+      *            teksten "Enter=Slette" i skjermbildet A1.            *
+      *       42 = Er på dersom det gjelder endring av en eksisterende  *
+      *            avtale.  Bankkto.nr. skal da ikke kunne endres.      *
+      *    60-69 = Fileindikatorer chain etc.                           *
+      *    70-79 = Arbeidsindikatorer i sub-rutiner                     *
+      *    80-89 = Arbeidsindikatorer ordinære                          *
+      *    90-99 = Benyttes ved std. sub-rutiner                        *
+      *                                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     fgl114d    cf   e             workstn
+     f                                     sfile(d1wsf:srrn01)
+     fgavtl1    uf a e           k disk
+     f                                     rename(gavtpfr:gavtpf1)
+     fgavtl2    if   e           k disk
+     f                                     rename(gavtpfr:gavtpf2)
+     fgavtl3    if   e           k disk
+     f                                     rename(gavtpfr:gavtpf3)
+      *
+     d txt             s             11    dim(1) ctdata perrcd(1)
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Definering av felter                                            *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      *     nn - er 01 for subfile 01,
+      *             02 for subfile 02,
+      *             03 for subfile 03, o.s.v.
+      * SRRNnn - Relativt recordnummer i subfile
+      * SPGEnn - Sidestørrelse i subfile (page)
+      * SFRNnn - Første recordnummer på siden
+      * SSRNnn - Siste  recordnummer på siden
+      * SVRNnn - Vis den side som inneholder denne record.
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved windows.
+      * - - - - - - - - - - - - - - - - -
+      *
+      * w_arow - Actual line, angir startlinje for vindu.
+      * w_acol - Actual posision, angir startposisjon for vindu.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      *
+      * A1WIN  - Avtaleopplysninger.
+      * A2WIN  - Type bank.
+      * S1WIN  - Window.
+      * S2WIN  - Window.
+      * D1WSF  - C1 Subfile window - record
+      * D2WCT  - C2 Subfile window - control record - Til oppdatering.
+      * D2CMD  - C2 Eget skjermbilde for CMD-taster - Window definisjon
+      *
+      /EJECT
+      *
+      * Henter firmanavn.
+      *
+     d                uds
+     d dschgv                844    844
+     d dsuser                911    920
+     d dsfgrp                931    933
+     d dsfirm                944    946  0
+     d dsfnav                951    980
+      /EJECT
+      *
+      * Datastruktur for dato:
+      *
+     d                 ds
+     d wpdato                         8  0
+     d  wpdatÅ                        4  0 overlay(wpdato)
+     d  wpdatm                        2  0 overlay(wpdato:5)
+     d  wpdatd                        2  0 overlay(wpdato:7)
+      *
+      * Datastruktur for dato:
+      *
+     d                 ds
+     d dsdato                         8  0
+     d  dsdatd                        2  0 overlay(dsdato)
+     d  dsdatm                        2  0 overlay(dsdato:3)
+     d  dsdatÅ                        4  0 overlay(dsdato:5)
+      *---------------------------------------------------------------------
+      * Stand Alone Fields - TOP
+      *---------------------------------------------------------------------
+     d sfrn01          s                   like(srrn01)
+     d spge01          s              3  0
+     d srrn01          s              4  0
+     d ssrn01          s                   like(srrn01)
+     d w_arow          s              2  0
+     d w_acol          s              3  0
+     d wpbgir          s             11  0
+     d wpendr          s              2
+     d wpfilg          s              3
+     d wpfirm          s              3  0
+     d wppgir          s             11  0
+     d xactli          s              2  0
+     d xactpo          s              3  0
+     d b1hkon          s                   like(gchkon)
+     d b1avde          s                   like(gcavde)
+     d b1spes          s                   like(gcspes)
+      *---------------------------------------------------------------------
+      * Stand Alone Fields - BOTTOM
+      *---------------------------------------------------------------------
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * B2CTL Behandle åpningsbildet med subfile                        *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   eval      w_arow = 4
+     c                   eval      w_acol = 4
+     c                   write     d2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      xdsp01
+      *
+      * F3=Avslutt program i fra subfile program.
+      *
+     c     *inkc         cabeq     *on           xslutt
+      *
+      * Forny
+      *
+     c                   if        *inke = *on                                  ...
+     c                   exsr      xclr01                                         .
+     c                   eval      b2valg = *blanks                               .
+     c                   eval      b2fgrp = *blanks                               .
+     c                   eval      b2firm = 0                                     .
+     c                   eval      wpfilg = *blanks                               .
+     c                   eval      wpfirm = 0                                     .
+     c     key01         setll     gavtl2                             60          .
+     c                   exsr      xcrt01                                         .
+     c                   goto      b2taga                                         .
+     c                   endif                                                  ...
+      *
+      * Roll
+      *
+     c                   if        *in10 = *on                                           .....
+     c                   exsr      xcrt01                                       CRT SFL      .
+     c                   goto      b2tagb                                                    .
+     c                   endif                                                           .....
+      *
+      * Opprette/endre/slette
+      *
+08110c                   if        *inkf = *on                                  ..........
+      *                                                             .
+      * Kontroll på om avtale finnes:                               .
+      *                                                             .
+     c                   if        b2bgir <> 0                                  .....    .
+     c     b2bgir        chain     gavtl1                             60            .    .
+     c                   if        *in60 = *off                                 ... .    .
+     c                   move      *on           *in32                            . .    .
+     c                   unlock    gavtl1                                         . .    .
+     c                   goto      b2tagb                                         . .    .
+     c                   endif                                                  ... .    .
+     c                   endif                                                  .....    .
+      *                                                             .
+      * Initierer skjermverdier:                                    .
+      *                                                             .
+     c                   eval      a1filg = *blanks                                      .   .
+     c                   eval      a1firm = 0                                            .   .
+     c                   eval      a1bgir = 0                                            .
+     c                   eval      a1pgir = 0                                            .
+     c                   eval      a1dato = 0                                            .
+     c                   eval      a1avtn = 0                                            .
+     c                   eval      a1lØpn = 0                                            .
+     c                   eval      a1komm = *blanks                                      .
+      *                                                             .
+20120c                   eval      a1bank = *blanks                                      .   .
+20120c                   eval      a1skod = *blanks                                      .   .
+20120c                   eval      a1slok = *blanks                                      .   .
+20120c                   eval      a1skto = 0                                            .   .
+7.xx c**                 eval      a1hkon = 0                                            .   .
+7.xx c**                 eval      a1avde = 0                                            .   .
+7.xx c**                 eval      a1spes = 0                                            .   .
+      *                                                             .
+      * Send opp vedlikeholdsbilde:                                 .
+      *                                                             .
+     c                   exsr      xb2bld                                                .
+      *                                                             .
+     c                   eval      b2valg = *blanks                                      .
+     c                   eval      b2fgrp = *blanks                                      .
+     c                   eval      b2firm = 0                                            .
+     c                   endif                                                  ..........
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Behandling av subfile                                           *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      * Sjekk om valg
+      * er foretatt i
+      * subfile
+      *
+     c                   do        ssrn01                                                .....
+     c                   readc     d1wsf                                  16                 .
+      *                                                                 .
+     c                   if        *in16 = *on                                  .....        .
+     c                   leave                                                      .        .
+     c                   endif                                                  .....        .
+      *                                                                 .
+      * Velge for endring:                                              .
+      *                                                                 .
+     c                   if        b1valg = '2'                                 .....        .
+     c                             or b1valg = '4'                                  .        .
+     c                             or b1valg = '5'                                  .        .
+      *                                                        .        .
+     c                   movel     b1fgrp        wpfilg                             .        .
+     c                   eval      wpfirm = b1firm                                  .        .
+     c                   eval      wpbgir = b1bgir                                  .        .
+      *                                                        .        .
+      * Send opp vedlikeholdsbilde:                            .        .
+      *                                                        .        .
+     c                   exsr      xb1bld                                           .        .
+      *                                                        .        .
+     c                   move      srrn01        w_virn                             .        .
+     c                   eval      b1valg = *blank                                  .        .
+     c                   update    d1wsf                                            .        .
+      *                                                        .        .
+     c                   iter                                                       .        .
+     c                   endif                                                  .....        .
+      *                                                                 .
+     c                   enddo                                                           .....
+      *
+      * Initierer subfile på nytt:
+      *
+     c                   if        wpendr = 'JA'                                ...
+     c                   eval      wpendr = *blanks                               .
+     c                   exsr      xclr01                                         .
+     c                   eval      wpfilg = *blanks                               .
+     c                   eval      wpfirm = 0                                     .
+     c     key01         setll     gavtl2                             60          .
+     c                   exsr      xcrt01                                         .
+     c                   endif                                                  ...
+      *
+     c                   goto      b2taga
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Avslutt program                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xslutt        tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * B2BLD Behandle bilde for å opprette avtale:                     *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xb2bld        begsr
+      *
+      * Nullstiller indikatorer.
+      * Feltet blir utfylt dersom det er avvik mellom
+      * firmainformasjon og det som er på avtalen:
+      *
+      * Tester på om avtale skal endres, vises eller slettes:
+      *
+     c                   move      *off          *in40
+     c                   move      *off          *in41
+     c                   move      *off          *in42
+      *
+     c     b2tag1        tag
+      *
+     c                   eval      w_arow = 2
+     c                   eval      w_acol = 12
+     c     b2tag2        tag
+     c     b2tag3        tag
+     c                   exfmt     a1win
+      *
+     c     *inkc         cabeq     *on           xb2end
+     c     *in40         cabeq     *on           xb2end
+      *
+      * Tester på at filgruppe er utfylt:
+      *
+20120c                   if        a1filg = *blanks                             ...
+20120c                   move      *on           *in23                            .
+20120c                   goto      b2tag3                                         .
+20120c                   endif                                                  ...
+      *
+      * Bankforbindelse må utfylles.
+      *
+20120c                   if        a1bank = *blanks                             ...
+20120c                   move      *on           *in21                            .
+20120c                   goto      b2tag3                                         .
+20120c                   endif                                                  ...
+      *
+      * Kontroll på om gyldig bankforbindelse:
+      *
+20120c                   if        a1bank <> *blanks                            .....
+20120 *                                                        .
+20120c                   if        a1bank <> 'DNB'                              ... .
+20120c                             and a1bank <> 'FOK'                            . .
+20120c                             and a1bank <> 'KBA'                            . .
+20120c                             and a1bank <> 'FPC'                            . .
+20120c                             and a1bank <> 'FFI'                            . .
+20120c                             and a1bank <> 'NBA'                            . .
+20120c                             and a1bank <> 'NOR'                            . .
+20120c                   move      *on           *in22                            . .
+20120c                   exfmt     a2win                                          . .
+20120c                   goto      b2tag3                                         . .
+20120c                   endif                                                  ... .
+      *                                                        .
+20120c                   endif                                                  .....
+      *
+      * Tester på at gironummer er utfylt:
+      *
+     c                   if        a1bgir <= 0                                  ...
+     c                   move      *on           *in34                            .
+     c                   goto      b2tag3                                         .
+     c                   endif                                                  ...
+      *
+      * Tester på at sonekontonummer er utfylt:
+      *
+     c                   if        a1skto <= 0                                  ...
+     c                   move      *on           *in37                            .
+     c                   goto      b2tag3                                         .
+     c                   endif                                                  ...
+      *
+      * Sonekode må utfylles dersom Hovedbok, Lokasjon eller Sone-
+      * kontonummer er utfylt:
+      *
+20120c                   if        a1skod = *blanks                             .....
+      *                                                        .
+20120c                   if        a1skto <> 0                                  ... .
+17123c*********                    or a1hkon <> 0                                 . .
+20120c                             or a1slok <> *blanks                           . .
+20120c                   move      *on           *in20                            . .
+20120c                   goto      b2tag3                                         . .
+20120c                   endif                                                  ... .
+      *                                                        .
+20120c                   endif                                                  .....
+      *
+      * Dersom Sonekode er utfylt må Sonekonto være utfylt:
+      *
+20120c                   if        a1skod <> *blanks                            ...
+20120c                             and a1skto = 0                                 .
+20120c                   move      *on           *in37                            .
+20120c                   goto      b2tag3                                         .
+20120c                   endif                                                  ...
+      *
+      * Dersom Sonekode er utfylt må Sonelokasjon være utfylt:
+      *
+20120c                   if        a1skod <> *blanks                            ...
+20120c                             and a1slok = *blanks                           .
+20120c                   move      *on           *in39                            .
+20120c                   goto      b2tag3                                         .
+20120c                   endif                                                  ...
+      *
+      * Dersom Sonekode er utfylt må Hovedbokskontonummer være utfylt:
+      *
+17123 ********START
+17123c***                if        a1skod <> *blanks                            ...
+17123c***                          and a1hkon = 0                                 .
+17123c***                move      *on           *in38                            .
+17123c***                goto      b2tag3                                         .
+17123c***                endif                                                  ...
+17123 ********SLUTT
+      *
+      * Tester om bankgironr. finnes i annen avtale:
+      *
+     c                   if        a1bgir <> 0                                  .......
+     c     a1bgir        chain     gavtl1                             60              .
+      *                                                          .
+     c                   if        *in60 = *off                                 ..... .
+     c                   if        wpfilg <> gcfilg                             ... . .
+     c                             or wpfirm <> gcfirm                            . . .
+     c                   move      *on           *in33                            . . .
+     c                   goto      b2tag3                                         . . .
+     c                   endif                                                  ... . .
+     c                   endif                                                  ..... .
+     c                   endif                                                  .......
+      *
+      * Tester om postgironr. finnes i annen avtale:
+      *
+     c                   if        a1pgir <> 0                                  .......
+     c     a1pgir        chain     gavtl3                             60              .
+      *                                                          .
+     c                   if        *in60 = *off                                 ..... .
+     c                   if        wpfilg <> gcfilg                             ... . .
+     c                             or wpfirm <> gcfirm                            . . .
+     c                   move      *on           *in36                            . . .
+     c                   goto      b2tag3                                         . . .
+     c                   endif                                                  ... . .
+     c                   endif                                                  ..... .
+     c                   endif                                                  .......
+      *
+      * OK! oppdaterer.
+      *
+     c     a1bgir        chain     gavtl1                             60
+      *
+     c                   eval      gcbgir = a1bgir
+     c                   eval      gcpgir = a1pgir
+     c                   movel     a1filg        gcfilg
+     c                   eval      gcfirm = a1firm
+      * Snu dato:
+     c                   eval      dsdato = a1dato
+     c                   eval      wpdatd = dsdatd
+     c                   eval      wpdatm = dsdatm
+     c                   eval      wpdatÅ = dsdatÅ
+     c                   eval      gcdato = wpdato
+      *
+     c                   eval      gcavtn = a1avtn
+     c                   eval      gclØpn = a1lØpn
+     c                   movel     a1komm        gckomm
+      *                                                             .
+20120c                   movel     a1bank        gcbank                                  .   .
+20120c                   movel     a1skod        gcskod                                  .   .
+20120c                   movel     a1slok        gcslok                                  .   .
+20120c                   eval      gcskto = a1skto                                       .   .
+7.xx c**                 eval      gchkon = a1hkon                                       .   .
+7.xx c                   eval      gchkon = 0                                            .   .
+7.xx c**                 eval      gcavde = a1avde                                       .   .
+7.xx c                   eval      gcavde = 0
+7.xx c**                 eval      gcspes = a1spes                                       .   .
+7.xx c                   eval      gcspes = 0
+      *
+     c                   if        *in60 = *on                                  ...
+     c                   write     gavtpf1                                        .
+     c                   else                                                     .
+     c                   update    gavtpf1                                        .
+     c                   endif                                                  ...
+      *
+     c                   movel     'JA'          wpendr
+      *
+     c     xb2end        tag
+      *
+     c                   endsr
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * B1BLD Behandle bilde for å endre post:                          *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xb1bld        begsr
+      *
+      * Tester på om avtale skal endres, vises eller slettes:
+      *
+     c                   move      *off          *in40
+     c                   move      *off          *in41
+     c                   move      *on           *in42
+      *
+     c                   if        b1valg = '4'                                 ...
+     c                             or b1valg = '5'                                .
+     c                   move      *on           *in40                            .
+     c                   endif                                                  ...
+      *
+      * Tester på om avtale skal endres eller vises:
+      *
+     c                   if        b1valg = '4'                                 ...
+     c                   move      *on           *in41                            .
+     c                   endif                                                  ...
+      *
+     c     b1tag1        tag
+      *
+     c                   movel     b1fgrp        a1filg
+     c                   eval      a1firm = b1firm
+     c                   eval      a1bgir = b1bgir
+      *
+20120c                   movel     b1skod        a1skod
+20120c                   movel     b1slok        a1slok
+20120c                   eval      a1skto = b1skto
+20120c                   movel     b1bank        a1bank
+7.xx c**                 eval      a1hkon = b1hkon
+7.xx c**                 eval      a1avde = b1avde
+7.xx c**                 eval      a1spes = b1spes
+      *
+     c                   eval      a1bgir = wpbgir
+     c                   eval      a1pgir = wppgir
+      *
+     c                   eval      a1bgir = b1bgir
+     c                   eval      a1pgir = b1pgir
+      * Snu dato fra ÅÅÅÅ.MM.DD:
+     c                   eval      wpdato = b1dato
+     c                   eval      dsdatd = wpdatd
+     c                   eval      dsdatm = wpdatm
+     c                   eval      dsdatÅ = wpdatÅ
+     c                   eval      a1dato = dsdato
+      *
+     c                   eval      a1avtn = b1avtn
+     c                   eval      a1lØpn = b1lØpn
+     c                   movel     b1komh        a1komm
+      *
+     c                   eval      w_arow = 2
+     c                   eval      w_acol = 12
+      *
+      * Sender opp bilde for endring/vise:
+      *
+     c     b1tag2        tag
+     c     b1tag3        tag
+     c                   exfmt     a1win
+      *
+      * Kontroll:
+      *
+     c     *inkc         cabeq     *on           xb1end
+      *
+      * Sletter post:
+      *
+     c                   if        b1valg = '4'                                 .....
+     c     b1bgir        chain     gavtl1                             60            .
+     c                   if        *in60 = *off                                 ... .
+     c                   delete    gavtpf1                                        . .
+     c                   eval      b1komm = *blanks                               . .
+     c                   movel     txt(1)        b1komm                           . .
+20120c                   eval      b1slok = *blanks                               . .
+20120c                   movel     txt(1)        b1slok                           . .
+     c                   movel     'JA'          wpendr                           . .
+     c                   endif                                                  ... .
+     c                   endif                                                  .....
+      *
+     c     *in40         cabeq     *on           xb1end
+      *
+      * Tester på at gironummer er utfylt:
+      *
+     c                   if        a1bgir <= 0                                  ...
+     c                   move      *on           *in34                            .
+     c                   goto      b1tag3                                         .
+     c                   endif                                                  ...
+      *
+      *
+      *
+      *
+      *
+      *
+      *
+      *
+      * Tester på at filgruppe er utfylt:
+      *
+20120c                   if        a1filg = *blanks                             ...
+20120c                   move      *on           *in23                            .
+20120c                   goto      b1tag3                                         .
+20120c                   endif                                                  ...
+      *
+      * Bankforbindelse må utfylles.
+      *
+20120c                   if        a1bank = *blanks                             ...
+20120c                   move      *on           *in21                            .
+20120c                   goto      b1tag3                                         .
+20120c                   endif                                                  ...
+      *
+      * Kontroll på om gyldig bankforbindelse:
+      *
+20120c                   if        a1bank <> *blanks                            .....
+20120 *                                                        .
+20120c                   if        a1bank <> 'DNB'                              ... .
+20120c                             and a1bank <> 'FOK'                            . .
+20120c                             and a1bank <> 'KBA'                            . .
+20120c                             and a1bank <> 'FPC'                            . .
+20120c                             and a1bank <> 'FFI'                            . .
+20120c                             and a1bank <> 'NBA'                            . .
+20120c                             and a1bank <> 'NOR'                            . .
+20120c                   move      *on           *in22                            . .
+20120c                   exfmt     a2win                                          . .
+20120c                   goto      b1tag3                                         . .
+20120c                   endif                                                  ... .
+      *                                                        .
+20120c                   endif                                                  .....
+      *
+      * Tester på at sonekontonummer er utfylt:
+      *
+     c                   if        a1skto <= 0                                  ...
+     c                   move      *on           *in37                            .
+     c                   goto      b1tag3                                         .
+     c                   endif                                                  ...
+      *
+      * Sonekode må utfylles dersom Hovedbok, Lokasjon eller Sone-
+      * kontonummer er utfylt:
+      *
+20120c                   if        a1skod = *blanks                             .....
+      *                                                        .
+20120c                   if        a1skto <> 0                                  ... .
+17123c********                     or a1hkon <> 0                                 . .
+20120c                             or a1slok <> *blanks                           . .
+20120c                   move      *on           *in20                            . .
+20120c                   goto      b1tag3                                         . .
+20120c                   endif                                                  ... .
+      *                                                        .
+20120c                   endif                                                  .....
+      *
+      * Dersom Sonekode er utfylt må Sonekonto være utfylt:
+      *
+20120c                   if        a1skod <> *blanks                            ...
+20120c                             and a1skto = 0                                 .
+20120c                   move      *on           *in37                            .
+20120c                   goto      b1tag3                                         .
+20120c                   endif                                                  ...
+      *
+      * Dersom Sonekode er utfylt må Sonelokasjon være utfylt:
+      *
+20120c                   if        a1skod <> *blanks                            ...
+20120c                             and a1slok = *blanks                           .
+20120c                   move      *on           *in39                            .
+20120c                   goto      b1tag3                                         .
+20120c                   endif                                                  ...
+      *
+      * Dersom Sonekode er utfylt må Hovedbokskontonummer være utfylt:
+      *
+17123 ******START
+17123c***                if        a1skod <> *blanks                            ...
+17123c***                          and a1hkon = 0                                 .
+17123c***                move      *on           *in38                            .
+17123c***                goto      b1tag3                                         .
+17123c***                endif                                                  ...
+17123 ******SLUTT
+      *
+      * Gironummer på avtale må være likt som på firmaopplysn:
+      *
+     c     b1bgir        chain     gavtl1                             60
+      *
+      * Frigjør record:
+      *
+     c                   if        *in60 = *off                                 ...
+     c                   unlock    gavtl1                                         .
+     c                   endif                                                  ...
+      *
+      * OK! oppdaterer.
+      *
+     c     a1bgir        chain     gavtl1                             60
+      *
+     c                   movel     a1filg        b1fgrp
+     c                   eval      b1firm = a1firm
+     c                   eval      b1avtn = a1avtn
+     c                   eval      b1bgir = a1bgir
+     c                   eval      b1pgir = a1pgir
+     c                   movel     a1komm        b1komm
+     c                   movel     a1komm        b1komh
+      *
+20120c                   movel     a1skod        b1skod
+20120c                   movel     a1slok        b1slok
+20120c                   eval      b1skto = a1skto
+20120c                   movel     a1bank        b1bank
+7.xx c**                 eval      b1hkon = a1hkon
+7.xx c**                 eval      b1avde = a1avde
+7.xx c**                 eval      b1spes = a1spes
+      *
+20120c                   movel     a1bank        gcbank                                  .   .
+20120c                   movel     a1skod        gcskod                                  .   .
+20120c                   movel     a1slok        gcslok                                  .   .
+20120c                   eval      gcskto = a1skto                                       .   .
+7.xx c**                 eval      gchkon = a1hkon                                       .   .
+7.xx c                   eval      gchkon = 0
+7.xx c**                 eval      gcavde = a1avde                                       .   .
+7.xx c                   eval      gcavde = 0
+7.xx c**                 eval      gcspes = a1spes                                       .   .
+7.xx c                   eval      gcspes = 0
+      *
+     c                   eval      gcbgir = a1bgir
+     c                   eval      gcpgir = a1pgir
+     c                   movel     a1filg        gcfilg
+     c                   eval      gcfirm = a1firm
+      * Snu dato fra DD.MM.ÅÅÅÅ:
+     c                   eval      dsdato = a1dato
+     c                   eval      wpdatd = dsdatd
+     c                   eval      wpdatm = dsdatm
+     c                   eval      wpdatÅ = dsdatÅ
+     c                   eval      gcdato = wpdato
+     c                   eval      b1dato = gcdato                                           .
+      *
+     c                   eval      gcavtn = a1avtn
+     c                   eval      gclØpn = a1lØpn
+     c                   movel     a1komm        gckomm
+      *
+     c                   if        *in60 = *on                                  ...
+     c                   write     gavtpf1                                        .
+     c                   else                                                     .
+     c                   update    gavtpf1                                        .
+     c                   endif                                                  ...
+     c                   movel     'JA'          wpendr
+      *
+     c     xb1end        tag
+      *
+     c                   endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Tøm subfile - 1                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xclr01        begsr
+     c                   move      *on           *in14
+     c                   write     d2wct
+     c                   move      *off          *in14
+      *
+     c                   move      *off          *in15
+     c                   eval      srrn01 = 0
+     c                   eval      sfrn01 = 0
+     c                   eval      ssrn01 = 0
+     c                   eval      spge01 = 0
+      *
+     c                   endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Fyll opp subfile - 1                                            *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xcrt01        begsr
+     c                   eval      spge01 = spge01 + 5                          SFL END
+     c                   eval      srrn01 = ssrn01
+      *
+     c                   dou       srrn01 = spge01                                       .....
+      *                                                                 .
+     c                   read      gavtl2                                 15                 .
+      *                                                                 .
+     c     *in15         cabeq     *on           xend01                                      .
+      *******              UNLCKGAVTL2                                  .
+      * Display felter:                                                 .
+     c                   eval      srrn01 = srrn01 + 1                                       .
+     c                   eval      b1dato = gcdato                                           .
+     c                   movel     gcfilg        b1fgrp                                      .
+     c                   eval      b1firm = gcfirm                                           .
+     c                   movel     gcavtn        b1avtn                                      .
+     c                   eval      b1bgir = gcbgir                                           .
+     c                   eval      b1pgir = gcpgir                                           .
+     c                   movel     gckomm        b1komm                                      .
+      *
+20120c                   movel     gcskod        b1skod
+20120c                   movel     gcslok        b1slok
+20120c                   eval      b1skto = gcskto
+20120c                   movel     gcbank        b1bank
+20120c                   eval      b1hkon = gchkon
+20120c                   eval      b1avde = gcavde
+20120c                   eval      b1spes = gcspes
+      *
+      *Skjulte-felter                                                   .
+     c                   eval      b1lØpn = gclØpn                                           .
+     c                   movel     gckomm        b1komh                                      .
+     c                   movel     gcavtn        b1avtn                                      .
+      *                                                                 .
+     c                   write     d1wsf                                                     .
+     c                   enddo                                                           .....
+      *
+     c     xend01        tag
+      *
+     c                   if        srrn01 > ssrn01                                       .....
+     c                   eval      sfrn01 = ssrn01 + 1                                       .
+     c                   endif                                                           .....
+      *
+     c                   eval      ssrn01 = srrn01
+     c                   eval      w_virn = sfrn01
+      *
+     c                   endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Display subfile - 1                                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xdsp01        begsr
+      *
+     c                   if        srrn01 <> 0                                           .....
+     c                   move      *on           *in12                                       .
+     c                   endif                                                           .....
+      *
+     c                   move      *on           *in13
+     c                   exfmt     d2wct
+     c                   move      *off          *in12
+     c                   move      *off          *in13
+      *
+     c                   endsr
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     *inzsr        begsr
+      *
+      * Initierer hjelpefelt:
+      *
+     c                   eval      spge01 = 0
+     c                   eval      srrn01 = 0
+     c                   eval      w_arow = 4
+     c                   eval      w_acol = 2
+20120c                   eval      xactli = 8
+20120c                   eval      xactpo = 36
+     c                   eval      wpbgir = 0
+     c                   eval      wppgir = 0
+      *
+      * Hjelpefelt forteller om subfile skal initieres på nytt:
+      *
+     c                   eval      wpendr = *blanks
+      *
+      *
+      *
+      * Key til bruk på avtaleregister GAVTL2:
+      *
+     c     key01         klist
+     c                   kfld                    wpfilg
+     c                   kfld                    wpfirm
+      *
+      * Key til bruk for å teste om avtale allerede finnes på filgruppe
+      * og firmanummer ved endring av de verdiene i skjermbildet:
+      *
+     c     key02         klist
+     c                   kfld                    a1filg
+     c                   kfld                    a1firm
+      *
+      * Key til bruk mot avtaleregister, kun bankkontonummer:
+      *
+08110c     key03         klist
+08110c                   kfld                    wpbgir
+      *
+      * Initierer les for å fylle opp subfile:
+      *
+     c     key01         setll     gavtl2                             60
+      * Fyll opp subfile:
+     c                   exsr      xcrt01
+      *
+     c                   endsr
+      *
+**
+* Slettet *

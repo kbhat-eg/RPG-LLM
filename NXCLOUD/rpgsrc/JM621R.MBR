@@ -1,0 +1,1283 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASVADM
+      * Program . . . . : JM621R
+      * Beskrivelse . . : Batch program som overfører kampanjepriser
+      *                   til eget vareregister.
+      *                   Programmet skriver ut kontroll- og journalliste.
+      *
+      *                   NB! Hardkodet moms-sats
+      *
+      * Spesialversjon. : Overføre prisgrupper, paramterstyrt, utvidet VA kamp = prisgr.
+      * Tilpasset for . : Mestergruppen
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       270997 HKO  Nytt program
+      *       081297 HKO  Kaller program for avrunding av salgspris
+      *                   inkl. mva
+      *       290405 HKO  Overfører tilbudspris til vare i EVR med samme
+      *                   Nobbnr dersom varenr ikke finnes
+      *       020805 HKO  Endret les mot vare-enhet for å finne salgsenheter
+      *       121105 HKO  Rettet logikk for å finne salgsenheter
+5.70  * PRGR  280509 BOF  Utvidet med prisgruppe
+6.10  *       250809 bof  Fjernet 000 fra pakning, ligger på vvarpf
+6.20  *       070911 bof  Utvidet tilbudsregister med varegr. og lev.nr
+6.30  * 6.20  270114 bof  Utvidet paramter til jm705r
+6.31  *       080714 bkv  Setter dato første gang overført
+6.32  *       110714 bkv  Lagt inn DG
+6.33  *       140714 bkv  Begrenser for stor DG
+6.21  * 6.40  140714 bkv  Begrenser for stor DG
+6.22  *       260814 NHO  Innkjøpspriser ble ikke lagt ut i VTILLU
+6.34  *       110316 bof  BM-pakke : danne tilb.pr. pr prisg. med fraktpåslag
+      *
+7.01  *       100516 bof  Overføre prisgr. i hht. parameter
+7.02  *       120516 bof  Styring av tilgang på prisgruppe
+7.03  *       240417 bof  Feilretting vedr. prgr på les av hode.
+7.04  *       060617 bof  Feilretting vedr. prgr på les av detaljer
+7.05  *       230420 bof  Tillate status 4 - switchstyrt
+7.06  *       260821 bof  feilretting vedr. prisgruppe (fra askorr700a)
+      *
+8.01  *       250422 bof  Utvidet med logistikk-varer
+8.02  *       310522 bof  Bruker ikke varekortets nobb.lev ved hent av pris.
+8.03  *PRG2   130622 BOF  Utvidet med prisgruppe og fra 1 til 2 pos.
+8.04  *       261022 bof  Hvis ikke master, bruk prisgr.som er valgt i parm.
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjkavl2    if   e           k disk    rename(jkavpfr:jkavl2r)
+     fjkahlr    if   e           k disk    rename(jkahpfr:jkahlrr)
+     fjvarl1    if   e           k disk    rename(jvarpfr:jvarl1r)
+     fvugrl1    if   e           k disk    rename(vugrpfr:vugrl1r)
+     fjlevl1    if   e           k disk    rename(jlevpfr:jlevl1r)
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvarl3    if   e           k disk    rename(vvarpfr:vvarl3r)
+     fvvenl2    if   e           k disk    rename(vvenpfr:vvenl2r)
+     fvtillu    uf a e           k disk    rename(vtilpfr:vtillur)
+     fjkahlu    uf   e           k disk    rename(jkahpfr:jkahlur)
+6.32 fvvprl1    if   e           k disk    rename(vvprpfr:vvprl1r)
+6.34 fra30l1    if   e           k disk    rename(ra30pfr:ra30l1r)
+6.34 famodl1    if   e           k disk    rename(amodpfr:amodl1r)
+7.01 fra30lr    if   e           k disk    rename(ra30pfr:ra30lrr)
+7.01 ffusrl1    if   e           k disk    rename(fusrpfr:fusrl1r)
+      *
+     fjm621p    o    e             printer
+      *
+      * Definering av parametre
+      *
+7.01 d p_parm          s             36
+6.34 d p_avrund        s              3
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+7.05 d l_filg                931    933
+      *
+      * Definering av datastrukturer
+      *
+      *  Datastruktur for parameterliste -inn
+      *
+     d                 ds
+7.01 d d_list                        55
+     d  d_firm                        3  0 overlay(d_list)
+     d  d_kamp                        5    overlay(d_list:4)
+     d  d_kntr                        1  0 overlay(d_list:9)
+7.01 d  d_pgva                        1  0 overlay(d_list:10)
+8.03 d  d_pr01                        2    overlay(d_list:11)
+8.03 d  d_pr02                        2    overlay(d_list:13)
+8.03 d  d_pr03                        2    overlay(d_list:15)
+8.03 d  d_pr04                        2    overlay(d_list:17)
+8.03 d  d_pr05                        2    overlay(d_list:19)
+8.03 d  d_pr06                        2    overlay(d_list:21)
+8.03 d  d_pr07                        2    overlay(d_list:23)
+8.03 d  d_pr08                        2    overlay(d_list:25)
+8.03 d  d_pr09                        2    overlay(d_list:27)
+8.03 d  d_pr10                        2    overlay(d_list:29)
+8.03 d  d_pr11                        2    overlay(d_list:31)
+8.03 d  d_pr12                        2    overlay(d_list:33)
+8.03 d  d_pr13                        2    overlay(d_list:35)
+8.03 d  d_pr14                        2    overlay(d_list:37)
+8.03 d  d_pr15                        2    overlay(d_list:39)
+8.03 d  d_pr16                        2    overlay(d_list:41)
+8.03 d  d_pr17                        2    overlay(d_list:43)
+8.03 d  d_pr18                        2    overlay(d_list:45)
+8.03 d  d_pr19                        2    overlay(d_list:47)
+8.03 d  d_pr20                        2    overlay(d_list:49)
+      *
+      * Definering av variabler i nøkler
+      *
+     d jkavl2_vkam     s                   like(jmvkam)
+     d jkahlr_kamp     s                   like(jmkamp)
+7.03 d jkahlr_prgr     s                   like(jmprgr)
+     d jvarl1_vare     s                   like(jvvare)
+     d vugrl1_uogr     s                   like(vguogr)
+     d vugrl1_uhgr     s                   like(vguhgr)
+     d vugrl1_uugr     s                   like(vguugr)
+     d jlevl1_ldor     s                   like(jlldor)
+     d vvarl1_vare     s                   like(vvvare)
+     d vvarl3_nobb     s                   like(vvnobb)
+     d vvenl2_vare     s                   like(vevare)
+     d vvenl2_saen     s                   like(vesaen)
+6.20 d vtillu_ogrp     s                   like(vtogrp)
+6.20 d vtillu_hgrp     s                   like(vthgrp)
+6.20 d vtillu_ugrp     s                   like(vtugrp)
+6.20 d vtillu_ldor     s                   like(vtldor)
+     d vtillu_vare     s                   like(vtvare)
+5.70 d vtillu_prgr     s                   like(vtprgr)
+     d vtillu_lety     s                   like(vtlety)
+     d vtillu_fdat     s                   like(vtfdat)
+     d vtillu_ftim     s                   like(vtftim)
+     d vtillu_tdat     s                   like(vttdat)
+     d vtillu_ttim     s                   like(vtttim)
+     d jkahlu_kamp     s                   like(jmkamp)
+6.34 d amodl1_modu     s                   like(axmodu)
+6.34 d vvprl1_vare     s                   like(vpvare)
+6.34 d vvprl1_ldor     s                   like(vpldor)
+6.34 d vvprl1_prgr     s                   like(vpprgr)
+6.34 d vvprl1_enhe     s                   like(vpenhe)
+6.34 d vvprl1_lety     s                   like(vplety)
+7.01 d ra30lr_dkod     s                   like(redkod)
+7.01 d fusrl1_user     s                   like(fbuser)
+      *
+      * Definering av variable
+      *
+     d w_kntr          s              1  0
+     d w_stat          s              1  0
+     d w_timestamp     s             12  0
+     d w_kode          s              1  0
+6.32 d w_date          s               d   datfmt(*iso)
+6.32 d w_lety          s              1  0
+6.32 d w_prgr          s                   like(vtprgr)
+7.01 d w_prgr_m        s                   like(vtprgr)
+6.32 d w_kampp         s              5
+6.32 d w_kpny          s                   like(vpkopr)
+6.32 d w_inpr          s                   like(vpinpr)
+     d x               s              1  0
+      *
+     d w_firm          s                   like(jmfirm)
+     d w_kamp          s                   like(jmkamp)
+     d w_vvar          s                   like(jmvvar)
+     d w_enh1          s                   like(vtenh1)
+     d w_enh2          s                   like(vtenh2)
+     d w_enh3          s                   like(vtenh3)
+     d w_saim          s                   like(jmvkaa)
+6.32 d w_sapr          s                   like(jmvkaa)
+6.34 d w_omr1          s                   like(veomre)
+6.34 d w_omr2          s                   like(veomre)
+6.34 d w_omr3          s                   like(veomre)
+6.34  *
+6.34 d b_bm            s              1    inz(*off)
+6.34 d b_p7            s              1    inz(*off)
+6.34 d b_pris          s              1    inz(*off)
+7.05 d u_705           s              1    inz(*off)                            Endring 7.10
+6.34 d w_type          s              1  0
+6.34 d w_udat          s                   like(vvedat)
+6.34 d w_retk          s              1
+6.34 d w_mvap          s              6  2
+6.34 d w_mvat          s              5  4
+6.34 d w_mvaf          s             10  9
+6.34 d w_fra1          s             11  2
+6.34 d w_fra2          s             11  2
+6.34 d w_fra3          s             11  2
+6.34 d w_kopr          s                   like(vpkopr)
+6.34 d w_kop1          s                   like(vpkopr)
+6.34 d w_kop2          s                   like(vpkopr)
+6.34 d w_kop3          s                   like(vpkopr)
+6.34 d w_inp1          s                   like(vpinpr)
+6.34 d w_inp2          s                   like(vpinpr)
+6.34 d w_inp3          s                   like(vpinpr)
+6.34 d w_kot1          s                   like(vpkopr)
+6.34 d w_kot2          s                   like(vpkopr)
+6.34 d w_kot3          s                   like(vpkopr)
+6.34 d w_int1          s                   like(vpinpr)
+6.34 d w_int2          s                   like(vpinpr)
+6.34 d w_int3          s                   like(vpinpr)
+6.34 d w_tit1          s                   like(vpinpr)
+6.34 d w_tit2          s                   like(vpinpr)
+6.34 d w_tit3          s                   like(vpinpr)
+6.34 d w_tip1          s                   like(jmvkaa)
+6.34 d w_tip2          s                   like(jmvkaa)
+6.34 d w_tip3          s                   like(jmvkaa)
+6.34 d w_tim1          s                   like(jmvkaa)
+6.34 d w_tim2          s                   like(jmvkaa)
+6.34 d w_tim3          s                   like(jmvkaa)
+6.34 d w_tipr          s                   like(jmvkaa)
+6.34 d w_enhe          s                   like(vtenh3)
+6.34 d w_ldor          s                   like(vvldor)
+6.34 d w_ofx1          s                   like(veomre)
+6.34 d w_ofx2          s                   like(veomre)
+6.34 d w_ofx3          s                   like(veomre)
+8.01 d w_lv_vare       s                   like(vvvare)
+8.01 d w_lv_nlev       s                   like(vvldor)
+8.01 d w_nobb          s                   like(jvnobb)
+      *
+7.01 d b_mast          s              1    inz(*off)
+7.01 d b_prok          s              1    inz(*off)
+7.01 d b_funn          s              1    inz(*off)
+     d s_vldo          s                   like(jmvldo)
+      *
+7.05  *
+7.05  * Definering av eksterne prg
+7.05  * BKV
+7.05   dcl-s co402_verdi1  char(1);
+7.05   dcl-s co402_verdi2  char(2048);
+7.05   DCL-PR CO402R EXTPGM('CO402R');
+7.05     p_filgrp            char(3)     const;
+7.05     p_firm              packed(3:0) const;
+7.05     p_lager             packed(2:0) const;
+7.05     p_nokkel            char(50)    const;
+7.05     p_verdi1            char(1);
+7.05     p_verdi2            char(2048);
+7.05   END-PR;
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.35 C/Exec SQL
+6.35 C+  Set Option DatFmt=*ISO
+6.35 C/End-Exec
+      * Utskrift av header
+      *
+     c                   exsr      hode
+      *
+      * Behandling av kontrolliste/journalliste, og utskrift av deltajlinjer
+      *
+     c                   exsr      behandling
+      *
+      * Oppdaterer kampanje-hode dersom journalliste
+      *
+     c                   if        w_kntr = 0
+     c                   exsr      oppdat_hode
+     c                   endif
+      *
+      * Avslutt
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering og utskrift av hode-opplysninger
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hode          begsr
+      *
+      * Legger inn arb.stasjon og bruker i faste felter
+      *
+     c                   eval      a1firm = w_firm
+     c                   eval      a1user = l_user
+     c                   eval      a1wsid = l_wsid
+     c                   time                    w_timestamp
+     c                   move      w_timestamp   a1date
+     c                   movel     w_timestamp   a1time
+     c                   if        w_kntr = 1
+     c                   eval      a1otyp = 'Kontrolliste'
+     c                   else
+     c                   eval      a1otyp = 'Journalliste'
+     c                   endif
+      *
+      * Henter firmaopplysninger
+      *
+     c     afirl1_key    chain     afirl1r
+     c                   eval      a1fnav = aafnav
+      *
+      * Henter kampanje-hode informasjon
+      *
+7.06 c                   eval      jkahlr_kamp = w_kamp
+7.06  *
+7.03 c                   if        b_mast = *off
+7.03 c                   eval      jkahlr_prgr = d_pr01
+7.03 c     jkahlr_key2   chain     jkahlr
+7.03 c                   else
+     c                   eval      jkahlr_kamp = w_kamp
+     c     jkahlr_key    chain     jkahlr
+7.03 c                   endif
+     c                   if        %found
+     c                   eval      a2kamp = jmkamp
+     c                   eval      a2besk = jmbesk
+     c                   eval      a2ansv = jmansv
+     c     *dmy          move      jmfdat        a2fdat
+     c     *dmy          move      jmtdat        a2tdat
+     c                   endif
+      *
+      * Skriver heading
+      *
+     c                   write     a1hdr
+     c                   write     a2hdr
+     c                   write     a3hdr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av varene i kampanjen
+      * Behandler utskrift av detaljlinje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandling    begsr
+      *
+     c                   eval      jkavl2_vkam = w_kamp
+     c     jkavl2_key    setll     jkavl2
+     c     jkavl2_key    reade     jkavl2                                 90
+      *
+     c                   eval      s_vldo = jmvldo
+      *
+     c                   dow       *in90 = *off
+      *
+     c                   eval      w_vvar = jmvvar
+      *
+      * Kaller sub-program for å hente kampanje-vare status
+      *
+     c                   call      'JM111R'
+     c                   parm                    w_firm
+     c                   parm                    jmvkam
+7.01 c                   parm                    jmvprg
+     c                   parm                    jmvvar
+     c                   parm                    w_stat
+      *
+      * Oppdaterer eget vareregister dersom journalliste
+      *
+7.05 c                   if        u_705 = *on and w_stat = 4
+7.05 c                   eval      w_stat = 0
+7.05 c                   endif
+     c                   if        w_kntr = 0 and w_stat = 0
+     c                   if        b_mast = *on  and
+     c                             d_pgva = 0      and
+     c                             d_pr01 = *blank and
+     c                             d_pr02 = *blank and
+     c                             d_pr03 = *blank and
+     c                             d_pr04 = *blank and
+     c                             d_pr05 = *blank and
+     c                             d_pr06 = *blank and
+     c                             d_pr07 = *blank and
+     c                             d_pr08 = *blank and
+     c                             d_pr09 = *blank and
+     c                             d_pr10 = *blank and
+     c                             d_pr11 = *blank and
+     c                             d_pr12 = *blank and
+     c                             d_pr13 = *blank and
+     c                             d_pr14 = *blank and
+     c                             d_pr15 = *blank and
+     c                             d_pr16 = *blank and
+     c                             d_pr17 = *blank and
+     c                             d_pr18 = *blank and
+     c                             d_pr19 = *blank and
+     c                             d_pr20 = *blank and
+     c                             jmvprg = *blank
+     c                   eval      w_prgr = *blank
+     c                   exsr      oppdat_vare
+     c                   endif
+7.01  *
+7.01  * hvis ikke master, kun egen prisgruppe skal overføres
+7.01  *
+7.01 c                   if        b_mast = *off
+7.04 c                   if        jmvprg = d_pr01
+8.04 c**                 eval      w_prgr = w_prgr_m
+8.04 c                   eval      w_prgr = d_pr01
+     c                   exsr      oppdat_vare
+7.04 c                   endif
+7.01 c                   endif
+      *
+7.01  * Sjekk parameter om noe på prisgruppe skal oppdateres
+      *
+7.01 c                   if        b_mast = *on
+7.01 c                   if        d_pgva = 1
+      * her skal alle prisgrupper få tilbudet.
+6.34  * alle prisgrupper
+6.34 c     ra30l1_key    setll     ra30l1
+6.34 c     ra30l1_key    reade     ra30l1
+6.34 c                   dow       not %eof(ra30l1)
+     c                   eval      w_prgr = redkod
+     c                   exsr      oppdat_vare
+6.34 c     ra30l1_key    reade     ra30l1
+     c                   enddo
+7.01 c                   endif
+7.01  * sjekke en og en prisgr.
+7.01 c                   if        d_pr01 <> *blank
+7.01 c                   eval      w_prgr = d_pr01
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr02 <> *blank
+7.01 c                   eval      w_prgr = d_pr02
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr03 <> *blank
+7.01 c                   eval      w_prgr = d_pr03
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr04 <> *blank
+7.01 c                   eval      w_prgr = d_pr04
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr05 <> *blank
+7.01 c                   eval      w_prgr = d_pr05
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr06 <> *blank
+7.01 c                   eval      w_prgr = d_pr06
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr07 <> *blank
+7.01 c                   eval      w_prgr = d_pr07
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr08 <> *blank
+7.01 c                   eval      w_prgr = d_pr08
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr09 <> *blank
+7.01 c                   eval      w_prgr = d_pr09
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr10 <> *blank
+7.01 c                   eval      w_prgr = d_pr10
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr11 <> *blank
+7.01 c                   eval      w_prgr = d_pr11
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr12 <> *blank
+7.01 c                   eval      w_prgr = d_pr12
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr13 <> *blank
+7.01 c                   eval      w_prgr = d_pr13
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr14 <> *blank
+7.01 c                   eval      w_prgr = d_pr14
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr15 <> *blank
+7.01 c                   eval      w_prgr = d_pr15
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr16 <> *blank
+7.01 c                   eval      w_prgr = d_pr16
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr17 <> *blank
+7.01 c                   eval      w_prgr = d_pr17
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr18 <> *blank
+7.01 c                   eval      w_prgr = d_pr18
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr19 <> *blank
+7.01 c                   eval      w_prgr = d_pr19
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01 c                   if        d_pr20 <> *blank
+7.01 c                   eval      w_prgr = d_pr20
+7.01 c                   exsr      oppdat_vare
+     c                   endif
+7.01  *
+7.01 c                   endif
+7.01 c                   endif
+      *
+      * Skriver detaljlinje på kvittering/journalliste.
+      *
+     c                   exsr      detalj
+      *
+     c     jkavl2_key    reade     jkavl2                                 90
+      *
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine utskrift av detaljlinje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     detalj        begsr
+      *
+     c                   eval      d1vldo = jmvldo
+     c                   eval      d1vvar = w_vvar
+     c                   if        jmvkpr <> 0
+     c                   eval      d1vkpr = jmvkpr
+     c                   else
+     c                   eval      d1vkpr = jmvkai
+     c                   endif
+     c                   eval      d1vkau = jmvkau
+     c                   eval      d1vkaa = jmvkaa
+8.03 c                   eval      d1prgr = jmvprg
+     c                   eval      d1stat = w_stat
+      *
+      * Henter leverandørnavn
+      *
+     c                   eval      d1lnav = *blank
+     c                   eval      jlevl1_ldor = jmvldo
+     c     jlevl1_key    chain     jlevl1                             91
+     c                   if        *in91 = *off
+     c                   eval      d1lnav = jlnavn
+     c                   endif
+      *
+      * Henter vareinformasjon
+      *
+     c                   eval      d1nobb = 0
+     c                   eval      d1tek1 = *blank
+     c                   eval      d1ogrp = 0
+     c                   eval      d1hgrp = 0
+     c                   eval      d1ugrp = 0
+     c                   eval      jvarl1_vare = jmvvar
+     c     jvarl1_key    chain     jvarl1
+     c                   if        %found
+     c                   eval      d1nobb = jvnobb
+     c                   eval      d1tek1 = jvtek1
+     c                   eval      d1ogrp = jvogrp
+     c                   eval      d1hgrp = jvhgrp
+     c                   eval      d1ugrp = jvugrp
+6.10 c                   eval      d1enhe = jvpenh
+     c                   endif
+      *
+      * Henter beskrivelse av undergruppe
+      *
+     c                   eval      d1utxt = *blank
+     c                   if        d1ugrp <> 0
+     c                   eval      vugrl1_uogr = jvogrp
+     c                   eval      vugrl1_uhgr = jvhgrp
+     c                   eval      vugrl1_uugr = jvugrp
+     c     vugrl1_key    chain     vugrl1                             91
+     c                   if        *in91 = *off
+     c                   eval      d1utxt = vgutxt
+     c                   endif
+     c                   endif
+      *
+      * Beregner salgspris inkl.moms
+      *
+     c                   if        jmvkau > 0
+     c                   eval      d1saim = jmvkau * 1,25
+6.32 c                   eval      w_sapr = jmvkau
+     c                   else
+     c                   eval      d1saim = jmvkaa * 1,25
+6.32 c                   eval      w_sapr = jmvkaa
+     c                   endif
+      *
+     c                   if        d1saim <> 0
+     c                   eval      w_kode = 4
+     c                   call      'FA909R'
+     c                   parm                    w_firm
+     c                   parm                    w_vvar
+     c                   parm                    w_kode
+     c                   parm                    d1saim
+     c                   endif
+      *
+6.32 c                   time                    w_date
+6.32 c                   eval      w_lety = 0
+7.01 c*                  eval      w_prgr = ''
+6.32 c                   eval      w_kampp = ''
+      *
+6.32 c                   call      'VP753R'
+6.32 c                   parm                    w_firm
+6.32 c                   parm                    w_vvar
+6.32 c                   parm                    w_prgr
+6.32 c                   parm                    jvpenh
+6.32 c                   parm                    w_lety
+6.32 c                   parm                    w_date
+6.32 c                   parm                    w_kpny
+6.32 c                   parm                    w_inpr
+6.32 c                   parm                    w_kamp
+
+6.32 c                   if        d1vkpr <> 0  and w_sapr > 0
+6.33 c                   if        (d1vkpr > (w_sapr*1.9))
+6.33 c                   eval      d1dgka = -99
+6.33 c                   else
+6.32 c                   eval(h)   d1dgka = ((w_sapr-d1vkpr)/w_sapr )*100
+6.33 c                   endif
+6.32 c                   else
+6.32 c                   eval      d1dgka = 0
+6.32 c                   end
+6.32 c                   if        w_kpny <> 0 and w_sapr > 0
+6.33 c                   if        (w_kpny > (w_sapr*1.9))
+6.33 c                   eval      d1dgeg = -99
+6.33 c                   else
+6.32 c                   eval(h)   d1dgeg = ((w_sapr-w_kpny)/w_sapr )*100
+6.33 c                   endif
+6.32 c                   else
+6.32 c                   eval      d1dgeg = 0
+6.32 c                   end
+
+      *
+      * Dersom det er brudd på leverandør, skrives blank linje
+      *
+     c                   if        jmvldo <> s_vldo
+     c                   write     d1space                              30
+     c                   exsr      overflow
+     c                   eval      s_vldo = jmvldo
+     c                   endif
+      *
+      * Skriv detaljlinje
+      *
+     c                   write     d1dtl                                30
+     c                   exsr      overflow
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for håndtering av overflow
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     overflow      begsr
+      *
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   write     a3hdr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppdatering av tilbudspriser og kostpris i
+      * tilbudsperioden i EVR
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppdat_vare   begsr
+      *
+8.01  * sjekker om logistikk-vare
+8.01 c                   eval      w_lv_vare = *blank
+8.01 c                   eval      w_lv_nlev = 0
+8.01 c                   movel     jmvvar        w_nobb
+8.01 c/exec sql
+8.01 c+ select jvqvnr,
+8.01 c+        jvqldo
+8.01 c+ into   :w_lv_vare,
+8.01 c+        :w_lv_nlev
+8.01 c+ from   jvklpf
+8.01 c+ where  jvquno = :w_nobb and jvqldo = :jmvldo
+8.01 c+ fetch first 1 rows only
+8.01 c/end-exec
+8.01 c                   if        w_lv_vare <> *blank
+8.01 c                   move      w_lv_vare     vvarl1_vare
+8.01 c                   eval      w_vvar = w_lv_vare
+8.01 c                   else
+     c                   eval      vvarl1_vare = jmvvar
+8.01 c                   endif
+     c     vvarl1_key    chain     vvarl1
+     c                   if        not %found
+     c                   eval      jvarl1_vare = jmvvar
+     c     jvarl1_key    chain     jvarl1
+     c                   if        %found and
+     c                             jvnobb <> 0
+     c                   eval      vvarl3_nobb = jvnobb
+     c     vvarl3_key    chain     vvarl3
+     c                   if        %found
+     c                   eval      w_vvar = vvvare
+     c                   else
+     c                   leavesr
+     c                   endif
+     c                   else
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+      * Henter tre salgsenheter
+      *
+     c                   eval      x = 0
+     c                   eval      w_enh1 = *blank
+     c                   eval      w_enh2 = *blank
+     c                   eval      w_enh3 = *blank
+6.34 c                   eval      w_omr1 = 0
+6.34 c                   eval      w_omr2 = 0
+6.34 c                   eval      w_omr3 = 0
+      *
+     c                   eval      vvenl2_vare = w_vvar
+     c                   eval      vvenl2_saen = 1
+     c     vvenl2_key    setll     vvenl2r
+     c     vvenl2_key2   reade     vvenl2r
+     c                   dow       not %eof and
+     c                             x < 3
+     c                   eval      x = x + 1
+     c                   select
+     c                   when      x = 1
+     c                   eval      w_enh1 = veenhe
+6.34 c                   eval      w_omr1 = veomre
+     c                   when      x = 2
+     c                   eval      w_enh2 = veenhe
+6.34 c                   eval      w_omr2 = veomre
+     c                   when      x = 3
+     c                   eval      w_enh3 = veenhe
+6.34 c                   eval      w_omr3 = veomre
+     c                   endsl
+     c     vvenl2_key2   reade     vvenl2r
+     c                   enddo
+      *
+     c                   clear                   vtillur
+      *
+6.20 c                   eval      vtillu_ogrp = 0
+6.20 c                   eval      vtillu_hgrp = 0
+6.20 c                   eval      vtillu_ugrp = 0
+6.20 c                   eval      vtillu_ldor = 0
+     c                   eval      vtillu_vare = w_vvar
+7.06 c                   eval      vtillu_prgr = w_prgr
+     c                   eval      vtillu_lety = 0
+     c                   eval      vtillu_fdat = jmfdat
+     c                   eval      vtillu_ftim = *loval
+     c                   eval      vtillu_tdat = jmtdat
+     c                   eval      vtillu_ttim = *hival
+     c     vtillu_key    chain     vtillur                            90
+      *
+     c                   eval      vtfirm = w_firm
+6.20 c                   eval      vtogrp = 0
+6.20 c                   eval      vthgrp = 0
+6.20 c                   eval      vtugrp = 0
+6.20 c                   eval      vtldor = 0
+     c                   eval      vtvare = w_vvar
+7.06 c                   eval      vtprgr = w_prgr
+     c                   eval      vtlety = 0
+     c                   eval      vtfdat = jmfdat
+     c                   eval      vtftim = *loval
+     c                   eval      vttdat = jmtdat
+     c                   eval      vtttim = *hival
+     c                   eval      vtkamp = jmkamp
+     c                   eval      vtenh1 = w_enh1
+     c                   eval      vtenh2 = w_enh2
+     c                   eval      vtenh3 = w_enh3
+     c                   eval      vteusr = l_user
+     c                   time                    vtedat
+     c                   time                    vtetim
+      *
+      * Bergenger priser for enhet-1
+      *
+     c                   if        w_enh1 <> *blank
+6.22 c                   eval      vtinp1 = jmvkai
+     c                   call      'JM705R'
+     c                   parm                    w_firm
+     c                   parm                    jmvvar
+8.02 c                   parm                    jmvldo
+     c                   parm                    w_enh1
+     c                   parm                    jmvkpr
+6.22 c*                  parm                    jmvkai
+6.22 c                   parm                    vtinp1
+     c                   parm                    jmvkaa
+     c                   parm                    jmvkau
+6.34 c                   parm                    vtkop1
+     c                   parm                    vttip1
+     c                   parm                    w_saim
+     c                   endif
+      *
+      * Beregner priser for enhet-2
+      *
+     c                   if        w_enh2 <> *blank
+6.22 c                   eval      vtinp2 = jmvkai
+     c                   call      'JM705R'
+     c                   parm                    w_firm
+     c                   parm                    jmvvar
+8.02 c                   parm                    jmvldo
+     c                   parm                    w_enh2
+6.34 c                   parm                    jmvkpr
+6.22 c**                 parm                    jmvkai
+6.22 c                   parm                    vtinp2
+     c                   parm                    jmvkaa
+     c                   parm                    jmvkau
+     c                   parm                    vtkop2
+     c                   parm                    vttip2
+     c                   parm                    w_saim
+     c                   endif
+      *
+      * Beregner priser for enhet-3
+      *
+     c                   if        w_enh3 <> *blank
+6.22 c                   eval      vtinp3 = jmvkai
+     c                   call      'JM705R'
+     c                   parm                    w_firm
+     c                   parm                    jmvvar
+8.02 c                   parm                    jmvldo
+     c                   parm                    w_enh3
+     c                   parm                    jmvkpr
+6.22 c*                  parm                    jmvkai
+6.22 c                   parm                    vtinp3
+     c                   parm                    jmvkaa
+     c                   parm                    jmvkau
+     c                   parm                    vtkop3
+     c                   parm                    vttip3
+     c                   parm                    w_saim
+     c                   endif
+      *
+6.34  * skal også beregne ny tilbudspris på prisgruppe blank
+6.34 c                   if        b_bm = *on and
+6.34 c                             %subst(w_kamp:1:1) = '#'
+6.34 c                   eval      w_tit1 = vttip1
+6.34 c                   eval      w_tit2 = vttip2
+6.34 c                   eval      w_tit3 = vttip3
+6.34 c                   exsr      frakt
+6.34 c                   endif
+      *
+      * Oppdater/oppretter tilbud
+      *
+     c                   if        *in90 = *off
+     c                   update    vtillur
+     c                   else
+     c                   write     vtillur
+     c                   endif
+      * Hvis kampanje starter på # skal det dannes kampanjer på prisgr.
+6.34  *
+6.34 c                   if        b_bm = *on and
+6.34 c                             %subst(w_kamp:1:1) = '#'
+6.34 c                   eval      w_kot1 = vtkop1
+6.34 c                   eval      w_kot2 = vtkop2
+6.34 c                   eval      w_kot3 = vtkop3
+6.34  * alle prisgrupper
+6.34 c     ra30l1_key    setll     ra30l1
+6.34 c     ra30l1_key    reade     ra30l1
+6.34 c                   dow       not %eof(ra30l1)
+6.34  *
+6.34 c                   eval      w_inp1 = 0
+6.34 c                   eval      w_inp2 = 0
+6.34 c                   eval      w_inp3 = 0
+6.34 c                   eval      w_kop1 = 0
+6.34 c                   eval      w_kop2 = 0
+6.34 c                   eval      w_kop3 = 0
+6.34 c                   eval      b_p7   = *off
+6.34  *
+6.34  * henter priser pr.gr + enhet
+6.34 c                   if        w_enh1 <> *blank
+6.34 c                   eval      w_enhe = w_enh1
+6.34 c                   exsr      hent_pgpris
+6.34 c                   if        b_pris = *on
+6.34 c                   eval      w_inp1 = w_inpr
+6.34 c                   eval      w_kop1 = w_kopr
+6.34 c                   eval      w_fra1 = w_kopr - w_inpr
+6.34 c                   eval      w_tipr = w_tit1 + w_fra1
+6.34 c                   exsr      avrund
+6.34 c                   if        w_tip1 <> 0  and
+6.34 c                             w_tip1 <> w_tit1
+6.34 c                   eval      b_p7   = *on
+6.34 c                   endif
+6.34 c                   endif
+6.34 c                   endif
+6.34  *
+6.34 c                   if        b_p7 = *on
+6.34 c                   clear                   vtillur
+6.34  *
+6.34 c                   eval      vtillu_ogrp = 0
+6.34 c                   eval      vtillu_hgrp = 0
+6.34 c                   eval      vtillu_ugrp = 0
+6.34 c                   eval      vtillu_ldor = 0
+6.34 c                   eval      vtillu_vare = w_vvar
+6.34 c                   eval      vtillu_prgr = redkod
+6.34 c                   eval      vtillu_lety = 0
+6.34 c                   eval      vtillu_fdat = jmfdat
+6.34 c                   eval      vtillu_ftim = *loval
+6.34 c                   eval      vtillu_tdat = jmtdat
+6.34 c                   eval      vtillu_ttim = *hival
+6.34 c     vtillu_key    chain     vtillur                            90
+6.34  *
+6.34 c                   eval      vtfirm = w_firm
+6.34 c                   eval      vtogrp = 0
+6.34 c                   eval      vthgrp = 0
+6.34 c                   eval      vtugrp = 0
+6.34 c                   eval      vtldor = 0
+6.34 c                   eval      vtvare = w_vvar
+6.34 c                   eval      vtprgr = redkod
+6.34 c                   eval      vtlety = 0
+6.34 c                   eval      vtfdat = jmfdat
+6.34 c                   eval      vtftim = *loval
+6.34 c                   eval      vttdat = jmtdat
+6.34 c                   eval      vtttim = *hival
+6.34 c                   eval      vtkamp = jmkamp
+6.34 c                   eval      vtenh1 = w_enh1
+6.34 c                   eval      vtenh2 = w_enh2
+6.34 c                   eval      vtenh3 = w_enh3
+6.34 c                   eval      vteusr = l_user
+6.34 c                   time                    vtedat
+6.34 c                   time                    vtetim
+6.34 c                   eval      vttip1 = w_tip1
+6.34 c                   eval      vttip2 = w_tip2
+6.34 c                   eval      vttip3 = w_tip3
+6.34 c                   eval      vtkop1 = w_kot1
+6.34 c                   eval      vtkop2 = w_kot2
+6.34 c                   eval      vtkop3 = w_kot3
+6.34  *
+6.34  * Oppdater/oppretter tilbud  med prisgruppe
+6.34  *
+6.34 c                   if        *in90 = *off
+6.34 c                   update    vtillur
+6.34 c                   else
+6.34 c                   write     vtillur
+6.34 c                   endif
+6.34  *
+6.34 c                   endif
+6.34  *
+6.34 c     ra30l1_key    reade     ra30l1
+6.34 c                   enddo
+6.34 c                   endif
+6.34  *
+6.34  *
+6.34 c                   endsr
+6.34  *
+6.34  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.34  * Subrutine for oppdatering av kampanje-hode
+6.34  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.34  *
+6.34 c     oppdat_hode   begsr
+6.34  *
+6.34  * Oppdaterer overføringsdato i kampanje-hode
+6.34  *
+6.34 c                   eval      jkahlu_kamp = w_kamp
+6.34 c     jkahlu_key    chain     jkahlur
+6.34 c                   if        %found
+6.31 c                   if        jmfoda = *loval
+6.31 c                   time                    jmfoda
+6.31 c                   endif
+6.34 c                   time                    jmodat
+6.34 c                   time                    jmedat
+6.34 c                   eval      jmeusr = l_user
+6.34 c                   update    jkahlur
+6.34 c                   endif
+6.34  *
+6.34 c                   endsr
+6.34  *
+6.34  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.34  * Subrutine for å finne finne frakt på prisgruppe = blank
+6.34  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.34  *
+6.34 c     frakt         begsr
+6.34  *
+6.34  *
+6.34 c                   eval      w_kot1 = vtkop1
+6.34 c                   eval      w_kot2 = vtkop2
+6.34 c                   eval      w_kot3 = vtkop3
+6.34  *
+6.34 c                   eval      redkod = *blank
+6.34 c                   eval      w_inp1 = 0
+6.34 c                   eval      w_inp2 = 0
+6.34 c                   eval      w_inp3 = 0
+6.34 c                   eval      w_kop1 = 0
+6.34 c                   eval      w_kop2 = 0
+6.34 c                   eval      w_kop3 = 0
+6.34 c                   eval      b_p7   = *off
+6.34  *
+6.34  * henter priser pr.gr + enhet
+6.34 c                   if        w_enh1 <> *blank
+6.34 c                   eval      w_enhe = w_enh1
+6.34 c                   exsr      hent_pgpris
+6.34 c                   if        b_pris = *on
+6.34 c                   eval      w_inp1 = w_inpr
+6.34 c                   eval      w_kop1 = w_kopr
+6.34 c                   eval      w_fra1 = w_kopr - w_inpr
+6.34 c                   if        w_fra1 < 0
+6.34 c                   eval      w_fra1 = 0
+6.34 c                   endif
+6.34 c                   eval      w_tipr = w_tit1 + w_fra1
+6.34 c                   exsr      avrund
+6.34 c                   if        w_tip1 <>  0   and
+6.34 c                             w_tip1 <> w_tit1
+6.34 c                   eval      b_p7   = *on
+6.34 c                   endif
+6.34 c                   endif
+6.34 c                   endif
+6.34 c                   eval      vttip1 = w_tip1
+6.34 c                   eval      vttip2 = w_tip2
+6.34 c                   eval      vttip3 = w_tip3
+6.34  *
+6.34 c                   endsr
+6.34  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.34  * Subrutine for å hente pris pr. enhet, vi skal se hva fraktpåslaget er
+6.34  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.34  *
+6.34 c     hent_pgpris   begsr
+6.34  *
+6.34  * Henter pris for vare, leveringstype og enhet
+6.34  *
+6.34  * 1. leverandør for lageret
+6.34 c                   eval      vvprl1_ldor = jlenum
+6.34 c                   exsr      hent_pris
+6.34 c                   if        b_pris = *off  and
+6.34 c                             w_ldor <> vvldor
+6.34  * 2. hovedleverandør
+6.34 c                   eval      vvprl1_ldor = vvldor
+6.34 c                   exsr      hent_pris
+6.34 c                   if        b_pris = *off
+6.34  * siste mulighet...
+6.34 c                   eval      vvprl1_ldor = 0
+6.34 c                   exsr      hent_pris
+6.34 c                   endif
+6.34 c                   endif
+6.34  *
+6.34 c                   endsr
+6.34  *--------------------------------------------------------------------------------
+6.34  * Henter priser med evt. valgt prisgruppe, evt. uten
+6.34  **** koden er flyttet for å få en mer fleksibel kode ***
+6.34  *--------------------------------------------------------------------------------
+6.34  *
+6.34 c     hent_pris     begsr
+6.34  *
+6.34 c                   eval      b_pris = *off
+6.34 c                   eval      w_kopr = 0
+6.34 c                   eval      w_inpr = 0
+6.34  *
+6.34 c                   eval      vvprl1_vare = vtvare
+6.34 c                   eval      vvprl1_prgr = redkod
+6.34 c                   eval      vvprl1_enhe = w_enhe
+6.34 c                   eval      vvprl1_lety = 0
+6.34 c     vvprl1_key    setll     vvprl1
+6.34 c     vvprl1_key    reade     vvprl1
+6.34 c                   dow       not %eof(vvprl1)
+6.34  *
+6.34 c                   eval      b_pris = *on
+6.34 c                   eval      w_kopr = vpkopr
+6.34 c                   eval      w_inpr = vpinpr
+6.34  *
+6.34 c                   if        w_udat >= vppdat
+6.34 c                   leave
+6.34 c                   endif
+6.34  *
+6.34 c     vvprl1_key    reade     vvprl1
+6.34 c                   enddo
+6.34  *
+6.34 c                   endsr
+6.34  *--------------------------------------------------------------------------------
+6.34  * Avrunder salgspris
+6.34  *--------------------------------------------------------------------------------
+6.34  *
+6.34 c     avrund        begsr
+6.34  *
+6.34 c                   eval      w_tip1 = 0
+6.34 c                   eval      w_tip2 = 0
+6.34 c                   eval      w_tip3 = 0
+6.34 c                   eval      w_type = 0
+6.34  *
+6.34 c                   eval      w_tim1 = w_tipr + (w_tipr * w_mvap/100)
+6.34 c                   eval(h)   w_tim2 = w_tim1 * w_omr2 / w_omr1
+6.34 c                   eval(h)   w_tim3 = w_tim1 * w_omr3 / w_omr1
+6.34 c                   eval      w_enhe = vpenhe
+      *
+6.34  * hvis man skal avrunde etter BM-metoden, så kalle rutinen
+6.34  *
+6.34 c                   if        p_avrund = 'BMP'
+6.34 c                   call      'FA913R'
+6.34 c                   parm                    vpfirm
+6.34 c                   parm                    vvogrp
+6.34 c                   parm                    vvhgrp
+6.34 c                   parm                    vvugrp
+6.34 c                   parm                    vvldor
+6.34 c                   parm                    jvmodn
+6.34 c                   parm                    vvvare
+6.34 c                   parm                    w_tim1
+6.34 c                   parm                    w_tim2
+6.34 c                   parm                    w_tim3
+6.34 c                   parm                    w_enh1
+6.34 c                   parm                    w_enh2
+6.34 c                   parm                    w_enh3
+6.34 c                   parm                    w_type
+6.34  *
+6.34 c                   endif
+6.34  *
+6.34  * her trekkes mva ut fra avrundede pris (en av de er avrundet)
+6.34  *
+6.34 c                   select
+6.34 c                   when      w_type = 1
+6.34 c                   eval      w_tip1 = w_tim1 * w_mvaf
+6.34 c                   eval(h)   w_tip2 = w_tip1 * w_omr2
+6.34 c                   eval(h)   w_tip3 = w_tip1 * w_omr3
+6.34  *
+6.34 c                   when      w_type = 2
+6.34 c                   eval      w_tip2 = w_tim2 * w_mvaf
+6.34 c                   eval(h)   w_ofx1 = w_omr1 / w_omr2
+6.34 c                   eval(h)   w_ofx3 = w_omr3 / w_omr2
+6.34 c                   eval(h)   w_tip1 = w_tip2 * w_ofx1
+6.34 c                   eval(h)   w_tip3 = w_tip2 * w_ofx3
+6.34  *
+6.34 c                   when      w_type = 3
+6.34 c                   eval      w_tip3 = w_tim3 * w_mvaf
+6.34 c                   eval(h)   w_ofx1 = w_omr1 / w_omr3
+6.34 c                   eval(h)   w_ofx2 = w_omr2 / w_omr3
+6.34 c                   eval(h)   w_tip1 = w_tip3 * w_ofx1
+6.34 c                   eval(h)   w_tip2 = w_tip3 * w_ofx2
+6.34 c                   other
+6.34 c                   eval      w_tip1 = w_tim1 * w_mvaf
+6.34 c                   eval(h)   w_tip2 = w_tip1 * w_omr2
+6.34 c                   eval(h)   w_tip3 = w_tip1 * w_omr3
+6.34 c                   endsl
+6.34  *
+6.34 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_parm
+      *
+      * Key for les på kampanje-vare
+      *
+     c     jkavl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jkavl2_vkam
+      *
+      * Key for oppslag på kampanje-hode
+      *
+     c     jkahlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jkahlr_kamp
+7.03 c     jkahlr_key2   klist
+7.03 c                   kfld                    w_firm
+7.03 c                   kfld                    jkahlr_kamp
+7.03 c                   kfld                    jkahlr_prgr
+      *
+      * Key for opplag på vare
+      *
+     c     jvarl1_key    klist
+     c                   kfld                    jvarl1_vare
+      *
+      * Key for oppslag på firma
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på leverandør
+      *
+     c     jlevl1_key    klist
+     c                   kfld                    jlevl1_ldor
+      *
+      * Key for oppslag på undergruppe
+      *
+     c     vugrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vugrl1_uogr
+     c                   kfld                    vugrl1_uhgr
+     c                   kfld                    vugrl1_uugr
+      *
+      * Key for oppslag på vare EVR
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+     c     vvarl3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl3_nobb
+      *
+      * Key for les på vare-enhet (EVR)
+      *
+     c     vvenl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl2_vare
+     c                   kfld                    vvenl2_saen
+      *
+     c     vvenl2_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl2_vare
+      *
+      * Key for oppdatering av vare-tilbud (EVR)
+      *
+     c     vtillu_key    klist
+     c                   kfld                    w_firm
+6.20 c                   kfld                    vtillu_ogrp
+6.20 c                   kfld                    vtillu_hgrp
+6.20 c                   kfld                    vtillu_ugrp
+6.20 c                   kfld                    vtillu_ldor
+     c                   kfld                    vtillu_vare
+5.70 c                   kfld                    vtillu_prgr
+     c                   kfld                    vtillu_lety
+     c                   kfld                    vtillu_fdat
+     c                   kfld                    vtillu_ftim
+     c                   kfld                    vtillu_tdat
+     c                   kfld                    vtillu_ttim
+      *
+      * Key for oppdatering av kampanje-hode
+      *
+     c     jkahlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jkahlu_kamp
+6.34  *
+6.34  * Key for les på vare-pris-register
+6.34  *
+6.34 c     vvprl1_key    klist
+6.34 c                   kfld                    w_firm
+6.34 c                   kfld                    vvprl1_vare
+6.34 c                   kfld                    vvprl1_ldor
+6.34 c                   kfld                    vvprl1_prgr
+6.34 c                   kfld                    vvprl1_enhe
+6.34 c                   kfld                    vvprl1_lety
+6.34  *
+6.34  * Key for les av prisgrupper
+6.34  *
+6.34 c     ra30l1_key    klist
+6.34 c                   kfld                    w_firm
+6.34  *
+6.34  * Key for les av moduler Nexstep
+6.34  *
+6.34 c     amodl1_key    klist
+6.34 c                   kfld                    amodl1_modu
+      *
+7.01  *
+7.01  * Key for oppslag på prisgruppe
+7.01  *
+7.01 c     ra30lr_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    ra30lr_dkod
+7.01  *
+7.01  * Key for oppslag på bruker
+7.01  *
+7.01 c     fusrl1_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    fusrl1_user
+      *
+      *
+      * Splitter datastruktur i variable
+      *
+     c                   eval      d_list = p_parm
+      *
+     c                   eval      w_firm = d_firm
+     c                   eval      w_kamp = d_kamp
+     c                   eval      w_kntr = d_kntr
+7.01  *
+7.01  * Henter prisgruppe
+7.01  *
+7.01 c                   call      'VL711R   '
+7.01 c                   parm                    w_prgr_m
+7.01  *
+7.01  * Henter opplysninger fra ofak bruker
+7.01  *
+7.01 c                   eval      fusrl1_user = l_user
+7.01 c     fusrl1_key    chain     fusrl1
+7.01 c                   if        fbko19 = 1
+7.01 c                   eval      b_mast = *on
+7.01 c                   endif
+      *
+6.34  *
+6.34 c                   eval      amodl1_modu = 'BM_MODUL'
+6.34 c     amodl1_key    chain     amodl1
+6.34 c                   if        %found(amodl1)
+6.34 c                   eval      b_bm = *on
+6.34 c                   endif
+6.34  *
+6.34  *
+6.34  * Finner mva-sats
+6.34  *
+6.34 c                   time                    w_udat
+6.34  *
+6.34 c                   call      'FÅ705R'
+6.34 c                   parm                    w_firm
+6.34 c                   parm                    w_udat
+6.34 c                   parm                    w_mvap
+6.34 c                   parm                    w_mvat
+6.34 c                   parm                    w_mvaf
+6.34  *
+6.34  * Finn ut hvilken avrundingsregel som skal brukes
+6.34  *
+6.34 c                   call      'JA209C'
+6.34 c                   parm                    p_avrund
+6.34  *
+7.05  * Konfiguerte tilpasninger
+7.05  *
+7.05  * Test om man skal tillate status 4 ved oppdatering
+7.05  *
+7.05   CallP CO402R(l_filg:w_firm:0:'JM621R_705':
+7.05                    co402_verdi1:co402_verdi2);
+7.05   if co402_verdi1 = '1';
+7.05     u_705 = *on;
+7.05   endif;
+6.34  *
+     c                   endsr

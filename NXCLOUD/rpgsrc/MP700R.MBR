@@ -1,0 +1,396 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLOGI
+      * Program . . . . : MP103R
+      * Beskrivelse . . : Velger ut leverandørene som skal ha bestill.fors.
+      *                   ut fra hvilken dag det er og hva som er i parameter
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       260404 bø   Nytt program
+      *       080305 bø   Korrigert test for beh. av 14.dagers kjøringer
+7.01  *K00    170221 sst  Test på om bestilling skal kjøres på eksakt klokkeslett
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fmppalr    if   e           k disk    rename(mppapfr:mppalrr)
+     fmppalu    uf   e           k disk    rename(mppapfr:mppalur)
+7.01 fxtill1    if   e           k disk    rename(xtilpfr:xtill1r)
+      *
+      *
+      * Definering av parametre
+      *
+     d p_dato          s               d   datfmt(*iso)
+     d p_dgnr          s              1  0
+     d p_ldor          s                   like(mpldor)
+     d p_lnum          s                   like(mplnum)
+7.01 d p_jobb          s             10
+7.01 d p_dat           s             10
+7.01 d p_kl            s              4
+7.01 d w_kls           s              4  0
+7.01 d w_dato          s             10
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+7.01 d l_filg                931    933
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      *
+     d mppalr_ldor     s                   like(mpldor)
+     d mppalr_lnum     s                   like(mplnum)
+     d mppalu_ldor     s                   like(mpldor)
+     d mppalu_lnum     s                   like(mplnum)
+7.01 d xtill1_firm     s                   like(xtfirm)
+7.01 d xtill1_regi     s                   like(xtregi)
+7.01 d xtill1_felt     s                   like(xtfelt)
+7.01 d xtill1_xkey     s                   like(xtxkey)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(mpfirm)
+     d w_30            s              3  0
+7.01 d w_kl            s              4  0
+7.01 d w_akttid        s              4  0
+7.01 d w_tid           s               t
+7.01 d w_tix           s              8
+      *
+     d s_ldor          s                   like(mpldor)
+     d s_lnum          s                   like(mplnum)
+      *
+     d b_dann          s              1    inz(*off)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meldingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Finne dag
+      *
+     c                   time                    p_dato
+     c                   eval      p_dgnr = 0
+     c                   call      'MP701R  '
+     c                   parm                    p_dato
+     c                   parm                    p_dgnr
+      *
+      *
+     c     mppalr_key    setll     mppalr
+      *
+     c                   read      mppalr
+      *
+     c                   dow       not %eof(mppalr)
+     c                   exsr      behandling
+     c                   read      mppalr
+     c                   enddo
+7.01  *
+7.01  *  Når skal denne kjøres neste gang
+7.01  *
+7.01 c                   eval      xtill1_firm = w_firm
+7.01 c                   eval      xtill1_regi = 'MPPAPF'
+7.01 c                   eval      xtill1_felt = 'START_TID'
+7.01 c                   eval      w_kls       = 1900
+7.01 c     xtillr_key    setll     xtill1
+7.01 c     xtillr_key    reade     xtill1
+7.01 c                   dow       not %eof(xtill1)
+7.01 c                   eval      w_kl   = %dec(%subst(xtalfa:1:2):2:0) * 100 +
+7.01 c                                      %dec(%subst(xtalfa:3:2):2:0)
+7.01 c                   if        w_kl > w_akttid
+7.01 c                             and    w_kl < w_kls
+7.01 c                   eval      w_kls = w_kl
+7.01 c                   eval      p_kl   = xtalfa
+7.01 c                   move      p_dato        w_dato
+7.01 c                   endif
+7.01 c     xtillr_key    reade     xtill1
+7.01 c                   enddo
+7.01  *  Hvis en bestilling skal kjøres på senere tidspunkt settes jobscde her
+7.01 c                   if        w_kls < 2323
+7.01 c                   eval      p_jobb = l_filg + '_BESTKL'
+     c                   eval      p_dat  = %subst(w_dato:9:2) +
+     c                                      %subst(w_dato:6:2) +
+     c                                      %subst(w_dato:3:2)
+     c                   if        p_dat <> *blank
+     c                             and p_kl <> *blank
+7.01 c                   call      'MP705C'
+7.01 c                   parm                    p_jobb
+7.01 c                   parm                    p_dat
+7.01 c                   parm                    p_kl
+7.01 c                   endif
+7.01 c                   endif
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Tester om leverandør /parameter skal danne bestillingsforlag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandling    begsr
+      *
+     c                   eval      b_dann = *off
+      *
+     c                   if        mphold = 0
+      *
+     c                   select
+      *
+     c                   when      mphypp = 'MD'
+     c     p_dato        subdur    mpsdat        w_30:*M
+     c                   if        w_30 >= 1
+     c                   eval      b_dann = *on
+     c                   endif
+      *
+     c                   when      mphypp = 'DG'
+     c     p_dato        subdur    mpsdat        w_30:*D
+     c                   if        w_30 >= 1
+     c                   eval      b_dann = *on
+     c                   endif
+      *
+     c                   when      mphypp = '14'
+     c                   exsr      beh_14d
+      *
+     c                   when      mphypp = 'UK'
+     c                   exsr      beh_uke
+     c                   endsl
+7.01  *
+7.01  *  Er det satt start klokken på denne forekomsten?
+7.01  *  ____________________________________________________________________
+7.01  *  Henter tilleggs felt fra XTILPF
+7.01  *
+7.01 c                   eval      xtill1_firm = w_firm
+7.01 c                   eval      xtill1_regi = 'MPPAPF'
+7.01 c                   eval      xtill1_felt = 'START_TID'
+7.01 c                   eval      xtill1_xkey = %editc(w_firm:'X') +
+7.01 c                                           %editc(mpldor:'X') +
+7.01 c                                           %editc(mplnum:'X')
+7.01 c     xtill1_key    chain     xtill1
+7.01 c                   if        %found(xtill1)
+7.01 c                   time                    w_tid
+7.01 c                   eval      w_tix = %char(w_tid)
+7.01 c                   eval      w_akttid = %dec(%subst(w_tix:1:2) +
+7.01 c                                          %subst(w_tix:4:2):4:0)
+7.01 c                   eval      w_kl   = %dec(%subst(xtalfa:1:2):2:0) * 100 +
+7.01 c                                      %dec(%subst(xtalfa:3:2):2:0)
+7.01 c                   if        w_kl > w_akttid
+7.01 c                   eval      b_dann = *off
+7.01 c                   endif
+7.01 c                   endif
+7.01  *  ____________________________________________________________________
+      *
+     c                   if        b_dann = *on
+     c                   eval      p_ldor = mpldor
+     c                   eval      p_lnum = mplnum
+     c                   call      'MP703R  '
+     c                   parm                    p_ldor
+     c                   parm                    p_lnum
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de 14-daglige
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     beh_14d       begsr
+      *
+     c     p_dato        subdur    mpsdat        w_30:*D
+     c                   if        w_30 >  7
+      * søndag
+     c                   if        p_dgnr = 1  and
+     c                             mpdag7 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_14d
+     c                   endif
+      * mandag
+     c                   if        p_dgnr = 2  and
+     c                             mpdag1 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_14d
+     c                   endif
+      * tirsdag
+     c                   if        p_dgnr = 3  and
+     c                             mpdag2 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_14d
+     c                   endif
+      * onsdag
+     c                   if        p_dgnr = 4  and
+     c                             mpdag3 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_14d
+     c                   endif
+      * torsdag
+     c                   if        p_dgnr = 5  and
+     c                             mpdag4 ='1'
+     c                   eval      b_dann = *on
+     c                   goto      end_14d
+     c                   endif
+      * fredag
+     c                   if        p_dgnr = 6  and
+     c                             mpdag5 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_14d
+     c                   endif
+      * lørdag
+     c                   if        p_dgnr = 7  and
+     c                             mpdag6 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_14d
+     c                   endif
+      *
+     c                   endif
+      *
+     c     end_14d       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de ukentlige
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     beh_uke       begsr
+      *
+     c     p_dato        subdur    mpsdat        w_30:*D
+     c                   if        w_30 >= 1
+      * søndag
+     c                   if        p_dgnr = 1  and
+     c                             mpdag7 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_uke
+     c                   endif
+      * mandag
+     c                   if        p_dgnr = 2  and
+     c                             mpdag1 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_uke
+     c                   endif
+      * tirsdag
+     c                   if        p_dgnr = 3  and
+     c                             mpdag2 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_uke
+     c                   endif
+      * onsdag
+     c                   if        p_dgnr = 4  and
+     c                             mpdag3 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_uke
+     c                   endif
+      * torsdag
+     c                   if        p_dgnr = 5  and
+     c                             mpdag4 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_uke
+     c                   endif
+      * fredag
+     c                   if        p_dgnr = 6  and
+     c                             mpdag5 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_uke
+     c                   endif
+      * lørdag
+     c                   if        p_dgnr = 7  and
+     c                             mpdag6 = '1'
+     c                   eval      b_dann = *on
+     c                   goto      end_uke
+     c                   endif
+      *
+     c                   endif
+      *
+     c     end_uke       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *
+      * Key for les på parameter pr. lev.
+      *
+     c     mppalr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mppalr_ldor
+     c                   kfld                    mppalr_lnum
+7.01  *
+7.01  * Std, Tillegsregister
+7.01  *
+7.01 c     xtill1_key    klist
+7.01 c                   kfld                    xtill1_firm
+7.01 c                   kfld                    xtill1_regi
+7.01 c                   kfld                    xtill1_felt
+7.01 c                   kfld                    xtill1_xkey
+7.01 c     xtillr_key    klist
+7.01 c                   kfld                    xtill1_firm
+7.01 c                   kfld                    xtill1_regi
+7.01 c                   kfld                    xtill1_felt
+      *
+      * Key for oppdatering av parameter pr. lev.
+      *
+     c     mppalu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mppalu_ldor
+     c                   kfld                    mppalu_lnum
+      *
+      *
+      * Henter verdier fra LDA, og initierer skjermbildet
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   eval      *in22 = *on
+      *
+     c                   endsr

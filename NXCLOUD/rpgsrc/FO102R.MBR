@@ -1,0 +1,537 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FO102R
+      * Beskrivelse . . : Registrering av Ordre/Tilbud,  Opplysninger
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+7.01  * Spesialversjon. : Hvis direkte valgt på fors.m, så levtype=1
+7.01  * Tilpasset for . : Skattum
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      * R3.10 221299 AMD  Lagt inn kontroll på gyldig avdeling
+      * R3.11 140900 AMD  Skrevet om til ny standard (avvik ikke anm.)
+5.40  * R5.40 060605 AMD  Ved endring av lager på ordrehode, skal ordre
+5.40  *                   linjer oppdateres med valg om hvilke.
+5.70  * PRGR  081208 bof  Utvidet med prisgruppe
+5.71  * PRGR  130509 bof  Sjekker om noen varelinjer har vtyp lik S på
+5.71  *                   tillager.
+5.71  * PRGR  160609 bof  Tatt bort test om vtyp lik S på til-lager
+      * 6.10  240609 BSA  Oppdatert med sporingsinformasjon
+6.20  * 6.20  231110 bof  Sjekker alltid leveringsmåte
+6.21  * 6.21  100211 nho  Må kun fylle ut noe i fors.måte dersom kjøre-
+      *                   kontoløsning = 1
+6.22  * 6.20  101111 bof  Vise S-varer dersom lager er endret          er
+6.24  * 6.20  101111 bof  Sjekker også behandling av skaffevare FAALBE
+6.25  * 6.20  141013 bkv  Forsend.måte skal kun være krav hvis kjørekontor, men hvis kode utfylt
+      *                   så må den være gyldig
+6.30  * 6.30  160214 bof  Validering av leveringsmåte ifølge AVALPF
+6.NU  * R6.30 230514 bsa  Programmet gjennomgått mtp nummerutvidelser.
+6.31  * 6.30  290915 bof  Validering av selger  ifølge AVALPF
+7.01  *       300911 bof  Hvis direkte valgt på fors.m, så levtype=1
+8.01  *PRG2   090622 BOF  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     ffo102d    cf   e             workstn
+     ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+     ffohelu    uf   e           k disk    rename(fohepfr:fohelur)
+5.71 ffodtl1    if   e           k disk    rename(fodtpfr:fodtl1r)
+5.71 fvlagl1    if   e           k disk    rename(vlagpfr:vlagl1r)
+6.21 ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+6.30 favall1    if   e           k disk    rename(avalpfr:avall1r)
+7.01 fra17l1    if   e           k disk    rename(ra17pfr:ra17l1r)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+6.10 d l_user                911    920
+     d l_sfir                944    946  0
+     d l_fnav                951    980
+     d l_syst                999    999
+      *
+      * Definering av parametere
+      *
+     d p_firm          s                   like(fofirm)
+     d p_numm          s                   like(fonumm)
+     d p_suff          s                   like(fosuff)
+     d p_110d          s                   like(w_alf1)
+      *
+      * Definering av variable i nøkler
+      *
+     d w_firm          s                   like(fofirm)
+     d fohel1_numm     s                   like(fonumm)
+     d fohel1_suff     s                   like(fosuff)
+5.71 d fodtl1_numm     s                   like(fdnumm)
+5.71 d fodtl1_suff     s                   like(fdsuff)
+5.71 d vlagl1_vare     s                   like(vlvare)
+5.71 d vlagl1_lage     s                   like(vllage)
+6.30 d avall1_apgm     s                   like(avapgm)
+7.01 d ra17l1_qkod     s                   like(raqkod)
+      *
+      * Definering av variable
+      *
+     d w_alf1          s              1
+3.10 d w_jadr          s             30
+3.10 d w_jpnr          s              4  0
+3.10 d w_jste          s             30
+3.10 d w_javd          s              4  0
+     d w_retk          s              1
+5.40 d w_valg          s              1
+5.70 d w_pval          s              1
+5.40 d w_in03          s              1
+      *
+     d w_ikod          s              4  0
+     d w_jkod          s              2  0
+     d w_qkod          s              2  0
+     d w_itxt          s             20
+     d w_jtxt          s             20
+     d w_qtxt          s             20
+     d w_lage          s                   like(folage)
+7.01 d b_dirl          s              1    inz(*off)
+      *
+6.30  * Firmastyrt validering av felt
+6.30  *
+6.30 d u_lmat          s              1    inz(*off)
+6.31 d u_selg          s              1    inz(*off)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * D1 Behandler vedlikehold av faste opplysninger           II
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     d1taga        tag
+      *
+     c                   eval      d1setx = *blank
+     c                   eval      d1latx = *blank
+     c                   eval      d1lmtx = *blank
+      *
+      * Hent opplysninger fra ORDRE-HODE-REGISTER
+      *
+     c     fohel1_key    chain     fohel1r                            90
+     c                   if        *in90 = *off
+     c                   eval      d1selg = foselg
+     c                   eval      d1lage = folage
+     c                   eval      w_lage = folage
+     c                   eval      d1lmat = folmat
+     c                   movel     folmtx        d1lmtx
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandler henting av opplysninger
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Hent,   Tekst for selger
+      *
+     c                   exsr      sbselg
+      *
+      * Hent,   Tekst for lager
+      *
+     c                   exsr      sblagr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandler skjermbilde  D1
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+      * Send alt
+      *
+5.40 c                   eval      w_valg = ' '
+5.70 c                   eval      w_pval = ' '
+5.40 c                   eval      w_in03 = ' '
+5.40  *
+     c     d1tagb        tag
+     c                   exfmt     d1bld
+      *
+      * F3=Gå tilbake til forrige bilde
+      *
+     c                   if        *inkc  = *on
+     c                   eval      p_110d = '9'
+     c                   goto      xslutt
+     c                   endif
+      *
+      *  F4=Spørring kan benyttes dersom
+      *     ASOKON kjøres.
+      *
+     c                   if        l_syst = 'A'
+     c                   if        *inkd  = *on
+     c                   if        w_arcd = 'D1BLD'
+      *
+      * Call program for selger
+      *
+     c                   if        w_afld = 'D1SELG'
+     c                   call      'RA509R'
+     c                   parm                    p_firm
+     c                   parm                    w_ikod
+     c                   parm                    w_itxt
+     c                   if        w_ikod <> 0
+     c                   eval      d1selg = w_ikod
+     c                   eval      d1setx = w_itxt
+     c                   endif
+     c                   goto      d1tagb
+     c                   endif
+      *
+      * Call program for lager
+      *
+     c                   if        w_afld = 'D1LAGE'
+     c                   call      'RA510R'
+     c                   parm                    p_firm
+     c                   parm                    w_jkod
+     c                   parm                    w_jtxt
+     c                   if        w_jkod <> 0
+     c                   eval      d1lage = w_jkod
+     c                   eval      d1latx = w_jtxt
+     c                   endif
+     c                   goto      d1tagb
+     c                   endif
+      *
+      * Call program for leveringsmåte
+      *
+     c                   if        w_afld = 'D1LMAT'
+     c                   call      'RA517R'
+     c                   parm                    p_firm
+     c                   parm                    w_qkod
+     c                   parm                    w_qtxt
+     c                   if        w_qkod <> 0
+     c                   eval      d1lmat = w_qkod
+     c                   eval      d1lmtx = w_qtxt
+     c                   endif
+     c                   goto      d1tagb
+     c                   endif
+      *
+      *
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandler sjekking av opplysninger
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+      * Sjekk,  Finnes selger i KODE-REGISTER
+      *
+6.31  * Sjekk,  Er det krav til selger
+6.31 c                   if        u_selg = *on and
+6.31 c                             d1selg =  0
+6.31 c                   eval      *in33 = *on
+6.31 c                   goto      d1tagb
+6.31 c                   endif
+     c                   eval      d1setx = *blank
+     c                   if        d1selg <> *zero
+     c                   exsr      sbselg
+     c                   if        w_retk <> *blank
+     c                   eval      *in33  = *on
+     c                   goto      d1tagb
+     c                   endif
+     c                   endif
+      *
+      * Sjekk,  Finnes lager i KODE-REGISTER
+      *
+     c                   eval      d1latx = *blank
+     c                   exsr      sblagr
+3.10 c                   if        w_retk = '1'
+     c                   eval      *in34  = *on
+     c                   goto      d1tagb
+     c                   endif
+      *
+      * Sjekk,  Finnes leveringsmåte i KODE-REGISTER
+      *
+6.30  * Sjekk,  Er det krav til Leveringsmåte
+6.30 c                   if        u_lmat = *on and
+6.30 c                             d1lmat =  0
+6.30 c                   eval      *in38 = *on
+6.30 c                   goto      d1tagb
+6.30 c                   endif
+6.30  *
+6.25 c                   if        d1lmat <> *zero
+6.25 c                   if        d1lmat <> folmat
+6.25 c                   exsr      sbform
+6.25 c                   if        w_retk <> *blank
+6.25 c                   eval      *in38 = *on
+6.25 c                   goto      d1tagb
+6.25 c                   endif
+6.25 c                   endif
+6.25 c                   endif
+6.25 c
+6.25 c                   if        faakjk = 1
+6.25 c                   exsr      sbform
+6.25 c                   if        w_retk <> *blank
+6.25 c                   eval      *in38 = *on
+6.25 c                   goto      d1tagb
+6.25 c                   endif
+6.25 c                   endif
+7.01  *
+7.01 c                   eval      b_dirl = *off
+7.01 c                   eval      ra17l1_qkod = d1lmat
+7.01 c     ra17l1_key    chain     ra17l1
+7.01 c                   if        %found(ra17l1) and
+7.01 c                             raqdir = 1
+7.01 c                   eval      b_dirl = *on
+7.01 c                   endif
+
+
+6.23  *
+6.23  * Viser S-vare dersom lager er endret
+6.23  * styres av kontroll mot skaffevarer
+6.23  *
+6.23 c                   if        faalbe > 0
+5.40 c                   if        folage <> 0 and
+5.40 c                             d1lage <> folage
+6.23 c                   call      'FO577R'
+6.23 c                   parm                    p_firm
+6.23 c                   parm                    p_numm
+6.23 c                   parm                    p_suff
+6.23 c                   parm                    d1lage
+6.24 c                   parm                    w_retk
+6.24 c                   if        w_retk = '1' and
+6.24 c                             faalbe > 1
+6.24 c                   goto      d1tagb
+6.24 c                   endif
+6.23 c                   endif
+6.24 c                   endif
+5.40  *
+5.40  * Dersom lager er endret, skal varelinjer oppdateres.
+5.40  * Kall opp program hvor det kan velges hva som skal
+5.40  * oppdateres, alle linjer eller bare de med likt fra lager.
+5.40  * (Bilde skal bare sendes ved endring, ikke ved ny ordre)
+5.40  *
+5.40 c                   if        folage <> 0
+5.40 c                   if        d1lage <> folage
+5.40 c                   call      'FO794R'
+5.40 c                   parm                    w_valg
+5.70 c                   parm                    w_pval
+5.40 c                   parm                    w_in03
+5.40  *
+5.40  * Dersom F3, gå tilbake
+5.40  *
+5.40 c                   if        w_in03 = '1'
+5.40 c                   goto      d1tagb
+5.40 c                   endif
+5.40 c                   endif
+5.40 c                   endif
+      *
+5.71  * sjekker om noen av varene på valgt lager ikke er lagervare
+5.71  *
+5.71 c*                  eval      fodtl1_numm = fonumm
+5.71 c*                  eval      fodtl1_suff = fosuff
+5.71 c*    fodtl1_key    setll     fodtl1
+5.71 c*    fodtl1_key    reade     fodtl1
+5.71 c*                  dow       not %eof(fodtl1)
+5.71 c*                  eval      vlagl1_vare = fdvare
+5.71 c*                  eval      vlagl1_lage = d1lage
+5.71 c*    vlagl1_key    chain     vlagl1
+5.71 c*                  if        %found(vlagl1)
+5.71 c*                  if        vlvtyp = 'S'
+5.71 c*                  eval      *in39 = *on
+5.71 c*                  goto      d1tagb
+5.71 c*                  endif
+5.71 c*                  else
+5.71 c*                  eval      *in39 = *on
+5.71 c*                  goto      d1tagb
+5.71 c*                  endif
+5.71 c*    fodtl1_key    reade     fodtl1
+5.71 c*                  enddo
+      *
+      * Dersom noen valg er endret, sendt bilde pånytt
+      *
+     c                   if        d1selg <> foselg or
+     c                             d1lage <> folage or
+     c                             d1lmat <> folmat
+     c                   eval      foselg = d1selg
+     c                   eval      folage = d1lage
+     c                   eval      folmat = d1lmat
+     c                   goto      d1tagb
+     c                   endif
+      *
+      * Oppdaterer ORDRE-HODE-REGISTER
+      *
+     c     fohel1_key    chain     fohelur                            90
+     c                   if        *in90 = *off
+     c                   eval      foselg = d1selg
+     c                   eval      folage = d1lage
+     c                   eval      folmat = d1lmat
+     c                   movel     d1lmtx        folmtx
+7.01 c                   if        b_dirl = *on
+7.01 c                   eval      folety = 1
+7.01 c                   endif
+6.10 c                   time                    foedat
+6.10 c                   time                    foetim
+6.10 c                   eval      foeusr = l_user
+     c                   update    fohelur
+     c                   endif
+      *
+     c                   if        folage <> w_lage
+     c                   call      'FO732R'
+     c                   parm                    w_firm
+     c                   parm                    fohel1_numm
+     c                   parm                    fohel1_suff
+     c                   parm                    footyp
+     c                   parm                    w_lage
+5.40 c                   parm                    w_valg
+5.70 c                   parm                    w_pval
+     c                   endif
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c     xslutt        tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekk/Hent tekst for selger                       RS709R
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sbselg        begsr
+      *
+     c                   eval      d1setx = *blank
+     c                   call      'RS709R'
+     c                   parm                    w_retk
+     c                   parm                    d1selg
+     c                   parm                    w_itxt
+      *
+     c                   if        w_retk = *blank
+     c                   movel     w_itxt        d1setx
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekk/Hent tekst for lager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sblagr        begsr
+      *
+3.10 c                   call      'FÅ720R'
+3.10 c                   parm                    p_firm
+3.10 c                   parm                    d1lage
+3.10 c                   parm                    w_jtxt
+3.10 c                   parm                    w_jadr
+3.10 c                   parm                    w_jpnr
+3.10 c                   parm                    w_jste
+3.10 c                   parm                    w_javd
+3.10 c                   parm                    w_retk
+      *
+3.10 c                   eval      d1latx = *blank
+      *
+3.10 c                   if        w_retk = '0'
+3.10 c                   eval      d1latx = w_jtxt
+3.10 c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekk/Hent tekst for leveringsmåte                RS717R
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sbform        begsr
+      *
+     c                   eval      d1lmtx = *blank
+     c                   call      'RS717R'
+     c                   parm                    w_retk
+     c                   parm                    d1lmat
+     c                   parm                    w_qtxt
+      *
+     c                   if        w_retk = *blank
+     c                   movel     w_qtxt        d1lmtx
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c     *inzsr        begsr
+      *
+      * Nullstilling av felter som ikke kan redefineres
+      *
+     c                   eval      w_retk = *blank
+     c                   eval      p_110d = *blank
+      *
+      * Key for file : ORDRE-HODE-REGISTER
+      *
+     c     fohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohel1_numm
+     c                   kfld                    fohel1_suff
+5.71  *
+5.71  * Key for file : ORDRE-Detaljer-REGISTER
+5.71  *
+5.71 c     fodtl1_key    klist
+5.71 c                   kfld                    w_firm
+5.71 c                   kfld                    fodtl1_numm
+5.71 c                   kfld                    fodtl1_suff
+5.71  *
+5.71  * Key for file : lager
+5.71  *
+5.71 c     vlagl1_key    klist
+5.71 c                   kfld                    w_firm
+5.71 c                   kfld                    vlagl1_vare
+5.71 c                   kfld                    vlagl1_lage
+6.21  * Key for file : STATUS-KODER
+6.21  *
+6.21 c     fstsl1_key    klist
+6.21 c                   kfld                    w_firm
+6.21  *
+6.30  *
+6.30  * Key for file : Firmastyrt validering
+6.30  *
+6.30 c     avall1_key    klist
+6.30 c                   kfld                    w_firm
+6.30 c                   kfld                    avall1_apgm
+7.01  *
+7.01  * Key for file : forsendelsesmåte
+7.01  *
+7.01 c     ra17l1_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    ra17l1_qkod
+      *
+      * Tar inn parameter fra forrige program
+      *
+     c     *entry        plist
+     c                   parm                    p_110d
+     c                   parm                    p_firm
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+      *
+      * Legger inn firmanummer i nøkklene
+      *
+     c                   eval      w_firm = p_firm
+6.21 c     fstsl1_key    chain     fstsl1r
+      *
+      * Legger inn bestillingsnummer og suffix i nøkklene
+      *
+     c                   eval      fohel1_numm = p_numm
+     c                   eval      fohel1_suff = p_suff
+      *
+6.30  * Firmastyrt validering av utvalgte felter
+6.30  *
+6.30  *
+6.30 c                   eval      avall1_apgm = 'FO102R'
+6.30 c     avall1_key    setll     avall1
+6.30 c     avall1_key    reade     avall1
+6.30 c                   dow       not %eof(avall1)
+6.30 c                   if        avaflt = 'FOLMAT'  and
+6.30 c                             avaval = 1
+6.30 c                   eval      u_lmat = *on
+6.30 c                   endif
+6.31 c                   if        avaflt = 'FOSELG'  and
+6.31 c                             avaval = 1
+6.31 c                   eval      u_selg = *on
+6.31 c                   endif
+6.30 c     avall1_key    reade     avall1
+6.30 c                   enddo
+      *
+     c                   endsr

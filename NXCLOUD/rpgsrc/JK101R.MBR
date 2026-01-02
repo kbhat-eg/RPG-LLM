@@ -1,0 +1,718 @@
+     h option(*nodebugio : *srcstmt) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASVADM
+      * Program . . . . : JK101R
+      * Beskrivelse . . : Oppdatere logistikkvare(r) endret i dag
+      *
+      *                   Programmet får inn undervare som parameter
+      *                   og oppdatere logistikkvaren med info fra
+      *                   undervaren
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       011018 BKV  Nytt program
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjvkhpf    if   e           k disk
+     fjvklpf    if   e           k disk
+     fjvarpf    if   e           k disk
+     fafpslr    if   e           k disk    rename(afpspfr:afpslrr)
+      *
+      *
+      * Definering av parametre
+      *
+     d p_vare          s                   like(jvvare)
+      *
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_filg                931    933
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av variable i nøkler
+     d afpslr_ufil     s                   like(l_filg)
+     d afpslr_uide     s                   like(afuide)
+      *
+      *
+     d w_firm          s                   like(jvkfir)
+      *
+     d w_jnav          s             15
+     d w_feil          s             15
+     d w_jkey          s             41
+     d w_jstat         s              2  0
+     d w_jtxt          s            200
+      *
+     d sqlquery        s           4096
+     d w_maxv          s              4  0 Inz(9999)
+     d w_tell          s              4  0 Inz(0)
+     d w_teller        s              3  0
+     d w_teller2       s              3  0
+     d w_jwldor        s                   like(jvldor)
+     d w_vare          s                   like(jvqvnr)
+     d w_vare_p        s                   like(jvqvnr)
+     d w_jvldor        s                   like(jvldor)
+     d w_jvlvei        s                   like(jvlvei)
+     d w_ldor          s              6  0
+     d w_ldox          s              6
+     d w_dumm          s              1    inz('*')
+      *
+      *  Tabell DS
+      *
+     d ds_jvarpf     E ds                  extName(jvarpf)
+     d* ds_jvpkpf     E ds                  extName(jvpkpf)
+     d ds_jvprpf     E ds                  extName(jvprpf)
+     d ds_jvlepf     E ds                  extName(jvlepf)
+      *
+      * Definering av konstanter
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     C/Exec SQL
+     C+  Set Option DatFmt=*ISO , commit=*none
+     C/End-Exec
+      *
+     c                   exsr      fornyvare
+     c                   exsr      fornypris
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av vare / pakning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     fornyvare     begsr
+      *
+     c                   eval      sqlquery  = '+
+     c                             select +
+     c                                b.jvqfir +
+     c                              , b.jvqvnr +
+     c                              , b.jvqldo +
+     c                              , b.jvquno +
+     c                              , b.jvqofa +
+     c                              , ifnull(d.jvldor, -1) as jvldor +
+     c                              , ifnull(c.jvkvnr, -1) as jvkvnr +
+     c                              from jvarpf a +
+     c                              inner join jvklpf b on cast(b.jvquno +
+     c                                as char(15)) = a.jvvare +
+     c                              left outer join jvkhpf c on +
+     c                                c.jvkfir = b.jvqfir and +
+     c                              c.jvkvnr = b.jvqvnr +
+     c                                and c.jvkldo = b.jvqldo +
+     c                              left outer join jvarpf d on +
+     c                                   d.jvvare = c.jvkvnr +
+     c                              where a.jvvare in ( +
+     c                                select e1.jvquno from jvklpf e1 +
+     c                                where e1.jvqfir = ? +
+     c                              ) and b.jvqfir = ?'
+     c
+     c                   if        w_vare_p <> *blank
+     c                   eval      sqlquery = %trim(sqlquery) +
+     c                               ' and ( (a.jvedat = current_date) and +
+     c                                       (a.jvvare = ?) ) '
+     c                   else
+     c                   eval      sqlquery = %trim(sqlquery) +
+     c                               ' and (a.jvedat = current_date) '
+     c                   endif
+     c/exec sql
+     c+ PREPARE SQL_STMT_V FROM :sqlquery
+     c/end-exec
+     c
+     c/exec sql
+     c+ DECLARE STMT_V CURSOR FOR SQL_STMT_V
+     c/end-exec
+     c                   exsr      sjekk_sql
+     c                   if        w_vare_p <> *blank
+     c/exec sql
+     c+ OPEN STMT_V using :w_firm, :w_firm, :w_vare_p
+     c/end-exec
+     c                   else
+     c/exec sql
+     c+ OPEN STMT_V using :w_firm, :w_firm
+     c/end-exec
+     c                   endif
+     c
+     c                   eval      w_tell = 0
+     c                   dow       w_tell < w_maxv                              så ikke looper
+     c                   eval      w_tell = w_tell + 1
+     c/exec sql
+     c+ fetch STMT_V
+     c+ into  :jvkfir, :jvqvnr, :jvqldo, :jvquno, :jvqofa, :w_jvldor, :jvkvnr
+     c/end-exec
+     c                   exsr      sjekk_sql
+     c                   if        sqlcod = 100
+     c                   leave
+     c                   endif
+     c                   eval      jvvare = jvqvnr
+     c                   call      'JK702R'
+     c                   parm                    jvvare
+     c                   parm                    w_ldor
+     c                   parm                    w_dumm
+     c*                   exsr      nobbkopivare
+     c                   enddo
+     c/exec sql
+     c+ close STMT_V
+     c/end-exec
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av vare / pakning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     fornypris     begsr
+      *
+     c                   eval      sqlquery  = '+
+     c                             select +
+     c                                b.jvqfir +
+     c                              , b.jvqvnr +
+     c                              , b.jvqldo +
+     c                              , b.jvquno +
+     c                              , b.jvqofa +
+     c                              , ifnull(d.jvldor, -1) as jvldor +
+     c                              , ifnull(c.jvkvnr, -1) as jvkvnr +
+     c                              from jvprpf a +
+     c                              inner join jvklpf b on b.jvquno = a.jxvare +
+     c                              left outer join jvkhpf c on +
+     c                                c.jvkfir = b.jvqfir and +
+     c                              c.jvkvnr = b.jvqvnr +
+     c                                and c.jvkldo = b.jvqldo +
+     c                              left outer join jvarpf d on +
+     c                                   d.jvvare = c.jvkvnr +
+     c                              where a.jxvare in ( +
+     c                                select e1.jvquno from jvklpf e1 +
+     c                                where e1.jvqfir = ? +
+     c                              ) and b.jvqfir = ? '
+     c                   if        w_vare_p <> *blank
+     c                   eval      sqlquery = %trim(sqlquery) +
+     c                               ' and ( (a.jxedat = current_date) and +
+     c                                       (a.jxvare = ?) ) '
+     c                   else
+     c                   eval      sqlquery = %trim(sqlquery) +
+     c                               ' and (a.jxedat = current_date) '
+     c                   endif
+     c/exec sql
+     c+ PREPARE SQL_STMT_P FROM :sqlquery
+     c/end-exec
+     c
+     c/exec sql
+     c+ DECLARE STMT_P CURSOR FOR SQL_STMT_P
+     c/end-exec
+     c                   exsr      sjekk_sql
+     c                   if        w_vare_p <> *blank
+     c/exec sql
+     c+ OPEN STMT_P using :w_firm, :w_firm, :w_vare_p
+     c/end-exec
+     c                   else
+     c/exec sql
+     c+ OPEN STMT_P using :w_firm, :w_firm
+     c/end-exec
+     c                   endif
+     c                   eval      w_tell = 0
+     c                   dow       w_tell < w_maxv                              så ikke looper
+     c                   eval      w_tell = w_tell + 1
+     c/exec sql
+     c+ fetch STMT_P
+     c+ into  :jvkfir, :jvqvnr, :jvqldo, :jvquno, :jvqofa, :w_jvldor, :jvkvnr
+     c/end-exec
+     c                   exsr      sjekk_sql
+     c                   if        sqlcod = 100
+     c                   leave
+     c                   endif
+     c                   eval      jvvare = jvqvnr
+     c                   call      'JK702R'
+     c                   parm                    jvvare
+     c                   parm                    w_ldor
+     c                   parm                    w_dumm
+     c*                   exsr      nobbkopipris
+     c                   enddo
+     c/exec sql
+     c+ close STMT_P
+     c/end-exec
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle logi vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c*     nobbkopivare  begsr
+     c*
+     c*                   movel     jvquno        w_vare
+      ** hvis logistikkvare er en aktiv NOBB vare, ikke slett NOBB info
+     c*                   if        jvqvnr = w_vare
+     c*                   leavesr
+     c*                   endif
+      **
+      ** Kopier NOBB til logistikkvare
+     c*
+      */FREE
+       //// sjekk om det er hovedvaren
+       //if jvkvnr <> '-1';
+       //  // Kopier NOBB vare til logistikkvare
+       //  exec sql
+       //   select count(*) into :w_teller from JVARPF
+       //   WHERE (JVVARE=:jvkvnr);
+       //
+       //  if (w_teller = 0);
+       //    exec sql
+       //      INSERT INTO     JVARPF
+       //         (JVVARE,JVOGRP,JVHGRP,JVUGRP,JVEOGR,JVEHGR,JVEUGR
+       //         ,JVTEK1,JVTEK2,JVETE1
+       //         ,JVETE2,JVNOBB,JVMODN,JVPROD,JVPVAR,JVLDOR,JVLVAR
+       //         ,JVEAN1,JVSTRE,JVLEVE
+       //         ,JVDOKI,JVUTKO,JVSORT,JVSLDO,JVSENH,JVPENH,JVMMK1,JVMLK1
+       //         ,JVMMK2,JVMLK2
+       //         ,JVENOB,JVFTXT,JVADAT,JVUDAT,JVSTAT,JVUNNR,JVFANR
+       //         ,JVFABS,JVEMBM,JVEMGR
+       //         ,JVBRAN,JVKATE,JVTYPE,JVLTXT,JVUARB,JVLFOR,JVHDAT
+       //         ,JVTFRO,JVHPSE,JVTONO
+       //         ,JVTOEU,JVGSTS,JVNODA,JVNBED,JVNSDA,JVODAT,JVEDAT
+       //         ,JVETIM,JVEUSR)
+       //      SELECT
+       //      :jvkvnr,JVOGRP,JVHGRP,JVUGRP,JVEOGR,JVEHGR,JVEUGR
+       //      ,JVTEK1,JVTEK2,JVETE1
+       //      ,JVETE2, 0, 0, JVPROD,JVPVAR,:w_jvldor
+       //      , '' ,JVEAN1,JVSTRE,JVLEVE,JVDOKI,JVUTKO,JVSORT
+       //      ,JVSLDO,JVSENH,JVPENH
+       //      ,JVMMK1,JVMLK1,JVMMK2,JVMLK2,JVENOB,JVFTXT,JVADAT
+       //      ,JVUDAT,JVSTAT,JVUNNR,JVFANR,JVFABS,JVEMBM,JVEMGR
+       //      ,JVBRAN,JVKATE,JVTYPE
+       //      ,JVLTXT,JVUARB,JVLFOR,JVHDAT,JVTFRO,JVHPSE,JVTONO
+       //      ,JVTOEU,JVGSTS,JVNODA,JVNBED,JVNSDA,CURRENT_DATE
+       //      ,CURRENT_DATE,CURRENT_TIME,:l_user
+       //      FROM JVARPF WHERE JVVARE = :w_vare;
+       //  else;
+       //    exec sql
+       //      select * into :ds_jvarpf from jvarpf WHERE JVVARE = :w_vare ;
+       //    exec sql
+       //      UPDATE JVARPF SET
+       //        --JVOGRP=:JVOGRP,
+       //        --JVHGRP=:JVHGRP,
+       //        --JVUGRP=:JVUGRP,
+       //        --JVEOGR=:JVEOGR,
+       //        --JVEHGR=:JVEHGR,
+       //        --JVEUGR=:JVEUGR,
+       //        --JVTEK1=:JVTEK1,
+       //        --JVTEK2=:JVTEK2,
+       //        --JVETE1=:JVETE1,
+       //        --JVETE2=:JVETE2,
+       //        --JVNOBB=:JVNOBB,
+       //        --JVMODN=:JVMODN,
+       //        JVPROD=:JVPROD,
+       //        JVPVAR=:JVPVAR,
+       //        --JVLDOR=:JVLDOR,
+       //        --JVLVAR=:JVLVAR,
+       //        JVEAN1=:JVEAN1,
+       //        JVSTRE=:JVSTRE,
+       //        JVLEVE=:JVLEVE,
+       //        JVDOKI=:JVDOKI,
+       //        JVUTKO=:JVUTKO,
+       //        JVSORT=:JVSORT,
+       //        JVSLDO=:JVSLDO,
+       //        JVSENH=:JVSENH,
+       //        JVPENH=:JVPENH,
+       //        JVMMK1=:JVMMK1,
+       //        JVMLK1=:JVMLK1,
+       //        JVMMK2=:JVMMK2,
+       //        JVMLK2=:JVMLK2,
+       //        JVENOB=:JVENOB,
+       //        JVFTXT=:JVFTXT,
+       //        JVADAT=:JVADAT,
+       //        JVUDAT=:JVUDAT,
+       //        JVSTAT=:JVSTAT,
+       //        JVUNNR=:JVUNNR,
+       //        JVFANR=:JVFANR,
+       //        JVFABS=:JVFABS,
+       //        JVEMBM=:JVEMBM,
+       //        JVEMGR=:JVEMGR,
+       //        JVBRAN=:JVBRAN,
+       //        JVKATE=:JVKATE,
+       //        JVTYPE=:JVTYPE,
+       //        JVLTXT=:JVLTXT,
+       //        JVUARB=:JVUARB,
+       //        JVLFOR=:JVLFOR,
+       //        JVHDAT=:JVHDAT,
+       //        JVTFRO=:JVTFRO,
+       //        JVHPSE=:JVHPSE,
+       //        JVTONO=:JVTONO,
+       //        JVTOEU=:JVTOEU,
+       //        JVGSTS=:JVGSTS,
+       //        JVNODA=:JVNODA,
+       //        JVNBED=:JVNBED,
+       //        JVNSDA=:JVNSDA,
+       //        JVODAT=:JVODAT,
+       //        JVEDAT=CURRENT_DATE,
+       //        JVETIM=CURRENT_TIME,
+       //        JVEUSR=:l_user
+       //     WHERE
+       //      (JVVARE=:jvkvnr );
+       //  endif;
+       //endif;
+       //
+       //// Kopier/oppdater vare-leverandør kobling
+       //exec sql DECLARE CLE CURSOR FOR
+       //          SELECT * FROM JVLEPF
+       //          WHERE JVLVNR = :w_vare AND JVLLDO = :jvqldo;
+       //exec sql OPEN CLE ;
+       //
+       //dow (2 = 2) ;
+       //  exec sql FETCH NEXT FROM CLE INTO :ds_JVLEPF ;
+       //  if (SQLCOD <> 0) ;
+       //    leave ;
+       //  endif ;
+       //
+       //  for w_teller2 = 1 to 2 ; // både for varelev og nobb lev
+       //    if (w_teller2 = 1);
+       //      w_jwldor = jvqldo;
+       //      w_jvlvei = 0;
+       //    elseif (w_teller2 = 2);
+       //      if w_jvldor = -1;
+       //        leave;
+       //      endif;
+       //      w_jwldor = w_jvldor;
+       //      w_jvlvei = 1;
+       //    endif;
+       //
+       //    exec sql
+       //     select count(*) into :w_teller from JVLEPF
+       //     WHERE (JVLVNR=:jvqvnr AND JVLLDO=:w_jwldor);
+       //
+       //    if (w_teller = 0);
+       //      exec sql
+       //        INSERT INTO JVLEPF
+       //        (JVLVNR,JVLLDO,JVLVEI,JVLLVA,JVLMR1,JVLMR2,JVLMR3
+       //        ,JVLUDA,JVLODA,JVLOTI,JVLOUS,JVLEDA,JVLETI,JVLEUS)
+       //        SELECT
+       //        :jvqvnr,:w_jwldor,:w_jvlvei,JVLLVA,JVLMR1,JVLMR2,JVLMR3
+       //        ,JVLUDA,JVLODA,JVLOTI,JVLOUS,CURRENT_DATE,CURRENT_TIME,:l_user
+       //        FROM JVLEPF B WHERE
+       //           (JVLVNR=:w_vare AND JVLLDO=:jvqldo);
+       //    else;
+       //      exec sql
+       //        update JVLEPF set
+       //          JVLVEI=:w_jvlvei,
+       //          JVLLVA=:JVLLVA,
+       //          JVLMR1=:JVLMR1,
+       //          JVLMR2=:JVLMR2,
+       //          JVLMR3=:JVLMR3,
+       //          JVLUDA=:JVLUDA,
+       //          JVLODA=:JVLODA,
+       //          JVLOTI=:JVLOTI,
+       //          JVLOUS=:JVLOUS,
+       //          JVLEDA=CURRENT_DATE,
+       //          JVLETI=CURRENT_TIME,
+       //          JVLEUS=:l_user
+       //       WHERE
+       //        (JVLVNR=:jvqvnr AND JVLLDO=:w_jwldor );
+       //    endif;
+       //  endfor;
+       //enddo ;
+       //exec sql CLOSE CLE ;
+       //
+       //// Kopier/oppdate alle pakninger fra NOBB vare til logistikkvare
+       //exec sql
+       //  DELETE FROM JVPKPF
+       //    WHERE JWVARE = :jvqvnr AND JWLDOR = :jvqldo and JWRSTS = 0;
+       //
+       //exec sql
+       //  INSERT INTO JVPKPF
+       //  (JWVARE,JWLDOR,JWPAKN,JWENHE,JWOFAK,JWOFAP
+       //  ,JWBRED,JWLENG,JWHOYD,JWVEKT,JWVOLU,JWBEST
+       //  ,JWPKLA,JWGTIN,JWPSEN,JWPAKS,JWANTP,JWPAPP
+       //  ,JWPMSB,JWLFOR,JWNBRE,JWNLEN,JWNHOY,JWNVEK
+       //  ,JWNVOL,JWGTYP,JWEPSE,JWRSTS,JWFDAT,JWTDAT
+       //  ,JWNODA,JWNEDA,JWNSDA,JWODAT,JWEDAT,JWETIM
+       //  ,JWEUSR)
+       //  SELECT
+       //  :jvqvnr,:jvqldo,JWPAKN,JWENHE,JWOFAK,JWOFAP
+       //  ,JWBRED,JWLENG,JWHOYD,JWVEKT,JWVOLU,JWBEST
+       //  ,JWPKLA,JWGTIN,JWPSEN,JWPAKS,JWANTP,JWPAPP
+       //  ,JWPMSB,JWLFOR,JWNBRE,JWNLEN,JWNHOY,JWNVEK
+       //  ,JWNVOL,JWGTYP,JWEPSE,JWRSTS,JWFDAT,JWTDAT
+       //  ,JWNODA,JWNEDA,JWNSDA,JWODAT,CURRENT_DATE,CURRENT_TIME
+       //  ,:l_user
+       //  FROM JVPKPF B WHERE
+       //     ( JWVARE = :w_vare AND JWLDOR = :jvqldo and JWRSTS = 0    );
+       //
+       //if w_jvldor <> -1;
+       //  exec sql
+       //    DELETE FROM  JVPKPF
+       //      WHERE JWVARE = :jvqvnr AND JWLDOR = :w_jvldor and JWRSTS = 0;
+       //
+       //  exec sql
+       //    INSERT INTO JVPKPF
+       //    (JWVARE,JWLDOR,JWPAKN,JWENHE,JWOFAK,JWOFAP
+       //    ,JWBRED,JWLENG,JWHOYD,JWVEKT,JWVOLU,JWBEST
+       //    ,JWPKLA,JWGTIN,JWPSEN,JWPAKS,JWANTP,JWPAPP
+       //    ,JWPMSB,JWLFOR,JWNBRE,JWNLEN,JWNHOY,JWNVEK
+       //    ,JWNVOL,JWGTYP,JWEPSE,JWRSTS,JWFDAT,JWTDAT
+       //    ,JWNODA,JWNEDA,JWNSDA,JWODAT,JWEDAT,JWETIM
+       //    ,JWEUSR)
+       //    SELECT
+       //    :jvqvnr,:w_jvldor,JWPAKN,JWENHE,JWOFAK,JWOFAP
+       //    ,JWBRED,JWLENG,JWHOYD,JWVEKT,JWVOLU,JWBEST
+       //    ,JWPKLA,JWGTIN,JWPSEN,JWPAKS,JWANTP,JWPAPP
+       //    ,JWPMSB,JWLFOR,JWNBRE,JWNLEN,JWNHOY,JWNVEK
+       //    ,JWNVOL,JWGTYP,JWEPSE,JWRSTS,JWFDAT,JWTDAT
+       //    ,JWNODA,JWNEDA,JWNSDA,JWODAT,CURRENT_DATE,CURRENT_TIME
+       //    ,:l_user
+       //    FROM JVPKPF B WHERE
+       //    ( JWVARE = :w_vare AND JWLDOR = :jvqldo and JWRSTS = 0    );
+       //
+       //endif;
+       //
+       ////exec sql DECLARE CPK CURSOR FOR
+       ////          SELECT * FROM JVPKPF
+       ////          WHERE JWVARE = :jvquno AND JWLDOR = :jvqldo;
+       ////exec sql OPEN CPK ;
+       ////
+       ////dow (2 = 2) ;
+       ////  exec sql FETCH NEXT FROM CPK INTO :ds_jvpkpf ;
+       ////  if (SQLCOD <> 0) ;
+       ////    leave ;
+       ////  endif ;
+       ////
+       ////  for w_teller2 = 1 to 2 ; // både for varelev. og nobblev
+       ////    if (w_teller2 = 1);
+       ////      w_jwldor = jvqldo;
+       ////    elseif (w_teller2 = 2);
+       ////      if w_jvldor = -1;
+       ////        leave;
+       ////      endif;
+       ////      w_jwldor = w_jvldor;
+       ////    endif;
+       ////
+       ////    exec sql
+       ////     select count(*) into :w_teller from jvpkpf
+       ////     WHERE (JWVARE=:jvqvnr AND JWLDOR=:w_jwldor AND JWPAKN=:JWPAKN);
+       ////
+       ////    if (w_teller = 0);
+       ////      exec sql
+       ////        INSERT INTO JVPKPF
+       ////        (JWVARE,JWLDOR,JWPAKN,JWENHE,JWOFAK,JWOFAP
+       ////        ,JWBRED,JWLENG,JWHOYD,JWVEKT,JWVOLU,JWBEST
+       ////        ,JWPKLA,JWGTIN,JWPSEN,JWPAKS,JWANTP,JWPAPP
+       ////        ,JWPMSB,JWLFOR,JWNBRE,JWNLEN,JWNHOY,JWNVEK
+       ////        ,JWNVOL,JWGTYP,JWEPSE,JWRSTS,JWFDAT,JWTDAT
+       ////        ,JWNODA,JWNEDA,JWNSDA,JWODAT,JWEDAT,JWETIM
+       ////        ,JWEUSR)
+       ////        SELECT
+       ////        :jvqvnr,:w_jwldor,JWPAKN,JWENHE,JWOFAK,JWOFAP
+       ////        ,JWBRED,JWLENG,JWHOYD,JWVEKT,JWVOLU,JWBEST
+       ////        ,JWPKLA,JWGTIN,JWPSEN,JWPAKS,JWANTP,JWPAPP
+       ////        ,JWPMSB,JWLFOR,JWNBRE,JWNLEN,JWNHOY,JWNVEK
+       ////        ,JWNVOL,JWGTYP,JWEPSE,JWRSTS,JWFDAT,JWTDAT
+       ////        ,JWNODA,JWNEDA,JWNSDA,JWODAT,CURRENT_DATE,CURRENT_TIME
+       ////        ,:l_user
+       ////        FROM JVPKPF B WHERE
+       ////           ( JWVARE = :jvquno AND JWLDOR = :jvqldo AND JWPAKN=:JWPAKN);
+       ////    else;
+       ////      exec sql
+       ////        update jvpkpf set
+       ////          JWENHE=:JWENHE,
+       ////          JWOFAK=:JWOFAK,
+       ////          JWOFAP=:JWOFAP,
+       ////          JWBRED=:JWBRED,
+       ////          JWLENG=:JWLENG,
+       ////          JWHOYD=:JWHOYD,
+       ////          JWVEKT=:JWVEKT,
+       ////          JWVOLU=:JWVOLU,
+       ////          JWBEST=:JWBEST,
+       ////          JWPKLA=:JWPKLA,
+       ////          JWGTIN=:JWGTIN,
+       ////          JWPSEN=:JWPSEN,
+       ////          JWPAKS=:JWPAKS,
+       ////          JWANTP=:JWANTP,
+       ////          JWPAPP=:JWPAPP,
+       ////          JWPMSB=:JWPMSB,
+       ////          JWLFOR=:JWLFOR,
+       ////          JWNBRE=:JWNBRE,
+       ////          JWNLEN=:JWNLEN,
+       ////          JWNHOY=:JWNHOY,
+       ////          JWNVEK=:JWNVEK,
+       ////          JWNVOL=:JWNVOL,
+       ////          JWGTYP=:JWGTYP,
+       ////          JWEPSE=:JWEPSE,
+       ////          JWRSTS=:JWRSTS,
+       ////          JWFDAT=:JWFDAT,
+       ////          JWTDAT=:JWTDAT,
+       ////          JWNODA=:JWNODA,
+       ////          JWNEDA=:JWNEDA,
+       ////          JWNSDA=:JWNSDA,
+       ////          JWEDAT=CURRENT_DATE,
+       ////          JWETIM=CURRENT_TIME,
+       ////          JWEUSR=:l_user
+       ////       WHERE
+       ////        (JWVARE=:jvqvnr AND JWLDOR=:w_jwldor AND JWPAKN=:JWPAKN);
+       ////    endif;
+       ////  endfor;
+       ////enddo ;
+       ////exec sql CLOSE CPK ;
+       //
+      */end-free
+      **
+     c*
+     c*
+     c*                   endsr
+      *
+      * kopi av pris
+      *
+     c*     nobbkopipris  begsr
+     c*
+     c*                   movel     jvquno        w_vare
+      ** hvis logistikkvare er en aktiv NOBB vare, ikke slett NOBB info
+     c*                   if        jvqvnr = w_vare
+     c*                   leavesr
+     c*                   endif
+     c*
+      */FREE
+       //// Kopier/oppdate priser
+       //exec sql DECLARE CPR CURSOR FOR
+       //          SELECT * FROM JVPRPF
+       //          WHERE JXVARE = :w_vare AND JXLDOR = :jvqldo;
+       //exec sql OPEN CPR ;
+       //
+       //dow (2 = 2) ;
+       //  exec sql FETCH NEXT FROM CPR INTO :ds_jvprpf ;
+       //  if (SQLCOD <> 0) ;
+       //    leave ;
+       //  endif ;
+       //  w_jwldor = jvqldo;
+       //  exec sql
+       //   select count(*) into :w_teller from jvprpf
+       //   WHERE (JXVARE=:jvqvnr AND JXLDOR=:w_jwldor
+       //          AND JXGDAT=:JXGDAT AND JXRSTS=:JXRSTS);
+       //
+       //  if (w_teller = 0);
+       //    exec sql
+       //      INSERT INTO JVPRPF
+       //      (JXVARE,JXLDOR,JXLVAR,JXPRIS,JXGDAT,JXTDAT,JXGPRI
+       //      ,JXVALU,JXFBEL,JXCRDO,JXRSTS,JXEANN,JXNODA,JXNEDA
+       //      ,JXNSDA,JXODAT,JXEDAT,JXETIM,JXEUSR)
+       //      SELECT
+       //      :jvqvnr,:w_jwldor,JXLVAR,(JXPRIS*:jvqofa),JXGDAT,JXTDAT
+       //      ,(JXGPRI*:jvqofa)
+       //      ,JXVALU,JXFBEL,JXCRDO,JXRSTS,JXEANN,JXNODA,JXNEDA
+       //      ,JXNSDA,JXODAT,CURRENT_DATE,CURRENT_TIME,:l_user
+       //      FROM JVPRPF B WHERE
+       //        (JXVARE=:w_vare AND JXLDOR=:w_jwldor
+       //         AND JXGDAT=:JXGDAT AND JXRSTS=:JXRSTS);
+       //  else;
+       //    exec sql
+       //      update jvprpf set
+       //        JXLVAR=:JXLVAR,
+       //        JXPRIS=(:JXPRIS*:jvqofa),
+       //        JXTDAT=:JXTDAT,
+       //        JXGPRI=(:JXGPRI*:jvqofa),
+       //        JXVALU=:JXVALU,
+       //        JXFBEL=:JXFBEL,
+       //        JXCRDO=:JXCRDO,
+       //        JXEANN=:JXEANN,
+       //        JXNODA=:JXNODA,
+       //        JXNEDA=:JXNEDA,
+       //        JXNSDA=:JXNSDA,
+       //        JXODAT=:JXODAT,
+       //        JXEDAT=CURRENT_DATE,
+       //        JXETIM=CURRENT_TIME,
+       //        JXEUSR=:l_user
+       //     WHERE
+       //      (JXVARE=:jvqvnr AND JXLDOR=:w_jwldor
+       //        AND JXGDAT=:JXGDAT AND JXRSTS=:JXRSTS);
+       //  endif;
+       //enddo ;
+       //exec sql CLOSE CPR ;
+      */end-free
+     c*
+     c*
+     c*
+     c*                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Subrutine som takler feil i sql - skriver til AJLTPF
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_sql     begsr
+     c                   if        sqlcod < 0
+     c                   eval      w_jnav = 'SQL_JK101R'
+     c                   call      'AB700R'
+     c                   parm                    w_jnav
+     c                   parm                    w_jkey
+     c                   parm                    w_jtxt
+      *
+     c                   eval      w_jtxt = 'Feil-situasjon i sql  ' +
+     c                             %trim(w_feil) +
+     c                             %char(sqlcod)
+     c                   eval      w_jstat = 40
+     c                   call      'AB705R'
+     c                   parm                    w_jkey
+     c                   parm                    w_jstat
+     c                   parm                    w_jtxt
+      *
+     c/exec sql
+     c+ close STMT
+     c/end-exec
+      *
+      * avslutter
+     c                   eval      *inlr = *on
+     c                   return
+     c                   endif
+     c
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+     c     *entry        plist
+     c                   parm                    p_vare
+      *
+      * Key for propertiesfil
+      *
+     c     afpslr_key    klist
+     c                   kfld                    afpslr_ufil
+     c                   kfld                    afpslr_uide
+      *
+      * Henter firma og referanse fra parameter
+      *
+     c                   eval      w_firm = l_firm
+     c                   if        %parms > 0
+     c                   eval      w_vare_p = p_vare
+     c                   else
+     c                   eval      w_vare_p = *blank
+     c                   endif
+     c
+      *
+     c                   eval      w_ldox = *blank
+     c                   eval      afpslr_ufil = l_filg
+     c                   eval      afpslr_uide = 'LOGILEV   '
+      *
+      * Sjekk om byggdok eller cobuilder aktivering er på/av
+      *
+     c     afpslr_key    chain     afpslrr
+     c                   if        %found(afpslr)
+     c                   eval      w_ldox = afudss
+     c                   endif
+     c                   if        w_ldox = *blank
+     c                   eval      w_ldox = '900099'
+     c                   endif
+     c                   move      w_ldox        w_ldor
+      *
+     c                   endsr

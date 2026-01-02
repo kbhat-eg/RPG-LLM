@@ -1,0 +1,1935 @@
+6.20 H/TITLE  ASOFAK: Utskrift av EDI Faktura
+6.20 h option(*nodebugio) datedit(*dmy-) decedit('0.')
+6.20 h DftActgrp(*No) BndDir('CGIDEV2/CGIDEV2')
+      *
+6.20  /copy hspecsbnd
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Program . . . . : LI626R
+      * Beskrivelse . . : Utskrift av EDI-Faktura
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       130802 ASK  Nytt program
+6.10  * R6.10 070909 BSA  Utskriften endret pga utvidelse av referansefelter.
+6.11  * R6.10 300610 BSA  Manglet of indikator.
+pdf   * R6.10 120710 BSA  Innført PDF utskrift. Innebærer primært å finne     *
+pdf   *                   generert spool, og kall av AP620R med dette som     *
+pdf   *                   parametre.                                          *
+6.12  * R6.10 071010 BSA  Overfører bacthtype som en del parameterlista. Viser
+6.12  *                   hva slags rutine som kjøres. Legges med i arkivet.
+6.20  * R6.20 270711 BSA  Utvidet til full xml støtte
+6.21  * R6.20 220212 BSA  Samkjører metatagger
+6.22  * R6.20 081112 BSA  Feil felt legges til fakturanummer
+6.23  * R6.20 041212 bsa  Legger ut nytt unikt refno, utvidet metatagger
+6.24  * R6.20 040113 bsa  Endrer logikken for oppbygging av refno
+6.25  * R6.20 250913 bsa  Bruker feil part ved som fakturamottaker
+6.26  * R6.20 031114 bsa  Scanner flere felter for å gjøre utskriften
+6.26  *                   mer robust ifbm xml variant.
+6.nu  * 6.30  050614 bof  endring i forb. nummerutvidelse
+6.30  * R6.30 120914 bsa  Utvidet parameterliste til FO798R. Håndtering av
+6.30  *                   flere mailfelter.
+6.31  * 6.30  280115 bsa  Skriver til datakø for å trigge java sniffer
+6.32  * 6.30  170415 bsa  Nullstiller minne for XML bruk
+6.33  * 6.30  080915 bsa  Legger ut avdeling som tgg for arkiveringsformål.
+6.34  * 6.30  250816 bsa  Scanner prosjektnummer. Brukes ofte til tekst.
+6.35  * 6.30  121217 bsa  Utvider felter i display tag, da med mange spesialfelter
+6.35  *                   blir totalen for kort.
+9.01  * R6.10 041012 BSA  "Jukser" med tagger for å legge ut faktura og kid info
+9.03  * R6.10 081012 BSA  Samkjørt med spesial for MGR
+9.04  * R6.10 121012 BSA  Glemt nullstilling av variabler
+9.05  * R6.10 221012 BSA  Nullstilling av variabler forts...
+9.06  * R6.10 071112 BSA  Legger ut tekst på frakttillegg hvis kode finnes og tekst mangler
+9.07  * R6.10 030715 BSA  Jobber mot GEDI
+9.08  * R6.30 030715 bsa  Legger ut bilagsnummer for arkivering.
+9.09  * R6.30 090715 ask  Legger ut referansetag uten årstall.
+9.10  * R6.30 050815 bsa  Justert enkelte tagger.
+9.11  * R6.30 121115 bsa  Legge xml fila i FIFO mappa. Sendes veldig mange
+9.11  *                   ved godkjenning, og det skaper "hikke" for de som
+9.11  *                   venter på pakkseddel etc.
+9.12  * R6.30 241115 bsa  Skriver til egen datakø, slik at dette ikke hemmer
+9.12  *                   "online" utskrifter. (pakksedler osv)
+9.13  * R6.30 260620 bsa  Utvider lengden på arbeidsfelter.
+      *
+7.14  * K000  170221 bsa  Lengden på GTIN nimmer er 14
+      *
+8.01  * 8.xx  060721 bsa  Utvidet meldingsnummer fra 6 til 8 siffer.
+8.02  *K0000  030723 bsa  Utvidet strenger etter scanning for å ta
+8.02  *K0000              høyde for ugyldige tegn.
+      *
+      *
+      *
+      *
+      * Bruk av linjenummersekvenser (2 første siffer i linjenr LIMLIN)
+      *
+      *    10 : Hodeinformasjon
+      *    20 : Partsinformasjon
+      *    30 : Referanser
+      *    40 : Transportinformasjon
+      *    50 : Linjer
+      *    55 : Linjer fra best. (ikke match i EDI-melding)
+      *    60 : Tillegg/fradrag hodenivå
+      *    65 : Fritkstlinjer på hodenivå
+      *    90 : Totaler
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flohel1    if   e           k disk    rename(lohepfr:lohel1r)
+     flodtl1    if   e           k disk    rename(lodtpfr:lodtl1r)
+     fgedilr    if   e           k disk    rename(gedipfr:gedilrr)
+     fgedil1    if   e           k disk    rename(gedipfr:gedil1r)
+     fvvarl3    if   e           k disk    rename(vvarpfr:vvarl3r)
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+     faforl1    if   e           k disk    rename(aforpfr:aforl1r)
+9.10 frkunl5    if   e           k disk    rename(rkunpfr:rkunl5r)
+      *
+     fli616p    o    e             printer
+      *
+      * Parameter-inn
+      *
+     d                 ds
+     d d_prec                        45
+     d  d_firm                        3  0 overlay(d_prec)
+     d  d_type                        4    overlay(d_prec:4)
+8.01 d  d_mnum                        8  0 overlay(d_prec:8)
+8.01 d  d_mlin                        6  0 overlay(d_prec:16)
+8.01 d  d_biln                        8  0 overlay(d_prec:22)
+8.01 d  d_kode                        1    overlay(d_prec:30)
+      *
+      * FAKTURA Hode
+      *
+     d d_fakh1         ds
+     d  d_fh_dtyp                     3
+     d  d_fh_fanr                    35
+     d  d_fh_fako                     3
+     d  d_fh_ldat                      d   datfmt(*iso)
+     d  d_fh_best                    20
+     d  d_fh_lord                    20
+     d  d_fh_lfak                    20
+     d  d_fh_sean                    13  0
+     d  d_fh_snav                    30
+     d  d_fh_fean                    13  0
+     d  d_fh_fnav                    30
+     d  d_fh_fad1                    30
+     d  d_fh_fad2                    30
+     d  d_fh_fste                    30
+     d  d_fh_forg                    20
+     d  d_fh_kref                    20
+     d  d_fh_lref                    20
+     d  d_fh_valk                     3
+     d  d_fh_ffda                      d   datfmt(*iso)
+     d  d_fh_levb                     3
+     d  d_fh_forf                      d   datfmt(*iso)
+9.08 d  d_fh_bean                    13  0
+9.08 d  d_fh_bilna                    8
+9.08 d    d_fh_biln                   8  0 overlay(d_fh_bilna:1)
+      *
+      * Tillegg/fradragslinjer
+      *
+     d d_fakh2         ds
+     d  d_fh_tsig                     3
+     d  d_fh_tkod                     3
+     d  d_fh_ttek                    30
+     d  d_fh_tpro                     4  2
+     d  d_fh_tbel                     8  2
+     d  d_fh_apro                     4  2
+      *
+      * Fritekst/hodelinje
+      *
+     d d_fakh3         ds
+     d  d_fh_ftxq                     3
+     d  d_fh_ftxt                    70
+      *
+      * Fakturareferanser/hode
+      *
+     d d_fakh4         ds
+     d  d_fh_bstn                    35
+     d  d_fh_ordr                    35
+     d  d_fh_fakk                    35
+     d  d_fh_paks                    35
+     d  d_fh_kunr                    35
+     d  d_fh_proj                    35
+     d  d_fh_lvfa                    35
+     d  d_fh_ofav                    35
+     d  d_fh_plnr                    35
+     d  d_fh_konr                    35
+     d  d_fh_kidn                    35
+      *
+      * Faktura partsinfo./hode
+      *
+     d d_fakh5         ds
+     d  d_fh_part                     3
+     d  d_fh_pean                    13  0
+     d  d_fh_pnav                    30
+     d  d_fh_pad1                    30
+     d  d_fh_pad2                    30
+     d  d_fh_pste                    30
+     d  d_fh_porg                    20
+      *
+      * Faktura transport/lev. - hode
+      *
+     d d_fakh6         ds
+     d  d_fh_trmo                     3
+     d  d_fh_trna                    35
+     d  d_fh_lebe                     3
+      *
+      * FAKTURA Linje
+      *
+     d d_fakl          ds
+     d  d_fl_llin                     6  0
+7.14 d  d_fl_vean                    14  0
+     d  d_fl_vnob                     8  0
+     d  d_fl_vlev                    15
+     d  d_fl_tek1                    35
+     d  d_fl_tek2                    35
+     d  d_fl_bkva                    15  3
+     d  d_fl_benh                     3
+     d  d_fl_lkva                    15  3
+     d  d_fl_lenh                     3
+     d  d_fl_fkva                    15  3
+     d  d_fl_fenh                     3
+     d  d_fl_bnet                    15  2
+     d  d_fl_bbto                    15  2
+     d  d_fl_prkv                     3
+     d  d_fl_pris                    15  3
+     d  d_fl_penh                     3
+     d  d_fl_prpr                     9  0
+     d  d_fl_bnum                    20
+     d  d_fl_blin                     6  0
+     d  d_fl_mvap                     4  2
+     d  d_fl_sig1                     3
+     d  d_fl_kod1                     3
+     d  d_fl_bel1                     9  2
+     d  d_fl_pro1                     5  2
+     d  d_fl_sig2                     3
+     d  d_fl_kod2                     3
+     d  d_fl_bel2                     9  2
+     d  d_fl_pro2                     5  2
+     d  d_fl_sig3                     3
+     d  d_fl_kod3                     3
+     d  d_fl_bel3                     9  2
+     d  d_fl_pro3                     5  2
+     d  d_fl_sig4                     3
+     d  d_fl_kod4                     3
+     d  d_fl_bel4                     9  2
+     d  d_fl_pro4                     5  2
+     d  d_fl_sig5                     3
+     d  d_fl_kod5                     3
+     d  d_fl_bel5                     9  2
+     d  d_fl_pro5                     5  2
+     d  d_fl_sig6                     3
+     d  d_fl_kod6                     3
+     d  d_fl_bel6                     9  2
+     d  d_fl_pro6                     5  2
+      *
+      * Fakturatotallinjer
+      *
+     d d_fakt          ds
+     d  d_ft_ftot                    15  2
+     d  d_ft_teks                    15  2
+     d  d_ft_tmva                    15  2
+     d  d_ft_mvgr                    15  2
+     d  d_ft_veks                    15  2
+     d  d_ft_vink                    15  2
+     d  d_ft_stil                    15  2
+     d  d_ft_sfra                    15  2
+      *
+      * Local Data Area LDA
+      *
+     d                uds
+pdf  d l_poff                584    584
+6.20 d l_utqm                585    594
+6.20 d l_bach                595    635
+6.20 d l_arch                636    636  0
+6.20 d l_skje                637    637  0
+6.20 d l_land                638    638  0
+6.20 d l_exlp                639    639  0
+6.20 d l_mail                640    640  0
+     d l_ruti                800    809
+6.20 d  l_outq               810    819
+6.20 d l_copy                838    843  0
+     d l_alin                856    858  0
+6.23 d l_wsid                901    910
+6.20 d l_user                911    920
+6.20 d l_filg                931    933
+     d l_firm                944    946  0
+6.33 d l_avde                947    950  0
+      *
+      * Definering av variable i nøkler
+      *
+     d gedilr_type     s                   like(gitype)
+     d gedilr_mnum     s                   like(gimnum)
+     d gedilr_mlin     s                   like(gimlin)
+     d gedil1_type     s                   like(gitype)
+     d gedil1_mnum     s                   like(gimnum)
+     d gedil1_mlin     s                   like(gimlin)
+     d lodtl1_line     s                   like(ldline)
+     d lodtl1_numm     s                   like(ldnumm)
+     d lodtl1_suff     s                   like(ldsuff)
+     d lohel1_numm     s                   like(lonumm)
+     d lohel1_suff     s                   like(losuff)
+     d vvarl3_nobb     s                   like(vvnobb)
+     d aforl1_ruti     s                   like(afruti)
+9.10 d rkunl5_eank     s                   like(rkeank)
+      *
+      * Definering av parametre
+      *
+6.20 d p_mail          s              1
+6.20 d p_kund          s              6  0
+6.20 d p_kpro          s              6  0
+6.nu d p_numm          s              8  0
+6.30 d p_suff          s              2  0
+6.20 d p_selg          s              4  0
+6.20 d p_serv          s             35
+6.20 d p_stat          s              1
+6.20 d p_kule          s              1
+6.20 d p_navn          s             30
+6.20 d p_emal          s             50
+6.20 d p_ema2          s             50
+6.30 d p_ema3          s             50
+6.30 d p_kopi          s             50
+6.20 d p_emne          s             50
+6.20 d p_txt1          s             50
+6.20 d p_txt2          s             50
+6.20 d p_txt3          s             50
+6.20 d p_txt4          s             50
+6.20 d p_pers          s             50
+6.20 d p_inif          s             40
+6.20 d p_in03          s              1
+6.20 d p_ok            s              1
+6.20 d p_lr            s              1
+6.20 d p_str_in        s            512
+6.20 d p_str_out       s            512
+6.31 d p_filg          s             10
+6.31 d p_xmlf          s            256
+      *
+6.20 d b_pdfp          s              1    inz(*off)
+6.20 d b_topt          s              1    inz(*off)
+6.20 d b_bott          s              1    inz(*off)
+6.20 d x_numm          s             15
+6.20 d x_betb          s             42
+6.20 d w_bdat          s               d   datfmt(*iso)
+6.20 d w_date          s               d   datfmt(*iso)
+6.20 d w_tdat          s              6  0
+6.20 d w_time          s              6  0
+6.20 d w_kode          s              1
+6.20 d w_fell          s              6
+6.20 d w_type          s              2
+6.20 d w_fast          s             10
+6.20 d w_ruti          s             10
+6.20 d w_numm          s              6  0
+6.20 d w_pdf           s              1  0
+6.20 d w_jnav          s             15
+6.20 d w_jkey          s             41
+6.20 d w_jtxt          s             35
+6.20 d w_pdf_ds        s            512
+6.20 d w_mtxt          s            200
+6.20 d w_jstat         s              2  0
+6.20 d w_jtext         s            200
+6.20 d w_mark          s              5
+6.20 d w_spol          s              5
+6.20 d w_land          s              9
+6.20 d w_str_in        s            512
+6.20 d w_str_out       s            512
+6.20 d w_x             s              3  0
+6.20 d w_path          s            256
+6.20 d w_emal          s             50
+6.20 d w_draw1         s             10
+6.20 d w_draw2         s             10
+6.35 d w_dspl          s            256
+6.20 d w_tek1          s            512
+6.20 d w_tek2          s            512
+6.20 d w_tek0          s            512
+6.20 d w_1dref         s            512
+6.20 d w_1vref         s            512
+6.20 d w_1fnav         s             50
+6.20 d w_1fad1         s             50
+6.20 d w_1fad2         s             50
+6.20 d w_1fste         s             50
+6.20 d w_1navn         s             50
+6.20 d w_1adr1         s             50
+6.20 d w_1adr2         s             50
+6.20 d w_1sted         s             50
+9.13 d w_2mnav         s            100
+6.20 d w_2mad1         s            100
+9.13 d w_2mad2         s            100
+6.14 d w_2mste         s             50
+9.13 d w_2lnav         s            100
+9.13 d w_2lad1         s            100
+9.13 d w_2lad2         s            100
+6.14 d w_2lste         s             50
+6.17 d w_copy          s              3  0
+8.02 d w_ptxt1         s            100
+8.02 d w_ptxt2         s            100
+8.02 d w_ptxt3         s            100
+8.02 d w_ptxt4         s            100
+6.18 d w_ppers         s             50
+6.35 d w_1lnav         s            100
+6.23 d w_refn          s             50
+6.26 d w_besn          s             50
+6.34 d w_proj          s             50
+9.01 d w_kidn          s             35
+9.02 d a1ldat          s              6  0
+      *
+      * Definering av øvrige variable
+      *
+     d w_firm          s                   like(lofirm)
+     d w_prec          s             45
+     d w_line          s              1  0
+     d w_blct          s              1  0
+     d w_raba          s              9  2
+      *
+      * XML string konstanter
+      *
+     d c_krn_kode      c                   '381'
+     d c_krn_head      c                   'EDI - Kreditnota'
+     d c_fak_head      c                   'EDI - Faktura'
+      *
+6.12 d p_btyp          s            100
+      *
+6.20 d XML_Output      s            256a   Varying
+6.20 d XML_path        s            256a   Varying
+6.20 d                                     Inz('/home/asp/print/adb')
+6.20 d jasper_mal      s            256a   inz('file:/home/asp/print/maler/+
+6.20 d                                     ordrebekreftelse/ORDREBEKREF.jasper')
+6.20 d jasper_logo     s            256a   Varying
+6.20 d tmpdate         s               D
+6.20 d tmptime         s               T
+6.20 d crlf            c                   const(X'0d25')
+6.20  *
+6.20 d d_pdf_ds        ds
+6.20 d  d_xmlm                       75
+6.20 d  d_jasm                       75
+6.20 d  d_logo                       75
+6.20 d  d_path                      100
+6.20 d  d_emal                       50
+6.31 d  d_fifo                       75
+6.31 d  d_fkop                        1
+6.31 d  d_dtaq                        1
+6.31 d  d_sign                        1
+6.20  /copy prototypeb
+6.20  /copy usec
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Definering av formater
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * A1HDR  - Heading A1 på rapport
+      * D1DET  - Detail  D1 på rapport, fakturalinje
+      * D2DET  - Detail  D2 på rapport, blank detaljlinje
+      * D3DET  - Detail  D3 på rapport, underline
+      * T1TOT  - Total   T1 på rapport, totallinjer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Styre-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Hent EDI meldings-hode
+      *
+     c                   eval      gedil1_type = d_type
+     c                   eval      gedil1_mnum = d_mnum
+     c                   eval      gedil1_mlin = d_mlin
+     c                   eval      gedilr_type = d_type
+     c                   eval      gedilr_mnum = d_mnum
+     c                   eval      gedilr_mlin = d_mlin
+      *
+     c     gedil1_key    chain     gedil1
+     c                   if        not %found
+     c                   goto      end_pgm
+     c                   endif
+     c                   eval      d_fakh1 = gimeld
+      *
+     c                   if        d_fh_dtyp = c_krn_kode
+     c                   eval      a1txt1 = c_krn_head
+     c                   else
+     c                   eval      a1txt1 = c_fak_head
+     c                   endif
+9.08  *
+9.08 c                   eval      d_biln = d_fh_biln
+      *
+     c                   eval      a1fanr = d_fh_fanr
+9.05  * Nullstilling av variabler
+9.05 c                   eval      a1fnav = *blanks
+9.05 c                   eval      a1fad1 = *blanks
+9.05 c                   eval      a1fad2 = *blanks
+9.05 c                   eval      a1fste = *blanks
+      *
+     c                   eval      a1fnav = d_fh_fnav
+     c                   eval      a1fad1 = d_fh_fad1
+     c                   if        a1fad1 = *blank
+     c                   eval      a1fad1 = d_fh_fad2
+     c                   else
+     c                   eval      a1fad2 = d_fh_fad2
+     c                   endif
+     c                   if        a1fad1 = *blank
+     c                   eval      a1fad1 = d_fh_fste
+     c                   else
+     c                   if        a1fad2 = *blank
+     c                   eval      a1fad2 = d_fh_fste
+     c                   else
+     c                   eval      a1fste = d_fh_fste
+     c                   endif
+     c                   endif
+      *
+9.03 c**                 eval      a1eanl = d_fh_fean
+9.03 c**                 eval      a1ffor = d_fh_forg
+      *
+     c                   eval      a1lref = d_fh_lref
+9.03 c**                 eval      a1besn = d_fh_best
+     c                   eval      a1lord = d_fh_lord
+     c                   eval      a1levb = d_fh_levb
+     c                   eval      a1kref = d_fh_kref
+9.03 c                   eval      a1mlnr = d_mnum
+      *
+     c                   if        d_fh_ffda <> *loval
+     c     *dmy          move      d_fh_ffda     a1fdat
+     c                   else
+     c                   eval      a1fdat = 0
+     c                   endif
+      *
+     c                   if        d_fh_forf <> *loval
+     c     *dmy          move      d_fh_forf     a1forf
+     c                   else
+     c                   eval      a1forf = 0
+     c                   endif
+      *
+     c                   if        d_fh_ldat <> *loval
+     c     *dmy          move      d_fh_ldat     a1ldat
+     c                   else
+     c                   eval      a1ldat = 0
+     c                   endif
+      *
+     c                   exsr      part_info
+      *
+     c                   eval      gedilr_mlin = 300001
+     c     gedilr_key    chain     gedilr
+     c                   if        %found
+     c                   eval      d_fakh4 = gimeld
+     c                   eval      a1lvfa = d_fh_lvfa
+     c                   eval      a1proj = d_fh_proj
+     c                   eval      a1paks = d_fh_paks
+9.01 c                   eval      w_kidn = d_fh_kidn
+9.02 c                   if        d_fh_bstn <> *blank
+9.02 c                   eval      a1bref = d_fh_bstn
+9.02 c                   endif
+     c                   endif
+      *
+6.20 c                   if        b_pdfp = *off
+     c                   write     a1hdr
+6.20 c                   else
+6.20  * Vi skriver til XML taggene for heading
+6.20 c                   exsr      xml_head
+6.20 c                   endif
+9.03  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+9.03  * D1FTX Behandle fritekstlinjer
+9.03  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+9.03  *
+9.03  * Les fritekstlinjer og skriv ut.
+9.03  *
+9.03 c                   eval      gedil1_mlin = 650000
+9.03 c     gedil1_key    setll     gedil1r
+9.03  *
+9.03 c                   read      gedil1r
+9.03  *
+9.03 c                   dow       not %eof and
+9.03 c                             gimnum = d_mnum and
+9.03 c                             gimlin < 700000
+9.03  *
+9.03 c                   eval      d_fakh3 = gimeld
+9.03 c                   eval      d1ftex = d_fh_ftxt
+9.03  *
+9.03 c                   if        b_pdfp = *off
+9.03 c                   write     d1ftx                                30
+9.03  *
+9.03  * Er det overflow ?
+9.03  *
+9.03 c                   if        *in30 = *on
+9.03 c                   write     a1hdr
+9.03 c                   endif
+9.03 c                   endif
+9.03  *
+9.03 c                   read      gedil1r
+9.03  *
+9.03 c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * D1DET Behandle detail D1
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Les varelinjer, finn tilleggsinformasjon og skriv ut.
+      *
+     c                   eval      gedil1_mlin = 500000
+     c     gedil1_key    setll     gedil1r
+      *
+     c                   read      gedil1r
+      *
+     c                   dow       not %eof and
+     c                             gimnum = d_mnum and
+     c                             gimlin < 550000
+      *
+     c                   eval      d_fakl = gimeld
+     c                   eval      d1vare = d_fl_vnob
+     c                   eval(h)   d1anta = d_fl_fkva
+     c                   eval      d1tek1 = d_fl_tek1
+     c                   eval      d1enh1 = d_fl_fenh
+9.03 c                   eval(h)   d1pris = d_fl_pris
+      *
+9.03 c*                  if        d_fl_bnet <> *zero and
+9.03 c*                            d_fl_fkva <> *zero
+9.03 c*                  eval(h)   d1pris = d_fl_bnet / d_fl_fkva
+9.03 c*                  else
+9.03 c*                  eval(h)   d1pris = d_fl_pris
+9.03 c*                  endif
+      *
+9.03 c*                  if        d_fl_pro1 <> *zero
+9.03 c*                  evalr     d1rabx = %char(d_fl_pro1) + '%'
+9.03 c*                  else
+9.03 c*                  if        d_fl_bel1 <> *zero and
+9.03 c*                            d_fl_fkva <> *zero
+9.03 c*                  eval(h)   w_raba = d_fl_bel1 / d_fl_fkva
+9.03 c*                  evalr     d1rabx = %char(w_raba) + '  '
+9.03 c*                  endif
+9.03 c*                  endif
+      *
+9.03 c*                  if        d_fl_pro2 <> *zero
+9.03 c*                  evalr     d1rabx = %trim(d1rabx) + '+' +
+9.03 c*                                     %char(d_fl_pro2) + '%'
+9.03 c*                  else
+9.03 c*                  if        d_fl_bel2 <> *zero and
+9.03 c*                            d_fl_fkva <> *zero
+9.03 c*                  eval(h)   w_raba = d_fl_bel2 / d_fl_fkva
+9.03 c*                  evalr     d1rabx = %trim(d1rabx) + '+' +
+9.03 c*                                     %char(w_raba)
+9.03 c*                  endif
+9.03 c*                  endif
+      *
+9.03 c*                  if        d_fl_pro3 <> *zero
+9.03 c*                  evalr     d1rabx = %trim(d1rabx) + '+' +
+9.03 c*                                     %char(d_fl_pro3) + '%'
+9.03 c*                  else
+9.03 c*                  if        d_fl_bel3 <> *zero and
+9.03 c*                            d_fl_fkva <> *zero
+9.03 c*                  eval(h)   w_raba = d_fl_bel3 / d_fl_fkva
+9.03 c*                  evalr     d1rabx = %trim(d1rabx) + '+' +
+9.03 c*                                     %char(w_raba)
+9.03 c*                  endif
+9.03 c*                  endif
+      *
+9.03 c                   if        d_fl_fkva = 0
+9.03 c                   eval      d_fl_fkva = 1
+9.03 c                   endif
+9.03  *
+9.04 c                   eval      d1rab1 = 0
+9.03 c                   if        d_fl_pro1 <> *zero
+9.03 c                   eval      d1rab1 = d_fl_pro1
+9.03 c                   else
+9.03 c                   if        d_fl_bel1 <> *zero
+9.03 c                   eval      d1rab1 = ((d_fl_bel1 / d_fl_fkva)
+9.03 c                                       * 100) / d_fl_pris
+9.03 c                   endif
+9.03 c                   endif
+9.03  *
+9.03 c                   if        d1rab1 <> 0 and
+9.03 c                             d_fl_sig1 <> 'A'
+9.03 c                   eval      d1rab1 = d1rab1 * -1
+9.03 c                   endif
+9.03  *
+9.04 c                   eval      d1rab2 = 0
+9.03 c                   if        d_fl_pro2 <> *zero
+9.03 c                   eval      d1rab2 = d_fl_pro2
+9.03 c                   else
+9.03 c                   if        d_fl_bel2 <> *zero
+9.03 c                   eval      d1rab2 = ((d_fl_bel2 / d_fl_fkva)
+9.03 c                                       * 100) / d_fl_pris
+9.03 c                   endif
+9.03 c                   endif
+9.03  *
+9.03 c                   if        d1rab2 <> 0 and
+9.03 c                             d_fl_sig2 <> 'A'
+9.03 c                   eval      d1rab2 = d1rab2 * -1
+9.03 c                   endif
+9.03  *
+9.04 c                   eval      d1rab3 = 0
+9.03 c                   if        d_fl_pro3 <> *zero
+9.03 c                   eval      d1rab3 = d_fl_pro3
+9.03 c                   else
+9.03 c                   if        d_fl_bel3 <> *zero
+9.03 c                   eval      d1rab3 = ((d_fl_bel3 / d_fl_fkva)
+9.03 c                                       * 100) / d_fl_pris
+9.03 c                   endif
+9.03 c                   endif
+9.03  *
+9.03 c                   if        d1rab3 <> 0 and
+9.03 c                             d_fl_sig3 <> 'A'
+9.03 c                   eval      d1rab3 = d1rab3 * -1
+9.03 c                   endif
+9.03  *
+     c                   eval      d1belp = d_fl_bnet
+      *
+6.20 c                   if        b_pdfp = *off
+     c                   write     d1det                                30
+6.20 c                   else
+6.20 c                   exsr      xml_deta
+6.20 c                   endif
+      *
+      * Er det overflow ?
+      *
+     c                   if        *in30 = *on
+6.20 c                   if        b_pdfp = *off
+     c                   write     a1hdr
+6.20 c                   endif
+     c                   endif
+      *
+     c                   read      gedil1r
+      *
+     c                   enddo
+      *
+     c                   exsr      fakt_avsl
+      *
+      *
+      * Avslutt program
+      *
+     c     end_pgm       tag
+      *
+6.20 c                   if        b_pdfp = *on
+6.20 c                   exsr      xml_end
+6.20  * Hvis forhåndvisning må vi kjøre linken
+6.20 c                   if        l_skje = 1 and
+6.20 c                             l_bach = w_jkey
+6.20 c                   exsr      pdf_preview
+6.20 c                   endif
+6.20  * Avslutt jobbiden
+6.20 c                   call      'AB710R'
+6.20 c                   parm                    l_bach
+6.20  *
+6.20 c                   endif
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å skrive fakturaavlutning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     fakt_avsl     begsr
+      *
+6.20 c                   if        b_pdfp = *off
+     c                   write     d3det                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+6.20 c                   endif
+      *
+     c                   eval      d2blnk = ''
+     c                   eval      w_blct = 0
+     c                   dow       w_blct < 1
+6.20 c                   if        b_pdfp = *off
+     c                   write     d2det                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+6.20 c                   endif
+     c                   eval      w_blct = w_blct + 1
+     c                   enddo
+      *
+     c                   eval      gedilr_mlin = 900001
+     c     gedilr_key    chain     gedilr
+     c                   if        %found
+     c                   eval      d_fakt = gimeld
+     c                   eval      t1sign = *blank
+     c                   eval      t1text = 'NETTO VARELINJER'
+     c                   eval      t1tsum = d_ft_vink
+6.20 c                   if        b_pdfp = *off
+     c                   write     t1tot                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+6.20 c                   else
+6.20 c                   exsr      xml_netto
+6.20 c                   endif
+     c                   endif
+      *
+     c                   eval      gedil1_mlin = 600000
+     c     gedil1_key    setll     gedil1r
+      *
+     c                   read      gedil1
+      *
+     c                   dow       not %eof and
+     c                             gimnum = d_mnum and
+     c                             gimlin < 650000
+     c                   eval      d_fakh2 = gimeld
+      *
+     c                   if        d_fh_tsig = 'C  '
+     c                   eval      t1sign = '+ '
+     c                   else
+     c                   eval      t1sign = '- '
+     c                   endif
+     c                   eval      t1text = d_fh_ttek
+9.06  * Hvis tekst mangler, hardkod inn basert på typen
+9.06 c                   if        %trim(t1text) = *blank
+9.06 c                   exsr      sr_6text
+9.06 c                   endif
+9.06  *
+     c                   eval      t1tsum = d_fh_tbel
+6.20 c                   if        b_pdfp = *off
+     c                   write     t1tot                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+6.20 c                   else
+6.20 c                   exsr      xml_charges
+6.20 c                   endif
+      *
+     c                   read      gedil1
+     c                   enddo
+      *
+6.20 c                   if        b_pdfp = *off
+     c                   write     d3det                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+6.20 c                   endif
+      *
+     c                   eval      w_blct = 0
+     c                   dow       w_blct < 1
+6.20 c                   if        b_pdfp = *off
+     c                   write     d2det                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+6.20 c                   endif
+     c                   eval      w_blct = w_blct + 1
+     c                   enddo
+      *
+     c                   eval      t1sign = *blank
+     c                   eval      t1text = 'MVA GRUNNLAG'
+     c                   eval      t1tsum = d_ft_mvgr
+6.20 c                   if        b_pdfp = *off
+     c                   write     t1tot                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+6.20 c                   else
+6.20 c                   exsr      xml_vat
+6.20 c                   endif
+      *
+     c                   eval      t1text = 'BEREGNET MVA'
+     c                   eval      t1tsum = d_ft_tmva
+6.20 c                   if        b_pdfp = *off
+6.11 c                   write     t1tot                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+6.20 c                   else
+6.20 c                   exsr      xml_vat
+6.20 c                   endif
+      *
+     c                   eval      t1text = 'FAKTURATOTAL'
+     c                   eval      t1tsum = d_ft_ftot
+9.03  * KID info
+9.03 c                   eval      t2kidk = d_fh_kidn
+9.03  *
+6.20 c                   if        b_pdfp = *off
+     c                   write     t1tot                                30
+9.03 c                   write     t2tot                                30
+6.20 c                   else
+6.20 c                   exsr      xml_totaler
+6.20 c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å hente partsinfo
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     part_info     begsr
+      *
+     c                   eval      gedilr_mlin = 200000
+     c     gedilr_key    setll     gedilr
+     c                   read      gedilr
+      *
+     c                   dow       not %eof and
+     c                             gimlin < 300000 and
+     c                             gimnum = d_mnum
+      *
+     c                   eval      d_fakh5 = gimeld
+      *
+     c                   select
+      *
+      * Fakturamottager
+      *
+9.03 c                   when      d_fh_part = 'BY '
+6.25 c**9.03             when      d_fh_part = 'IV '
+9.05  * Fakturamottager
+9.05 c                   eval      a1navn = *blanks
+9.05 c                   eval      a1adr1 = *blanks
+9.05 c                   eval      a1adr2 = *blanks
+9.05 c                   eval      a1sted = *blanks
+     c                   eval      a1navn = d_fh_pnav
+     c                   eval      a1adr1 = d_fh_pad1
+     c                   if        a1adr1 = *blank
+     c                   eval      a1adr1 = d_fh_pad2
+     c                   else
+     c                   eval      a1adr2 = d_fh_pad2
+     c                   endif
+     c                   if        a1adr1 = *blank
+     c                   eval      a1adr1 = d_fh_pste
+     c                   else
+     c                   if        a1adr2 = *blank
+     c                   eval      a1adr2 = d_fh_pste
+     c                   else
+     c                   eval      a1sted = d_fh_pste
+     c                   endif
+     c                   endif
+      *
+      * Varemottager
+      *
+     c                   when      d_fh_part = 'DP '
+9.05 c                   eval      a1mnav = *blanks
+9.05 c                   eval      a1mad1 = *blanks
+9.05 c                   eval      a1mad2 = *blanks
+9.05 c                   eval      a1mste = *blanks
+9.10 c                   eval      rkkund = 0
+9.10  * Hent inn kundenummer på reell kunde
+9.10 c                   if        d_fh_pean > 0
+9.10 c                   eval      rkunl5_eank = d_fh_pean
+9.10 c     rkunl5_key    chain     rkunl5
+9.10 c                   if        not %found
+9.10 c                   eval      rkkund = 0
+9.10 c                   endif
+9.10 c                   endif
+9.10  *
+     c                   eval      a1mnav = d_fh_pnav
+     c                   eval      a1mad1 = d_fh_pad1
+     c                   if        a1mad1 = *blank
+     c                   eval      a1mad1 = d_fh_pad2
+     c                   else
+     c                   eval      a1mad2 = d_fh_pad2
+     c                   endif
+     c                   if        a1mad1 = *blank
+     c                   eval      a1mad1 = d_fh_pste
+     c                   else
+     c                   if        a1mad2 = *blank
+     c                   eval      a1mad2 = d_fh_pste
+     c                   else
+     c                   eval      a1mste = d_fh_pste
+     c                   endif
+     c                   endif
+      *
+      * Leverandør
+      *
+     c                   when      d_fh_part = 'SU '
+9.05 c                   eval      a1lnav = *blanks
+9.05 c                   eval      a1lad1 = *blanks
+9.05 c                   eval      a1lad2 = *blanks
+9.05 c                   eval      a1lste = *blanks
+     c                   eval      a1lnav = d_fh_pnav
+     c                   eval      a1lad1 = d_fh_pad1
+     c                   if        a1lad1 = *blank
+     c                   eval      a1lad1 = d_fh_pad2
+     c                   else
+     c                   eval      a1lad2 = d_fh_pad2
+     c                   endif
+     c                   if        a1lad1 = *blank
+     c                   eval      a1lad1 = d_fh_pste
+     c                   else
+     c                   if        a1lad2 = *blank
+     c                   eval      a1lad2 = d_fh_pste
+     c                   else
+     c                   eval      a1lste = d_fh_pste
+     c                   endif
+     c                   endif
+      *
+     c                   endsl
+      *
+     c                   read      gedilr
+     c                   enddo
+      *
+     c                   endsr
+      *
+9.06  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+9.06  * Subrutine for å hente legge inn  tekst basret på kode fradrag/tillegg
+9.06  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+9.06 c     sr_6text      begsr
+9.06  *
+9.06 c                   select
+9.06 c                   when      d_fh_tkod = 'FRA'
+9.06 c                   eval      t1text = 'TRANSPORT'
+9.06 c                   when      d_fh_tkod = 'FC '
+9.06 c                   eval      t1text = 'TRANSPORT'
+9.06 c                   when      d_fh_tkod = 'IN '
+9.06 c                   eval      t1text = 'TRANSPORT'
+9.06 c                   when      d_fh_tkod = 'HD '
+9.06 c                   eval      t1text = 'KRANBRUK'
+9.06 c                   when      d_fh_tkod = 'PI '
+9.06 c                   eval      t1text = 'HENTEGODTGJØRELSE'
+9.06 c                   when      d_fh_tkod = 'BPE'
+9.06 c                   eval      t1text = 'ANBREKKSTILLEGG'
+9.06 c                   when      d_fh_tkod = 'SH '
+9.06 c                   eval      t1text = 'ANBREKKSTILLEGG'
+9.06 c                   when      d_fh_tkod = 'KAP'
+9.06 c                   eval      t1text = 'KAPPING'
+9.06 c                   when      d_fh_tkod = 'PC '
+9.06 c                   eval      t1text = 'EMBALLASJEOMKOSTNINGER'
+9.06 c                   when      d_fh_tkod = 'ZEE'
+9.06 c                   eval      t1text = 'MILJØAVGIFT'
+9.06 c                   when      d_fh_tkod = 'RCH'
+9.06 c                   eval      t1text = 'TRANSPORT'
+9.06 c                   when      d_fh_tkod = 'IS '
+9.06 c                   eval      t1text = 'GEBYR'
+9.06 c                   other
+9.06 c                   eval      t1text = *blanks
+9.06 c                   endsl
+9.06  *
+9.06 c                   endsr
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20  * Subrutiner for XML/jasper integrasjon - Miljø variabler         *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20 c     xml_envm      begsr
+6.20  * Hvis skjermvisning skal vi ikke lagre i spoolfile
+6.20 c                   if        l_skje = 1
+6.20 c                   eval      w_spol = 'true'
+6.20 c                   else
+6.20 c                   eval      w_spol = 'false'
+6.20 c                   endif
+6.20  *
+6.20  /Free
+6.20       // Finne nytt batch nummer
+6.20           UpdHTMLVar('BatchNo':               w_jkey);
+6.20           UpdHTMLVar('Batchtype':'INNGÅENDE FAKTURA');
+6.20           UpdHTMLVar('Username':              l_user);
+6.20           WrtSection('Topp');
+6.20
+6.20       // Finn credetial variabler
+6.20           UpdHTMLVar('IPAdr':                  ' ');
+6.20           UpdHTMLVar('User':                l_user);
+6.20           UpdHTMLVar('PW':                     ' ');
+6.20           UpdHTMLVar('Schema':        'ADB'+l_filg);
+6.20           UpdHTMLVar('Companyno':    %char(l_firm));
+6.33           UpdHTMLVar('Departmentnoarkiv': %char(l_avde));
+6.20           WrtSection('Credential');
+6.20
+6.20       // Finn report command variabler
+6.20           UpdHTMLVar('Jaspertemplate':      d_jasm);
+6.20           UpdHTMLVar('Logo':           jasper_logo);
+6.20           UpdHTMLVar('Keepspool':           w_spol);
+6.20           WrtSection('ReportCommand');
+6.20  /End-free
+6.20  *
+6.20  * Hvis skjermvisning skal ikke PDF skrives
+6.20  *
+6.20 c                   if        l_skje = 0 and
+6.20 c                             l_mail = 0
+6.20  * Hvis *ARKIV er valgt som skriver, skal det ikke skrives ut
+6.20 c                   if        l_utqm <> '*ARKIV'
+6.20  *
+6.20 c                   if        l_land = 1
+6.20 c                   eval      w_land = 'LANDSCAPE'
+6.20 c                   else
+6.20 c                   eval      w_land = 'PORTRAIT'
+6.20 c                   endif
+6.20  * Sjekk at valgt outq støttes av skriveren. Kan skli gjennom hvis
+6.20  * jobben legges på jobbkø.
+6.20 c                   eval      p_ok = '0'
+6.20 c                   call      'AP612R'
+6.20 c                   parm                    l_filg
+6.20 c                   parm                    l_outq
+6.20 c                   parm                    p_ok
+6.20  * Hvis feil utkø, logges dette i transaksjonsloggen
+6.20 c                   if        p_ok = '0'
+6.20 c                   eval      w_jstat = 20
+6.20 c                   eval      w_jtext = 'Ugyldig utkø '+ l_outq + ' er val+
+6.20 c                             gt. Ingen utskrift er generert. Utskrift kan+
+6.20 c                              arkiveres.'
+6.20 c                   call      'AB705R'
+6.20 c                   parm                    l_bach
+6.20 c                   parm                    w_jstat
+6.20 c                   parm                    w_jtext
+6.20 c                   else
+6.20  * Hent inn skuffinformasjon for skriveren
+6.20 c                   eval      w_draw1 = *blank
+6.20 c                   eval      w_draw2 = *blank
+6.20 c                   call      'AP611R'
+6.20 c                   parm                    l_filg
+6.20 c                   parm                    l_outq
+6.20 c                   parm                    w_draw1
+6.20 c                   parm                    w_draw2
+6.20  *
+6.20 c                   if        l_copy > 0
+6.20 c                   eval      w_copy = l_copy
+6.20 c                   else
+6.20 c                   eval      w_copy = 1
+6.20 c                   endif
+6.20  *
+6.20  /Free
+6.20       // Finn print informasjon
+6.20           UpdHTMLVar('Printername':         l_outq);
+6.20           UpdHTMLVar('Copies':       %char(w_copy));
+6.20           UpdHTMLVar('Papersource':        w_draw1);
+6.20           UpdHTMLVar('Lastpagedrawer':         ' ');
+6.20           UpdHTMLVar('Duplex':             'false');
+6.20           UpdHTMLVar('Quality':                ' ');
+6.20           UpdHTMLVar('Sorting':                ' ');
+6.20           UpdHTMLVar('Staple':              'true');
+6.20           UPDHTMLVar('Alignment':           w_land);
+p.20           WrtSection('PrintCommand');
+6.20  /End-free
+6.20 c                   endif
+6.20 c                   endif
+6.20 c                   endif
+6.20  *
+6.20 c                   endsr
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20  * Subrutiner for XML/jasper integrasjon - Heading                 *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20 c     xml_head      begsr
+6.20  *
+6.20 c                   eval      w_str_in = *blanks
+6.20 c                   eval      w_str_out = *blanks
+6.20 c                   eval      w_mtxt = *blanks
+6.20  *
+6.20  * Hvis mail skal skrives, må vi hente mail informasjon
+6.20  *
+6.20 c                   if        l_mail = 1
+6.20 c                   eval      p_kule = 'L'
+6.20 c                   eval      p_kund = loldor
+6.20 c                   eval      p_kpro = 0
+6.20 c                   eval      p_numm = lonumm
+6.30 c                   eval      p_suff = losuff
+6.20 c                   eval      p_selg = loinnk
+6.20 c                   eval      p_in03 = *off
+6.20  * Henter ut mailserver
+6.20 c                   eval      p_serv = *blank
+6.20 c                   eval      p_stat = *blank
+6.20 c                   call      'AM705C'
+6.20 c                   parm                    p_serv
+6.20 c                   parm                    p_stat
+6.20  *
+6.20 c                   call      'FO798R'
+6.20 c                   parm                    p_kule
+6.20 c                   parm                    p_kund
+6.20 c                   parm                    p_kpro
+6.20 c                   parm                    p_numm
+6.30 c                   parm                    p_suff
+6.20 c                   parm                    p_selg
+6.20 c                   parm                    p_navn
+6.20 c                   parm                    p_emal
+6.30 c                   parm                    p_ema2
+6.30 c                   parm                    p_ema3
+6.20 c                   parm                    p_emne
+6.20 c                   parm                    p_txt1
+6.20 c                   parm                    p_txt2
+6.20 c                   parm                    p_txt3
+6.20 c                   parm                    p_txt4
+6.20 c                   parm                    p_pers
+6.30 c                   parm                    p_kopi
+6.20 c                   parm                    p_inif
+6.20 c                   parm                    p_in03
+6.20  * Scann av strenger
+6.20  *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     p_txt1        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_ptxt1
+6.20  *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     p_txt2        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_ptxt2
+6.20  *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     p_txt3        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_ptxt3
+6.20  *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     p_txt4        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_ptxt4
+6.20  *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     p_pers        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_ppers
+6.20  *
+6.20 c                   eval      w_mtxt = %trim(w_ptxt1) + crlf +
+6.20 c                                      %trim(w_ptxt2) + crlf +
+6.20 c                                      %trim(w_ptxt3) + crlf +
+6.20 c                                      %trim(w_ptxt4) + crlf +
+6.20 c                                      %trim(w_ppers)
+6.20  *
+6.30 c                   if        p_kopi = *blanks
+6.30 c                   eval      p_kopi = d_emal
+6.20 c                   endif
+6.20  *
+6.20 c                   if        p_in03 = *off
+6.20  *
+6.20  /Free
+6.20       // Skriv mailinformasjon
+6.30           WrtSection('MailCommandStart');
+6.30       //  UpdHTMLVar('Receivers':           p_emal);
+6.30           if %Trim(p_emal)<> *blanks;
+6.30           UpdHTMLVar('Receivers':           p_emal);
+6.30           WrtSection('MailReceiver');
+6.30           endif;
+6.30           if %Trim(p_ema2)<> *blanks;
+6.30           UpdHTMLVar('Receivers':           p_ema2);
+6.30           WrtSection('MailReceiver');
+6.30           endif;
+6.30           if %Trim(p_ema3)<> *blanks;
+6.30           UpdHTMLVar('Receivers':           p_ema3);
+6.30           WrtSection('MailReceiver');
+6.30           endif;
+6.20           UpdHTMLVar('CC':                     ' ');
+6.30           UpdHTMLVar('BCC':                 p_kopi);
+6.30           UpdHTMLVar('Sender':              p_kopi);
+6.20           UpdHTMLVar('Subject':             p_emne);
+6.20           UpdHTMLVar('Message':             w_mtxt);
+6.20           UpdHTMLVar('SMTPServer':          p_serv);
+6.20           UPDHTMLVar('SMTPUser':               ' ');
+6.20           UPDHTMLVar('SMTPPw':                 ' ');
+6.30       //  WrtSection('MailCommand');
+6.30           WrtSection('MailCommandEnd');
+6.20  /End-free
+6.20 c                   endif
+6.20 c                   endif
+6.20  * Vi må oversette aktuelle tekster til "xml" tegn - Firma
+6.20 c                   eval      w_1fnav = *blank
+6.20 c                   eval      w_1fad1 = *blank
+6.20 c                   eval      w_1fad2 = *blank
+6.20 c                   eval      w_1fste = *blank
+6.20 c                   eval      w_1navn = *blank
+6.20 c                   eval      w_1adr1 = *blank
+6.20 c                   eval      w_1adr2 = *blank
+6.20 c                   eval      w_1sted = *blank
+6.20 c                   eval      w_2mnav = *blank
+6.20 c                   eval      w_2mad1 = *blank
+6.20 c                   eval      w_2mad2 = *blank
+6.20 c                   eval      w_2mste = *blank
+6.20 c                   eval      w_2lnav = *blank
+6.20 c                   eval      w_2lad1 = *blank
+6.20 c                   eval      w_2lad2 = *blank
+6.20 c                   eval      w_2lste = *blank
+      *
+      * Vi må oversette aktuelle tekster til "xml" tegn - fakturautsender
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1fnav        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_1fnav
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1fad1        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_1fad1
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1fad2        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_1fad2
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1fste        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_1fste
+      *
+      * Vi må oversette aktuelle tekster til "xml" tegn - fakturamottaker
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1navn        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_1navn
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1adr1        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_1adr1
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1adr2        P_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_1adr2
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1sted        P_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_1sted
+      *
+      * Vi må oversette aktuelle tekster til "xml" tegn - varemottaker
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1mnav        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_2mnav
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1mad1        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_2mad1
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1mad2        P_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_2mad2
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1mste        P_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_2mste
+      *
+      * Vi må oversette aktuelle tekster til "xml" tegn - leverandør
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1lnav        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_2lnav
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1lad1        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_2lad1
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1lad2        P_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_2lad2
+      *
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1lste        P_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_2lste
+      *
+      * Kundens ref
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1kref        P_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_1dref
+      * Vår ref
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     a1lref        P_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_1vref
+      * Prosjektnummer
+6.34 c                   eval      p_str_in = *blank
+6.34 c                   eval      p_lr = '0'
+6.34 c                   movel     a1proj        P_str_in
+6.34 c                   call      'AP613R'
+6.34 c                   parm                    p_str_in
+6.34 c                   parm                    p_str_out
+6.34 c                   parm                    p_lr
+6.34 c                   movel     p_str_out     w_proj
+6.20  *
+6.20 c                   if        giodat <> *loval
+6.20 c     *dmy          move      giodat        w_tdat
+6.20 c                   endif
+6.20 c     *hms          move      giotim        w_time
+      * Bestillingsreferanse
+6.26 c*9.03              eval      p_str_in = *blank
+6.26 c*9.03              eval      p_lr = '0'
+6.26 c*9.03              movel     a1besn        P_str_in
+6.26 c*9.03              call      'AP613R'
+6.26 c*9.03              parm                    p_str_in
+6.26 c*9.03              parm                    p_str_out
+6.26 c*9.03              parm                    p_lr
+6.26 c*9.03              movel     p_str_out     w_besn
+6.20  *
+6.20  /Free
+6.20
+6.20           UpdHTMLVar('Reporttext':            a1txt1);
+6.20       // Skriv faktura mottaker
+6.20           UpdHTMLVar('Companyname':          w_1navn);
+6.20           UpdHTMLVar('Companyadress1':       w_1adr1);
+6.20           UpdHTMLVar('Companyadress2':       w_1adr2);
+6.20           UpdHTMLVar('Companypostalcode':        ' ');
+6.20           UpdHTMLVar('Companypostoffice':     a1sted);
+6.20           UpdHTMLVar('Companyphone':             ' ');
+6.20           UpdHTMLVar('Companyfax':               ' ');
+9.10           UpdHTMLVar('Companyorgno':       d_fh_forg);
+6.20           UpdHTMLVar('Companygiro':              ' ');
+9.10           UpdHTMLVar('Companyemail':   %char(d_mnum));
+6.20
+6.20           test(de) *dmy w_tdat;
+6.20           if %error;
+6.20           tmpdate = *loval;
+6.20           else;
+6.20           tmpdate = %date(w_tdat : *dmy);
+6.20           endif;
+6.20           UpdHTMLVar('Creationdate':   %char(tmpdate : *iso));
+6.20
+6.20           test(te) *hms w_time;
+6.20           if %error;
+6.20           tmptime = *loval;
+6.20           else;
+6.20           tmptime = %time(w_time : *hms);
+6.20           endif;
+6.20           UpdHTMLVar('Creationtime': %char(tmptime : *hms));
+6.20           WrtSection('Company');
+6.20
+6.20       // Skriv faktura avsender
+6.20           UpdHTMLVar('ISname':               w_1fnav);
+6.20           UpdHTMLVar('ISadress1':            w_1fad1);
+6.20           UpdHTMLVar('ISadress2':            w_1fad2);
+6.20           UpdHTMLVar('ISpostoffice':          a1fste);
+6.20           UpdHTMLVar('ISphone':                  ' ');
+9.10           UpdHTMLVar('ISorgno':     %char(d_fh_pean));
+9.10      //   UpdHTMLVar('ISorgno':                  ' ');
+9.01      //   UpdHTMLVar('ISeanlocno':     %char(a1eanl));
+9.01           UpdHTMLVar('ISeanlocno':     %trim(w_kidn));
+6.20
+6.20       // Skriv godsmottaker
+6.20           UpdHTMLVar('GRname':               w_2mnav);
+6.20           UpdHTMLVar('GRadress1':            w_2mad1);
+6.20           UpdHTMLVar('GRadress2':            w_2mad2);
+6.20           UpdHTMLVar('GRpostoffice':          a1mste);
+9.10           UpdHTMLVar('GRphone':        %char(rkkund));
+9.10           UpdHTMLVar('GRorgno':        %char(gildor));
+6.20
+6.20       // Skriv leverandør
+6.20           UpdHTMLVar('Suppliername':         w_2lnav);
+6.20           UpdHTMLVar('Supplieradress1':      w_2lad1);
+6.20           UpdHTMLVar('Supplieradress2':      w_2lad2);
+6.20           UpdHTMLVar('Supplierpostoffice':    a1lste);
+6.20           UpdHTMLVar('Supplierphone':            ' ');
+6.20           UpdHTMLVar('Supplierorgno':            ' ');
+6.20           WrtSection('Heading');
+6.20
+6.20           test(de) *dmy a1ldat;
+6.20           if %error;
+6.20           tmpdate = *loval;
+6.20           else;
+6.20           tmpdate = %date(a1ldat : *dmy);
+6.20           endif;
+6.20           UpdHTMLVar('Deliverydate':   %char(tmpdate : *iso));
+6.20
+6.20           test(de) *dmy a1fdat;
+6.20           if %error;
+6.20           tmpdate = *loval;
+6.20           else;
+6.20           tmpdate = %date(a1fdat : *dmy);
+6.20           endif;
+6.20           UpdHTMLVar('Invoicedate':   %char(tmpdate : *iso));
+6.20
+6.20           test(de) *dmy a1forf;
+6.20           if %error;
+6.20           tmpdate = *loval;
+6.20           else;
+6.20           tmpdate = %date(a1forf : *dmy);
+6.20           endif;
+6.20           UpdHTMLVar('Duedate':   %char(tmpdate : *iso));
+6.20
+6.20       // Diverse hodeinformasjon
+9.03    //     UpdHTMLVar('Buyerorderno':   %trim(w_besn));
+9.03           UpdHTMLVar('Buyerorderno':             ' ');
+6.22    //     UpdHTMLVar('Invoiceorderno':        a1lord);
+6.22           UpdHTMLVar('Invoiceorderno':        a1fanr);
+6.20           UpdHTMLVar('Supplierorderno':       a1lvfa);
+6.34    //     UpdHTMLVar('Projectno':             a1proj);
+6.34           UpdHTMLVar('Projectno':             w_proj);
+6.20           UpdHTMLVar('Packnoteno':            a1paks);
+6.20           UpdHTMLVar('Delievryterms':         a1levb);
+6.20           UpdHTMLVar('Customerref':          w_1dref);
+6.20           UpdHTMLVar('Ourref':               w_1vref);
+6.20
+6.20           WrtSection('Headingdetails');
+6.20
+6.20  /End-free
+6.20  *
+6.20 c                   endsr
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20  * Subrutiner for XML/jasper integrasjon - Detaljer                *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20 c     xml_deta      begsr
+6.20  *
+6.20  * Vi må oversette aktuelle tekster til "xml" tegn - Varetekster
+6.20  *
+6.20 c                   eval      w_tek1 = *blank
+6.20 c                   eval      w_tek2 = *blank
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '0'
+6.20 c                   movel     d1tek1        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_tek1
+6.20  *
+6.20  * Håndtere riktig antall desimaler
+6.20  *
+6.20 c                   callp     updHTMLVar('Quantity':%char(d1anta))
+6.20 c                   callp     updHTMLVar('NoDecimals':        '2')
+6.20  *
+6.20  /Free
+6.20       // Skriv detaljer
+6.20           UpdHTMLVar('Itemno':       %char(d1vare));
+6.20           UpdHTMLVar('Text1':              w_tek1);
+6.20           UpdHTMLVar('Text2':                 ' ');
+6.20           UpdHTMLVar('Unit':                d1enh1);
+6.20           UpdHTMLVar('Vat':                   ' ');
+6.20           UpdHTMLVar('Netprice':     %char(d1pris));
+9.03     //    UpdHTMLVar('Discount':           d1rabx);
+9.03           UpdHTMLVar('Discount':              '0');
+6.20           UpdHTMLVar('Discountremark':        ' ');
+6.20           UpdHTMLVar('Totalsum':     %char(d1belp));
+6.20           UpdHTMLVar('Linetype':              ' ');
+6.20           UpdHTMLVar('Bookingno':             ' ');
+6.20           UpdHTMLVar('Discountaccounting':    ' ');
+6.20           WrtSection('Line');
+6.20
+6.20  /End-free
+6.20  *
+6.20 c                   endsr
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20  * Subrutiner for XML/jasper integrasjon - Netto                   *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20 c     xml_netto     begsr
+6.20  *
+6.20  /Free
+6.20       // Skriv nettolinje
+6.20           UpdHTMLVar('Sumnettosign':                t1sign);
+6.20           UpdHTMLVar('Sumnettotext':                t1text);
+6.20           UpdHTMLVar('Sumnettoexcvat':       %char(t1tsum));
+6.20           WrtSection('NettoLine');
+6.20
+6.20  /End-free
+6.20  *
+6.20 c                   endsr
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20  * Subrutiner for XML/jasper integrasjon - Avgifter                *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20 c     xml_charges   begsr
+6.20  *
+6.20  /Free
+6.20       // Skriv nettolinje
+6.20           UpdHTMLVar('Chargessign':                 t1sign);
+6.20           UpdHTMLVar('Chargestext':                 t1text);
+6.20           UpdHTMLVar('Chargesamount':        %char(t1tsum));
+6.20           WrtSection('ChargesLine');
+6.20
+6.20  /End-free
+6.20  *
+6.20 c                   endsr
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20  * Subrutiner for XML/jasper integrasjon - Vat linjer              *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20 c     xml_vat       begsr
+6.20  *
+6.20  /Free
+6.20
+6.20       // Skriv vatlinje
+6.20           UpdHTMLVar('VatText':                     t1text);
+6.20           UpdHTMLVar('Sumvat':               %char(t1tsum));
+6.20           WrtSection('VatLine');
+6.20
+6.20  /End-free
+6.20  *
+6.20 c                   endsr
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20  * Subrutiner for XML/jasper integrasjon - Totaler                 *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20 c     xml_totaler   begsr
+6.20  *
+6.20  /Free
+6.20       // Skriv totallinje
+6.20           UpdHTMLVar('Totaltext':                   t1text);
+6.20           UpdHTMLVar('Sumtotal':             %char(t1tsum));
+6.20           WrtSection('TotalLine');
+6.20
+6.20  /End-free
+6.20  *
+6.20 c                   endsr
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20  * Subrutiner for XML/jasper integrasjon - Slutt                   *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20 c     xml_end       begsr
+6.20  *
+6.20  * Skriv xmlfila til disk
+6.20  *
+6.20  /Free
+6.20           WrtSection('EndEDILines');
+6.20  /End-free
+6.20  *
+6.20  * Hvis denne ikke skal arkiveres, lages ikke archive tagg.
+6.20  *
+6.20 c                   if        l_arch = 1
+6.21  * Leverandørnavn
+6.21 c                   eval      p_str_in = *blank
+6.21 c                   eval      p_lr = '1'
+6.21 c                   movel     a1lnav        p_str_in
+6.21 c                   call      'AP613R'
+6.21 c                   parm                    p_str_in
+6.21 c                   parm                    p_str_out
+6.21 c                   parm                    p_lr
+6.21 c                   movel     p_str_out     w_1lnav
+6.20  * Lag tag for visning i arkivklienten
+6.20 c                   eval      w_dspl = *blank
+6.35 c                   eval      w_dspl = 'EDI Faktura: '+ %trim(a1fanr) +
+6.20 c                             ' Lev: ' +
+6.20 c                             %trim(w_1lnav) + '  Beløp ' + %char(t1tsum)
+6.20 c                   eval      p_str_in = *blank
+6.20 c                   eval      p_lr = '1'
+6.20 c                   movel     w_dspl        p_str_in
+6.20 c                   call      'AP613R'
+6.20 c                   parm                    p_str_in
+6.20 c                   parm                    p_str_out
+6.20 c                   parm                    p_lr
+6.20 c                   movel     p_str_out     w_dspl
+6.20  *
+6.23  * Referansetagg
+6.20  *
+6.23 c                   eval      w_refn = *blank
+6.24 c*                  eval      w_refn = 'EF-' + a1fanr +
+6.24 c*                            '-'+ %char(%subdt(w_date:*years))
+9.09 c*                  eval      w_refn = %char(%subdt(w_date:*years)) +
+9.09 c*                            %char(d_biln)
+9.09 c                   eval      w_refn = %char(d_biln)
+6.20  /Free
+6.20       // Skriv metattags
+6.20
+6.23           UpdHTMLVar('Refno':          %trim(w_refn));
+6.20           UpdHTMLVar('Displaytag':     %trim(w_dspl));
+6.20           WrtSection('ArchiveCommandStart');
+6.20
+6.20           UpdHTMLVar('Metavalue':             a1fanr);
+6.20           UpdHTMLVar('Metakey':      'FAKTURANUMMER');
+6.20           WrtSection('MetaTag');
+6.20
+6.20           UpdHTMLVar('Metavalue':            w_1navn);
+6.20           UpdHTMLVar('Metakey':          'KUNDENAVN');
+6.20           WrtSection('MetaTag');
+6.20
+6.20           UpdHTMLVar('Metavalue':      %char(t1tsum));
+6.20           UpdHTMLVar('Metakey':              'BELOP');
+6.20           WrtSection('MetaTag');
+6.21
+6.21           UpdHTMLVar('Metavalue':             w_1lnav);
+6.21           UpdHTMLVar('Metakey':      'LEVERANDØRNAVN');
+6.21           WrtSection('MetaTag');
+6.21
+9.03    //     UpdHTMLVar('Metavalue':       %trim(a1lvfa));
+9.03    //     UpdHTMLVar('Metakey':        'LEVFAKTURANR');
+9.03    //     WrtSection('MetaTag');
+6.21
+6.21           UpdHTMLVar('Metavalue':       %char(a1fdat));
+6.21           UpdHTMLVar('Metakey':         'FAKTURADATO');
+6.21           WrtSection('MetaTag');
+6.20
+6.20           UpdHTMLVar('Metavalue':             l_user);
+6.20           UpdHTMLVar('Metakey':             'BRUKER');
+6.20           WrtSection('MetaTag');
+6.20
+6.20           UpdHTMLVar('Metavalue': %char(w_date:*iso));
+6.20           UpdHTMLVar('Metakey':               'DATO');
+6.20           WrtSection('MetaTag');
+6.20
+6.20           UpdHTMLVar('Metavalue':             a1txt1);
+6.20           UpdHTMLVar('Metakey':         'RUTINETEKST');
+6.20           WrtSection('MetaTag');
+6.23
+6.23           UpdHTMLVar('Metavalue':             l_ruti);
+6.23           UpdHTMLVar('Metakey':             'RUTINE');
+6.23           WrtSection('MetaTag');
+6.23
+6.23           UpdHTMLVar('Metavalue':             l_wsid);
+6.23           UpdHTMLVar('Metakey':             'SKJERM');
+6.23           WrtSection('MetaTag');
+6.23
+6.23           UpdHTMLVar('Metavalue':      %char(l_firm));
+6.23           UpdHTMLVar('Metakey':              'FIRMA');
+6.23           WrtSection('MetaTag');
+
+9.07           UpdHTMLVar('Metavalue':      %char(d_biln));
+9.07           UpdHTMLVar('Metakey':       'BILAGSNUMMER');
+9.07           WrtSection('MetaTag');
+
+6.20           WrtSection('ArchiveCommandEnd');
+6.20  /End-free
+6.20  *
+6.20 c                   endif
+6.20  *
+6.20  /Free
+6.20           WrtSection('Footer');
+6.20  /End-free
+6.20  * Skriv xml fila til disk
+9.11 c                   if        %trim(d_fifo) = *blanks
+6.20 c                   eval      XML_Output = XML_path + l_filg +'/'+
+6.20 c                             'EDIFakt_'+ %trim(w_jkey) + '.xml'
+9.11 c                   else
+9.11 c                   eval      XML_Output = %trim(d_fifo) +'/'+
+9.11 c                             'EDIFakt_'+ %trim(w_jkey) + '.xml'
+9.11 c                   endif
+6.20  *
+6.20 c                   callp     WrtHtmlToStmf(XML_Output: 819)
+6.31  * Skriver til datakø for å aktivere sniffer, hvis dataq er aktiv
+6.31 c                   if        d_dtaq = '1'
+6.31 c                   eval      p_xmlf = xml_output
+6.31 c                   eval      p_filg = 'ADB'+l_filg
+9.12 c**                 call      'AP629C'
+9.12 c                   call      'AP629C2'
+6.31 c                   parm                    p_filg
+6.31 c                   parm                    p_xmlf
+6.31 c                   endif
+6.20  *
+6.20 c                   endsr
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20  * Subrutiner for XML/jasper integrasjon - Skjermvisning           *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.20 c     pdf_preview   begsr
+6.20  *
+6.20  * Vi kaller program for launch av PDF i browser
+6.20 c                   call      'AP621R'
+6.20 c                   parm                    w_jkey
+6.20  *
+6.20 c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    w_prec
+     c                   eval      d_prec = w_prec
+      *
+      *  Key for les av MELDINGSLINJER
+      *
+     c     gedil1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    gedil1_type
+     c                   kfld                    gedil1_mnum
+     c                   kfld                    gedil1_mlin
+      *
+      *  Key for oppslag på MELDINGSLINJER
+      *
+     c     gedilr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    gedilr_type
+     c                   kfld                    gedilr_mnum
+     c                   kfld                    gedilr_mlin
+      *
+      * Key for les av BESTILLINGSHODE
+      *
+     c     lohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lohel1_numm
+     c                   kfld                    lohel1_suff
+      *
+      * Key for les av BESTILLINGSLINJE
+      *
+     c     lodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lodtl1_numm
+     c                   kfld                    lodtl1_suff
+      *
+      * Key for les av vare
+      *
+     c     vvarl3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl3_nobb
+      *
+      * Key for les av FIRMA
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for les av FORMULAR
+      *
+     c     aforl1_key    klist
+     c                   kfld                    aforl1_ruti
+9.10  *
+9.10  * Key for les av kunderegister
+9.10  *
+9.10 c     rkunl5_key    klist
+9.10 c                   kfld                    w_firm
+9.10 c                   kfld                    rkunl5_eank
+      *
+      * Hente inn rutine informasjon
+      *
+     c                   eval      w_firm = d_firm
+     c                   eval      aforl1_ruti = l_ruti
+      *
+     c     aforl1_key    chain     aforl1r
+     c                   if        %found
+     c                   eval      a1txt1 = aftxt1
+     c                   endif
+      *
+      * Hent firma-opplysninger dersom de skal printes ut
+      *
+     c     afirl1_key    chain     afirl1r
+     c                   if        %found
+     c                   eval      a1navn = aafnav
+     c                   eval      a1adr1 = aafad1
+     c                   eval      a1adr2 = aafad2
+     c                   eval      a1sted = aafste
+     c                   endif
+      *
+6.20 c**                 open      li606p
+      *
+      * Sjekk om vi skal bruke JASPER og XML generering av dokumenter
+6.20 c                   if        l_poff = '1'
+6.20 c                   eval      b_pdfp = *off
+6.20 c                   eval      b_topt = *off
+6.20 c                   eval      b_bott = *off
+6.20 c                   eval      w_pdf = 0
+6.20 c                   eval      w_pdf_ds = *blanks
+6.20 c                   eval      w_ruti = l_ruti
+6.20  *
+6.20 c                   call      'AP609R'
+6.20 c                   parm                    w_ruti
+6.20 c                   parm                    w_pdf
+6.20 c                   parm                    w_pdf_ds
+6.20 c                   eval      d_pdf_ds = w_pdf_ds
+6.20  * Vi skal kjøre med jasper
+6.20 c                   if        w_pdf = 1 and
+6.20 c                             %trim(d_xmlm) <> *blanks
+6.20 c                   eval      p_mail = '0'
+6.20 c                   eval      w_jkey = l_bach
+6.20  *
+6.20  * Hent inn xml templaten
+6.20  *
+6.20 c                   callp     GetHTMLIFS(d_xmlm :'<AS400>')
+6.32 c                   callp     ClrHtmlBuffer
+6.20  *
+6.20  * Finn hvor xml'en skal legges
+6.20  *
+6.20 c                   eval      XML_path = *blanks
+6.20 c                   eval      XML_path = %trim(d_path)
+6.20  *
+6.20  * Finn path til logo
+6.20  *
+6.20 c                   eval      jasper_logo = *blanks
+6.20 c                   eval      jasper_logo = %trim(d_logo)
+6.20  *
+6.20  * Jobbnummer er allerede generert i AP600R. Overføres i *lda
+6.20  *
+6.20 c                   time                    w_date
+6.20  * Vi logger ar utskriftprogrammet har startet
+6.20 c                   eval      w_jstat = 10
+6.20 c                   eval      w_jtext = 'Utskrift av EDI faktura har +
+6.20 c                                       startet'
+6.20 c                   call      'AB705R'
+6.20 c                   parm                    l_bach
+6.20 c                   parm                    w_jstat
+6.20 c                   parm                    w_jtext
+6.20  * Vi skriver xml for miljø formater
+6.20 c                   exsr      xml_envm
+6.20 c                   eval      b_pdfp = *on
+6.20  *
+6.20 c                   endif
+6.20  * Hvis et eller annet er galt med parametrene, logges og kjør uten PROA
+6.20 c                   if        %trim(d_xmlm) = *blanks
+6.20 c                   eval      b_pdfp = *off
+6.20  * Vi logger at noe er galt med parametrene
+6.20 c                   eval      w_jstat = 20
+6.20 c                   eval      w_jtext = 'Finner ikke path til xml !!! +
+6.20 c                             Sjekk rutineregister !'
+6.20 c                   call      'AB705R'
+6.20 c                   parm                    l_bach
+6.20 c                   parm                    w_jstat
+6.20 c                   parm                    w_jtext
+6.20 c                   endif
+6.20 c                   else
+6.20 c                   eval      b_pdfp = *off
+6.20 c                   endif
+      *
+6.20 c                   if        l_bach = *blank
+6.20 c                   eval      b_pdfp = *off
+6.20 c                   endif
+      *
+     c                   endsr
