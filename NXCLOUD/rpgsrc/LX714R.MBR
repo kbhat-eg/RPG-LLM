@@ -1,0 +1,301 @@
+     h option(*nodebugio : *srcstmt) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  System  . . . . : ASLAGR
+      *  Program . . . . : LX714R   (kalles fra LX713R)
+      *  Beskrivelse . . : Oppdatering av informasjon på lagerregister
+      *                    fra ekstern fil. L -> S
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Spesialversjon. : Excel-fil med lagerinfo
+      *  Tilpasset for . :
+      *
+      *  Referanse  Dato   Endringsbeskrivelse                     Sign.
+      * --------- ------  --------------------------------------------------
+      *           181119  Nytt program                             BKV
+7.01  *           271119  Liten justering                          bof
+7.02  *           140120  Takle at det ikke ligger ; til slutt     bof
+7.03  *           140120  Takle varenr på < 8 pos, skal høyrest.   bof
+8.01  *           170323  Krav om ikke bestilling/ordre/,beh<= 0   bof
+      *
+      *
+     flwexpf    if   e           k disk
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+8.01 fvlagl1    if   e           k disk    rename(vlagpfr:vlagl1r)
+     fvlaglu    uf a e           k disk    rename(vlagpfr:vlaglur)
+      *
+      *  Datastruktur - excel-fil
+      *
+     d                 ds
+     d d_ex                         512
+     d  d_fill                        2    overlay(d_ex:1)
+     d  d_lage                        2    overlay(d_ex:6)
+     d    d_lagen                     2  0 overlay(d_lage:1)
+     d  d_vare                        8    overlay(d_ex:28)
+      *
+      *
+      * Datastruktur for lageroppdatering
+      *
+     d                 ds
+     d hlrec                        128
+     d  hlvare                       15    overlay(hlrec)
+     d  hllage                        2  0 overlay(hlrec:16)
+     d  hldato                         d   overlay(hlrec:18) datfmt(*iso)
+     d  hltime                         t   overlay(hlrec:28) timfmt(*iso)
+     d  hlotyp                        2    overlay(hlrec:36)
+     d  hlltyp                        2    overlay(hlrec:38)
+     d  hlanta                       11  3 overlay(hlrec:40)
+     d  hlkopr                        9  2 overlay(hlrec:51)
+     d  hlrefr                       20    overlay(hlrec:60)
+     d  hlsyst                        1    overlay(hlrec:80)
+     d  hlaltk                        2    overlay(hlrec:81)
+     d  hlrest                        1    overlay(hlrec:83)
+     d  hltype                        1    overlay(hlrec:84)
+     d  hlenhe                        3    overlay(hlrec:85)
+     d  hlinlr                        1    overlay(hlrec:88)
+     d  hllety                        1    overlay(hlrec:89)
+     d  hlonum                        8  0 overlay(hlrec:90)
+     d  hlolin                        4  0 overlay(hlrec:98)
+      *
+      *  UDS Local Data Area
+      *
+     d                uds
+     d l_firm                944    946  0
+     d l_user                911    920
+      *
+      *  Definering av variable i nøkler
+      *
+     d vvarl1_vare     s                   like(vvvare)
+     d vlaglu_lage     s                   like(vllage)
+     d vlaglu_vare     s                   like(vlvare)
+8.01 d vlagl1_vare     s                   like(vlvare)
+8.01 d vlagl1_lage     s                   like(vllage)
+      *
+      *  Definering av variable
+      *
+     d s_vtyp          s                   like(vlvtyp)
+     d w_firm          s                   like(vvfirm)
+8.01 d w_lage          s                   like(vllage)
+     d w_posi          s              2  0
+     d len             s              3  0
+     d st              s              3  0
+     d w_2x            s              2
+7.03 d w_8x            s              8
+     d w_stat          s              1
+      *
+     d b_ok            s              1    inz(*off)
+      *
+     d c_null          s             15    inz('000000000000000')
+     d digits          c                   ' 0123456789'
+      *
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Lese ekstern fil for å hente neste vare for behandling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+      *  Lese file
+      *
+     c                   read      lwexpf                                 90
+     c                   dow       *in90 = *off
+     c                   exsr      utled_ds
+      *
+      *  Sjekk at ikke heading-rad er lest inn
+      *
+     c                   if        b_ok = *on
+     c                   exsr      behand
+     c                   endif
+      *
+     c
+      *
+     c                   read      lwexpf                                 90
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xslutt        tag
+      *
+     c                   eval      *inlr = *on
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Oppdatering av LAGER-informasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behand        begsr
+      *
+     c     ' ':'0'       xlate     d_vare        d_vare
+      *
+     c                   eval      vvarl1_vare = d_vare
+     c     vvarl1_key    chain     vvarl1r                            92
+     c                   if        %found(vvarl1)
+8.01  * sjekk om i ordre / i best = 0 , beh <= 0
+8.01 c                   eval      vlagl1_vare = vvvare
+8.01 c                   eval      vlagl1_lage = w_lage
+8.01 c     vlagl1_key    chain     vlagl1
+8.01 c                   if        %found(vlagl1) and
+8.01 c                             vlvtyp = 'L' and
+8.01 c                             vloord = 0 and
+8.01 c                             vlbbes = 0 and
+8.01 c                             vlbehl <= 0
+      *
+     c                   clear                   vlaglur
+     c                   eval      vlaglu_vare = vvvare
+8.01 c                   eval      vlaglu_lage = w_lage
+     c     vlaglu_key    chain     vlaglur
+      *
+     c                   if        %found(vlaglu) and vlvtyp = 'L'
+     c                   eval      vlbbes = 0
+     c                   eval      vloord = 0
+     c                   eval      vlpakk = 0
+     c                   eval      vlinng = 0
+     c                   eval      vlutta = 0
+     c                   eval      vltell = 0
+     c                   eval      vlsalg = 0
+     c                   eval      vlmini = 0
+     c                   eval      vlminl = 0
+     c                   eval      vlmaks = 0
+     c                   eval      vlltid = 0
+     c                   eval      vlbpun = 0
+     c                   eval      vlbmin = 0
+     c                   eval      vlbmen = 0
+     c                   eval      vlsikl = 0
+      *
+     c                   time                    vledat
+     c                   time                    vletim
+8.01 c                   time                    vlfeda
+8.01 c                   time                    vlfeti
+     c                   eval      vleusr = l_user
+8.01 c                   eval      vlfeus = l_user
+     c                   update    vlaglur
+     c                   exsr      oppd_lager
+     c                   else
+     c                   if        %found(vlaglu)
+     c                   unlock    vlaglu
+     c                   endif
+     c                   endif
+     c
+8.01 c                   endif
+      *
+     c                   endif
+      *
+      *
+     c     behand_ut     endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utleding av datastruktur
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     utled_ds      begsr
+      *
+     c                   eval      b_ok = *off
+     c     '"':' '       xlate     exclin        exclin
+      *
+      * vare    A
+      *
+     c                   eval      w_posi = %scan(';':exclin)
+     c                   eval      d_vare = %trim(%subst(exclin:1:w_posi-1))
+     c                   if        d_vare = *blank
+     c                   leavesr
+     c                   endif
+     c                   if        %check(digits : d_vare) <>0
+     c                   leavesr
+     c                   endif
+8.01 c                   eval      len    = %len(%trim(d_vare))
+7.03 c                   eval      st = 9 - len
+7.03 c                   eval      w_8x  = *blank
+7.03 c                   eval      %subst(w_8x:st:len) = %subst(d_vare:1:len)
+7.03 c                   eval      d_vare = w_8x
+7.03 c                   eval      d_vare = %xlate(' ':'0':d_vare)
+      *
+      * lage         B
+      *
+     c                   eval      exclin = %subst(exclin:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':exclin)
+7.02 c                   if        w_posi > 0
+     c                   eval      d_lage = %trim(%subst(exclin:1:w_posi-1))
+7.02 c                   else
+7.02 c                   eval      d_lage = %trim(%subst(exclin:1:2))
+7.02 c                   endif
+     c                   if        d_lage = *blank
+     c                   leavesr
+     c                   endif
+8.01 c                   eval      w_lage = %dec(d_lage:2:0)
+
+     c                   eval      b_ok = *on
+      *
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å hente å oppdatere lager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppd_lager    begsr
+      *
+     c                   move      vlvare        hlvare
+     c                   move      vllage        hllage
+     c                   move      vlenhl        hlenhe
+     c                   time                    hldato
+     c                   time                    hltime
+     c                   eval      hlotyp  = *blank
+     c                   eval      hlltyp  = *blank
+      *
+     c                   eval      hlanta = 0
+     c                   eval      hlkopr = 0
+      *
+     c                   eval      hlrefr = 'Vtyp endret L--> S '
+     c                   move      'L'           hlsyst
+     c                   eval      hlaltk = 'J '
+     c                   eval      hlrest = *blank
+     c                   eval      hlonum = 0
+     c                   eval      hlolin = 0
+      *
+      *
+     c                   eval      w_stat = *blank
+      *
+     c                   call      'VL001R'
+     c                   parm                    w_stat
+     c                   parm                    hlrec
+      *
+     c                   eval      vlaglu_vare = vlvare
+7.01 c                   eval      vlaglu_lage = vllage
+     c     vlaglu_key    chain     vlaglur                            93
+     c                   if        %found(vlaglu)
+     c                   eval      vlvtyp = 'S'
+     c                   update    vlaglur
+     c                   endif
+      *
+     c     end_oppd      endsr
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Key for les av VARE
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      *  Key for oppdatering av LAGER
+      *
+     c     vlaglu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlaglu_vare
+     c                   kfld                    vlaglu_lage
+8.01  *  Key for les av LAGER
+8.01  *
+8.01 c     vlagl1_key    klist
+8.01 c                   kfld                    w_firm
+8.01 c                   kfld                    vlagl1_vare
+8.01 c                   kfld                    vlagl1_lage
+      *
+      *  Legge inn opplysninger i nøklene
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   endsr
+

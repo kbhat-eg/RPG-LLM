@@ -1,0 +1,856 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : MS100R
+      * Beskrivelse . . : Syklisk telling parameter
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       251007 bø   Nytt program
+5.70  *       171208 bof  Pristype på lager/ABC-kode på lager
+      * 6.10  220609 BSA  Oppdatert med sporingsinformasjon
+6.11  * 6.10  110610 bof  Tatt med lager i sql-utvalg
+6.20  * 6.20  031215 bsa  Må alltid forhøye, hvis ikke kan en registrere
+6.20  *                   at varer aldri blir plukket.
+6.3q  *       260515 bof  Datoformat sql
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fmstpl1    if   e           k disk    rename(mstppfr:mstpl1r)
+     fmstplr    if   e           k disk    rename(mstppfr:mstplrr)
+     fmstplu    uf a e           k disk    rename(mstppfr:mstplur)
+     fvlagl1    if   e           k disk    rename(vlagpfr:vlagl1r)
+     flusrl1    if   e           k disk    rename(lusrpfr:lusrl1r)
+      *
+     fms100d    cf   e             workstn
+      *
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d mstpl1_aar      s                   like(msaar)
+     d mstpl1_lage     s                   like(mslage)
+     d mstplr_aar      s                   like(msaar)
+     d mstplr_lage     s                   like(mslage)
+     d mstplu_aar      s                   like(msaar)
+     d mstplu_lage     s                   like(mslage)
+     d vlagl1_vare     s                   like(vlvare)
+     d vlagl1_lage     s                   like(vllage)
+     d lusrl1_user     s                   like(lbuser)
+      *
+      * Definering av variable
+      *
+     d b_oppr          s              1    inz(*off)
+      *
+     d w_kabc          s              2
+     d w_antv          s              6  0
+     d w_axaf          s              6  0
+     d w_ayaf          s              6  0
+     d w_azaf          s              6  0
+     d w_bxaf          s              6  0
+     d w_byaf          s              6  0
+     d w_bzaf          s              6  0
+     d w_cxaf          s              6  0
+     d w_cyaf          s              6  0
+     d w_czaf          s              6  0
+     d w_antu          s              6  0
+     d w_tott          s              6  0
+     d w_antd          s              6  2
+     d w_hitt          s              6  0
+     d w_firm          s                   like(msfirm)
+     d w_dato          s               d   datfmt(*iso)
+     d s_antt          s                   like(msantt)
+     d s_antv          s                   like(msantv)
+     d s_axag          s                   like(msaxag)
+     d s_ayag          s                   like(msaxag)
+     d s_azag          s                   like(msaxag)
+     d s_bxag          s                   like(msaxag)
+     d s_byag          s                   like(msaxag)
+     d s_bzag          s                   like(msaxag)
+     d s_cxag          s                   like(msaxag)
+     d s_cyag          s                   like(msaxag)
+     d s_czag          s                   like(msaxag)
+      *
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * C1BLD  - C1 Skjermbilde for å administrere syklisk telling
+      * C2BLD  - C2 Skjermbilde for å starte syklisk telling
+      *
+      *
+6.3q C/Exec SQL
+6.3q C+  Set Option DatFmt=*ISO
+6.3q C/End-Exec
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  A1 Sjekker om denne brukeren er autrorisert
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Henter opplysninger fra bruker register for lager
+      *
+     c                   eval      lusrl1_user = l_user
+     c     lusrl1_key    chain     lusrl1
+      *
+      *  Sjekk om denne brukeren kan administrere syklisk telling
+      *
+     c                   if        not %found or
+     c                             lbtans < 2
+     c                   exfmt     a1win
+     c                   goto      avslutt
+     c                   endif
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Parameter verdier
+      *
+     c     b2tag0        tag
+      *
+     c                   eval      *in31 = *on
+     c                   exfmt     c1bld
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   eval      *in31 = *off
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   exsr      init_felter
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      xc1bld
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c     c1tag0        tag
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+      *
+     c                   eval      mstplr_aar  = c1aar
+     c                   eval      mstplr_lage = c1lage
+     c     mstplr_key    chain     mstplr
+      *
+     c                   if        %found
+     c                   eval      c1antt = msantt
+     c                   eval      s_antt = msantt
+     c                   eval      c1antv = msantv
+     c                   eval      s_antv = msantv
+     c                   eval      c1axaf = w_axaf
+     c                   eval      c1axag = msaxag
+     c                   eval      c1ayaf = w_ayaf
+     c                   eval      c1ayag = msayag
+     c                   eval      c1azaf = w_azaf
+     c                   eval      c1azag = msazag
+     c                   eval      c1bxaf = w_bxaf
+     c                   eval      c1bxag = msbxag
+     c                   eval      c1byaf = w_byaf
+     c                   eval      c1byag = msbyag
+     c                   eval      c1bzaf = w_bzaf
+     c                   eval      c1bzag = msbzag
+     c                   eval      c1cxaf = w_cxaf
+     c                   eval      c1cxag = mscxag
+     c                   eval      c1cyaf = w_cyaf
+     c                   eval      c1cyag = mscyag
+     c                   eval      c1czaf = w_czaf
+     c                   eval      c1czag = msczag
+     c                   eval      c1antu = w_antu
+     c     *dmy          move      msodat        c1odat
+     c     *dmy          move      msedat        c1edat
+     c                   eval      c1eusr = msuser
+     c                   else
+     c                   eval      c1axaf = w_axaf
+     c                   eval      c1axag = 0
+     c                   eval      c1axdd = 0
+     c                   eval      c1ayaf = w_ayaf
+     c                   eval      c1ayag = 0
+     c                   eval      c1aydd = 0
+     c                   eval      c1azaf = w_azaf
+     c                   eval      c1azag = 0
+     c                   eval      c1azdd = 0
+     c                   eval      c1bxaf = w_bxaf
+     c                   eval      c1bxag = 0
+     c                   eval      c1bxdd = 0
+     c                   eval      c1byaf = w_byaf
+     c                   eval      c1byag = 0
+     c                   eval      c1bydd = 0
+     c                   eval      c1bzaf = w_bzaf
+     c                   eval      c1bzag = 0
+     c                   eval      c1bzdd = 0
+     c                   eval      c1czaf = w_czaf
+     c                   eval      c1czag = 0
+     c                   eval      c1czdd = 0
+     c                   eval      c1cxaf = w_cxaf
+     c                   eval      c1cxag = 0
+     c                   eval      c1cxdd = 0
+     c                   eval      c1cyaf = w_cyaf
+     c                   eval      c1cyag = 0
+     c                   eval      c1cydd = 0
+     c                   eval      c1czaf = w_czaf
+     c                   eval      c1czag = 0
+     c                   eval      c1czdd = 0
+     c                   eval      c1antt = 0
+     c                   eval      c1antu = w_antu
+     c                   eval      c1odat = 0
+     c                   eval      c1edat = 0
+     c                   eval      c1eusr = msuser
+     c                   endif
+     c                   eval      s_axag = c1axag
+     c                   eval      s_ayag = c1ayag
+     c                   eval      s_azag = c1azag
+     c                   eval      s_bxag = c1bxag
+     c                   eval      s_byag = c1byag
+     c                   eval      s_bzag = c1bzag
+     c                   eval      s_cxag = c1cxag
+     c                   eval      s_cyag = c1cyag
+     c                   eval      s_czag = c1czag
+      *
+     c                   exsr      finn_ant_v_dd
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+     c                   select
+     c                   when      *inkc or *inkl or *in30
+     c                   goto      end_c1bld
+     c                   when      *inkd
+     c                   exsr      tel_stat
+     c                   exsr      init_felter
+     c                   goto      c1taga
+     c                   when      *inkg
+     c                   call      'MS101R  '
+     c                   parm                    c1lage
+     c                   exsr      init_felter
+     c                   exsr      finn_ant_v_dd
+     c                   goto      c1taga
+     c                   when      *inki
+     c                   call      'MS103R  '
+     c                   parm                    c1lage
+     c                   parm                    c1antv
+     c                   exsr      init_felter
+     c                   goto      c1taga
+     c                   endsl
+      *
+     c                   if        c1antv <> s_antv and
+     c                             c1antt = s_antt
+     c                   eval      c1antt = 0
+     c                   endif
+      *
+     c                   if        c1antt <> s_antt or
+     c                             c1axag <> s_axag or
+     c                             c1ayag <> s_ayag or
+     c                             c1azag <> s_azag or
+     c                             c1bxag <> s_bxag or
+     c                             c1byag <> s_byag or
+     c                             c1bzag <> s_bzag or
+     c                             c1cxag <> s_cxag or
+     c                             c1cyag <> s_cyag or
+     c                             c1czag <> s_czag
+     c                   exsr      finn_ant_v_dd
+     c                   eval      s_antt = c1antt
+     c                   eval      s_antv = c1antv
+     c                   eval      s_axag = c1axag
+     c                   eval      s_ayag = c1ayag
+     c                   eval      s_azag = c1azag
+     c                   eval      s_bxag = c1bxag
+     c                   eval      s_byag = c1byag
+     c                   eval      s_bzag = c1bzag
+     c                   eval      s_cxag = c1cxag
+     c                   eval      s_cyag = c1cyag
+     c                   eval      s_czag = c1czag
+     c                   goto      c1taga
+     c                   endif
+      *
+      * Oppdatering
+      *
+     c                   clear                   mstplur
+      *
+     c                   eval      mstplu_aar  = c1aar
+     c                   eval      mstplu_lage = c1lage
+     c     mstplu_key    chain     mstplur
+     c                   eval      msaxaf = c1axaf
+     c                   eval      msaxag = c1axag
+     c                   eval      msayaf = c1ayaf
+     c                   eval      msayag = c1ayag
+     c                   eval      msazaf = c1azaf
+     c                   eval      msazag = c1azag
+     c                   eval      msbxaf = c1bxaf
+     c                   eval      msbxag = c1bxag
+     c                   eval      msbyaf = c1byaf
+     c                   eval      msbyag = c1byag
+     c                   eval      msbzaf = c1bzaf
+     c                   eval      msbzag = c1bzag
+     c                   eval      msczaf = c1czaf
+     c                   eval      msczag = c1czag
+     c                   eval      mscxaf = c1cxaf
+     c                   eval      mscxag = c1cxag
+     c                   eval      mscyaf = c1cyaf
+     c                   eval      mscyag = c1cyag
+     c                   eval      msczaf = c1czaf
+     c                   eval      msczag = c1czag
+     c                   eval      msantt = c1antt
+     c                   eval      msantv = c1antv
+      *
+     c                   time                    msedat
+     c                   time                    msetim
+     c                   eval      msuser = l_user
+      *
+     c                   if        %found
+6.10 c                   time                    msedat
+6.10 c                   time                    msetim
+6.10 c                   eval      mseusr = l_user
+     c                   update    mstplur
+     c                   else
+     c                   eval      msfirm = w_firm
+     c                   eval      mslage = c1lage
+     c                   eval      msaar  = c1aar
+     c                   time                    msodat
+6.10 c                   time                    msotim
+6.10 c                   eval      msuser = l_user
+6.10 c                   time                    msedat
+6.10 c                   time                    msetim
+6.10 c                   eval      mseusr = l_user
+     c                   write     mstplur
+     c                   endif
+      *
+     c                   goto      c1taga
+      *
+     c     end_c1bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for hente verdier til bildet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     init_felter   begsr
+      *
+      *
+     c/exec sql
+     c+ declare sok1 cursor for
+     c+ select count(*) as w_axaf
+     c+ from   vlagpf
+     c+ where  vltabc  = 'AX' and
+     c+        vlfirm  = :w_firm and
+6.11 c+        vllage = :c1lage and
+     c+        vlvtyp  = 'L'
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok1
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok1
+     c+ into  :w_axaf
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok1
+     c/end-exec
+      *
+      *
+     c/exec sql
+     c+ declare sok2 cursor for
+     c+ select count(*) asw_ayaf
+     c+ from   vlagpf
+     c+ where  vltabc  = 'AY' and
+     c+        vlfirm  = :w_firm and
+6.11 c+        vllage = :c1lage and
+     c+        vlvtyp  = 'L'
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok2
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok2
+     c+ into  :w_ayaf
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok2
+     c/end-exec
+      *
+     c/exec sql
+     c+ declare sok3 cursor for
+     c+ select count(*) as w_azaf
+     c+ from   vlagpf
+     c+ where  vltabc  = 'AZ' and
+     c+        vlfirm  = :w_firm and
+6.11 c+        vllage = :c1lage and
+     c+        vlvtyp  = 'L'
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok3
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok3
+     c+ into  :w_azaf
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok3
+     c/end-exec
+      *
+     c/exec sql
+     c+ declare sok4 cursor for
+     c+ select count(*) as w_bxaf
+     c+ from   vlagpf
+     c+ where  vltabc  = 'BX' and
+     c+        vlfirm  = :w_firm and
+6.11 c+        vllage = :c1lage and
+     c+        vlvtyp  = 'L'
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok4
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok4
+     c+ into  :w_bxaf
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok4
+     c/end-exec
+      *
+      *
+     c/exec sql
+     c+ declare sok5 cursor for
+     c+ select count(*) as w_byaf
+     c+ from   vlagpf
+     c+ where  vltabc  = 'BY' and
+     c+        vlfirm  = :w_firm and
+6.11 c+        vllage = :c1lage and
+     c+        vlvtyp  = 'L'
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok5
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok5
+     c+ into  :w_byaf
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok5
+     c/end-exec
+      *
+     c/exec sql
+     c+ declare sok6 cursor for
+     c+ select count(*) as w_bzaf
+     c+ from   vlagpf
+     c+ where  vltabc  = 'BZ' and
+     c+        vlfirm  = :w_firm and
+6.11 c+        vllage = :c1lage and
+     c+        vlvtyp  = 'L'
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok6
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok6
+     c+ into  :w_bzaf
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok6
+     c/end-exec
+      *
+      *
+     c/exec sql
+     c+ declare sok7 cursor for
+     c+ select count(*) as w_cxaf
+     c+ from   vlagpf
+     c+ where  vltabc  = 'CX' and
+     c+        vlfirm  = :w_firm and
+6.11 c+        vllage = :c1lage and
+     c+        vlvtyp  = 'L'
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok7
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok7
+     c+ into  :w_cxaf
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok7
+     c/end-exec
+      *
+     c/exec sql
+     c+ declare sok8 cursor for
+     c+ select count(*) as w_ayaf
+     c+ from   vlagpf
+     c+ where  vltabc  = 'CY' and
+     c+        vlfirm  = :w_firm and
+6.11 c+        vllage = :c1lage and
+     c+        vlvtyp  = 'L'
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok8
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok8
+     c+ into  :w_cyaf
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok8
+     c/end-exec
+      *
+     c/exec sql
+     c+ declare sok9 cursor for
+     c+ select count(*) as w_czaf
+     c+ from   vlagpf
+     c+ where  vltabc  = 'CZ' and
+     c+        vlfirm  = :w_firm and
+6.11 c+        vllage = :c1lage  and
+     c+        vlvtyp  = 'L'
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok9
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok9
+     c+ into  :w_czaf
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok9
+     c/end-exec
+      *
+     c/exec sql
+     c+ declare sok10 cursor for
+     c+ select count(*) as w_antu
+     c+ from   vlagpf
+     c+ where  vltabc  = '  ' and
+     c+        vlfirm  = :w_firm and
+6.11 c+        vllage = :c1lage  and
+     c+        vlvtyp  = 'L'
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok10
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok10
+     c+ into  :w_antu
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok10
+     c/end-exec
+      *
+     c/exec sql
+     c+ declare sok11 cursor for
+     c+ select sum(vlatel) as w_hitt
+     c+ from   vlagpf
+     c+ where  vltabc <> ' ' and
+     c+        vlfirm  = :w_firm and
+     c+        vllage = :c1lage
+     c+ for read only
+     c/end-exec
+      *
+     c/exec sql
+     c+ open sok11
+     c/end-exec
+      *
+     c/exec sql
+     c+ fetch sok11
+     c+ into  :w_hitt
+     c/end-exec
+      *
+     c/exec sql
+     c+ close sok11
+     c/end-exec
+      *
+     c                   eval      c1axaf = w_axaf
+     c                   eval      c1ayaf = w_ayaf
+     c                   eval      c1azaf = w_azaf
+     c                   eval      c1bxaf = w_bxaf
+     c                   eval      c1byaf = w_byaf
+     c                   eval      c1bzaf = w_bzaf
+     c                   eval      c1cxaf = w_cxaf
+     c                   eval      c1cyaf = w_cyaf
+     c                   eval      c1czaf = w_czaf
+     c                   eval      c1antu = w_antu
+     c                   eval      c1hitt = w_hitt
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for antalls kalkulasjoner
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     finn_ant_v_dd begsr
+      *
+      * Beregn antall opptalte vare pr. år
+      * og antall varetellinger eller antall varer pr. gang
+      *
+     c                   eval      w_tott = (c1axaf * c1axag) +
+     c                                      (c1ayaf * c1ayag) +
+     c                                      (c1azaf * c1azag) +
+     c                                      (c1bxaf * c1bxag) +
+     c                                      (c1byaf * c1byag) +
+     c                                      (c1bzaf * c1bzag) +
+     c                                      (c1cxaf * c1cxag) +
+     c                                      (c1cyaf * c1cyag) +
+     c                                      (c1czaf * c1czag)
+     c                   eval      c1tott = w_tott
+      *
+     c                   if        c1antt > 0
+     c                   eval(h)   c1antv = w_tott / c1antt
+     c                   else
+     c                   if        c1antv > 0
+     c                   eval      c1antt = w_tott / c1antv
+     c                   eval      w_antd = w_tott / c1antv
+     c                   if        w_antd > c1antt
+     c                   eval      c1antt = c1antt + 1
+     c                   endif
+     c                   else
+     c                   eval      c1antt = 0
+     c                   eval      c1antv = 0
+     c                   endif
+     c                   endif
+      *
+      * Beregner antall varer pr. abc kode i denne telling
+      *
+     c                   if        c1antt > 0
+     c                   eval(h)   c1axdd = (c1axaf * c1axag)/c1antt
+6.20 c                   if        c1axdd < 1 and
+6.20 c                             c1axag > 0
+6.20 c                   eval      c1axdd = 1
+6.20 c                   endif
+     c                   eval(h)   c1aydd = (c1ayaf * c1ayag)/c1antt
+6.20 c                   if        c1aydd < 1 and
+6.20 c                             c1ayag > 0
+6.20 c                   eval      c1aydd = 1
+6.20 c                   endif
+     c                   eval(h)   c1azdd = (c1azaf * c1azag)/c1antt
+6.20 c                   if        c1azdd < 1 and
+6.20 c                             c1azag > 0
+6.20 c                   eval      c1azdd = 1
+6.20 c                   endif
+     c                   eval(h)   c1bxdd = (c1bxaf * c1bxag)/c1antt
+6.20 c                   if        c1bxdd < 1 and
+6.20 c                             c1bxag > 0
+6.20 c                   eval      c1bxdd = 1
+6.20 c                   endif
+     c                   eval(h)   c1bydd = (c1byaf * c1byag)/c1antt
+6.20 c                   if        c1bydd < 1 and
+6.20 c                             c1byag > 0
+6.20 c                   eval      c1bydd = 1
+6.20 c                   endif
+     c                   eval(h)   c1bzdd = (c1bzaf * c1bzag)/c1antt
+6.20 c                   if        c1bzdd < 1 and
+6.20 c                             c1bzag > 0
+6.20 c                   eval      c1bzdd = 1
+6.20 c                   endif
+     c                   eval(h)   c1cxdd = (c1cxaf * c1cxag)/c1antt
+6.20 c                   if        c1cxdd < 1 and
+6.20 c                             c1cxag > 0
+6.20 c                   eval      c1cxdd = 1
+6.20 c                   endif
+     c                   eval(h)   c1cydd = (c1cyaf * c1cyag)/c1antt
+6.20 c                   if        c1cydd < 1 and
+6.20 c                             c1cyag > 0
+6.20 c                   eval      c1cydd = 1
+6.20 c                   endif
+     c                   eval(h)   c1czdd = (c1czaf * c1czag)/c1antt
+6.20 c                   if        c1czdd < 1 and
+6.20 c                             c1czag > 0
+6.20 c                   eval      c1czdd = 1
+6.20 c                   endif
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å lese telle statistikk pr. ABC-kode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     tel_stat      begsr
+      *
+     c                   select
+     c                   when      w_afld = 'C1AXAG'
+     c                   eval      w_kabc = 'AX'
+     c                   eval      w_antv = c1axag
+     c                   when      w_afld = 'C1AYAG'
+     c                   eval      w_kabc = 'AY'
+     c                   eval      w_antv = c1ayag
+     c                   when      w_afld = 'C1AZAG'
+     c                   eval      w_kabc = 'AZ'
+     c                   eval      w_antv = c1azag
+     c                   when      w_afld = 'C1BXAG'
+     c                   eval      w_kabc = 'BX'
+     c                   eval      w_antv = c1bxag
+     c                   when      w_afld = 'C1BYAG'
+     c                   eval      w_kabc = 'BY'
+     c                   eval      w_antv = c1byag
+     c                   when      w_afld = 'C1BZAG'
+     c                   eval      w_kabc = 'BZ'
+     c                   eval      w_antv = c1bzag
+     c                   when      w_afld = 'C1CXAG'
+     c                   eval      w_kabc = 'CX'
+     c                   eval      w_antv = c1cxag
+     c                   when      w_afld = 'C1CYAG'
+     c                   eval      w_kabc = 'CY'
+     c                   eval      w_antv = c1cyag
+     c                   when      w_afld = 'C1CZAG'
+     c                   eval      w_kabc = 'CZ'
+     c                   eval      w_antv = c1czag
+     c                   endsl
+      *
+     c                   call      'MS102R'
+     c                   parm                    c1lage
+     c                   parm                    w_kabc
+     c                   parm                    w_antv
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+      * Key for posisjonering på abc parameter
+      *
+     c     mstpl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mstpl1_aar
+     c                   kfld                    mstpl1_lage
+      *
+      * Key for les på abc parameter
+      *
+     c     mstplr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mstplr_aar
+     c                   kfld                    mstplr_lage
+      *
+      * Key for oppdatering av abc parameter
+      *
+     c     mstplu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mstplu_aar
+     c                   kfld                    mstplu_lage
+      *
+      * Key for les av vare
+      *
+     c     vlagl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlagl1_vare
+     c                   kfld                    vlagl1_lage
+      *
+      *  Key for les av BRUKER
+      *
+     c     lusrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lusrl1_user
+      *
+      * Henter verdier fra LDA, og initierer skjermbildet
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   eval      *in22 = *on
+     c                   time                    w_dato
+     c                   eval      c1aar  = %subdt(w_dato:*years)
+     c                   eval      c1lage = 0
+      *
+     c                   endsr

@@ -1,0 +1,805 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOKON
+      * Program . . . . : RL110R
+      * Beskrivelse . . : Leverandørposteringer, vedlikehold bilag/lever.
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       140802 KOB  Nytt program
+      * V5.40 210305 KOB  Lagt inn ny logisk file rltrlc (raar/biln)
+      * V5.40 190505 KOB  Lagt ut attestasjonsdato og bruker i bildet
+      * V5.40 020106 HFL  Attestasjonsdato 0 ga timestamp-feil
+6.10  * V6.10 230909 BSA  Lagt inn sporingsfelter for utvalgte OKO filer.
+      *
+7.01  * K000  230421 BSA  Felt i skjermbildet sprekkker når det er store
+7.01  * K000              tall
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frltrlc    if   e           k disk    rename(rltrpfr:rltrlcr)
+     frltrl2    if   e           k disk    rename(rltrpfr:rltrl2r)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+     frltrlu    uf   e           k disk    rename(rltrpfr:rltrlur)
+      *
+     frl110d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d rltrlc_raar     s                   like(roraar)
+     d rltrlc_biln     s                   like(robiln)
+     d rltrl2_levr     s                   like(rolevr)
+     d rlevl1_levr     s                   like(rolevr)
+     d rltrlu_levr     s                   like(rolevr)
+     d rltrlu_bdat     s                   like(robdat)
+     d rltrlu_tist     s                   like(rotist)
+      *
+      * Definering av variable
+      *
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_valg_ok       s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(rofirm)
+     d w_biln          s                   like(robiln)                                      .
+     d w_levr          s                   like(rolevr)                                      .
+     d w_raar          s                   like(roraar)                                      .
+      *
+     d p_stat          s              1
+     d p_akod          s                   like(robilk)
+     d p_atxt          s             20
+     d p_ckod          s                   like(robetb)
+     d p_ctxt          s             20
+     d p_gkod          s                   like(rlavde)
+     d p_gtxt          s             20
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(13)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * d_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2biln <> 0 or
+     c                             b2levr <> 0 or
+     c                             b2raar <> w_raar
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        d_fcrn <> 0
+     c     d_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      rltrl2_levr = b1levr
+     c     rltrl2_key    setll     rltrl2
+     c                   other
+     c                   eval      rltrlc_biln = b1biln
+     c     rltrlc_key    setll     rltrlc
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjoner startverdi, regnskapsår endret
+      *
+     c                   if        b2raar <> w_raar                                          .
+     c                   eval      b2biln = w_biln                                           .
+     c                   eval      b2levr = w_levr                                           .
+     c                   eval      w_raar = b2raar                                           .
+      *
+     c                   if        b2biln = 0 and
+     c                             b2levr = 0
+     c                   eval      b2biln = 1
+     c                   endif
+      *                                                                 .
+     c                   endif                                                           .....
+      *
+      * Bilagsnummer
+      *
+     c                   if        b2biln <> 0
+     c                   eval      w_seqe = *blank
+     c                   eval      w_biln = b2biln
+     c                   eval      w_levr = 0
+     c                   eval      rltrlc_raar = b2raar
+     c                   eval      rltrlc_biln = b2biln
+     c     rltrlc_key    setll     rltrlc
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Leverandør
+      *
+     c                   if        b2levr <> 0
+     c                   eval      w_seqe = 'B'
+     c                   eval      w_levr = b2levr
+     c                   eval      w_biln = 0
+     c                   eval      rltrl2_levr = b2levr
+     c     rltrl2_key    setll     rltrl2
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2biln = 0
+     c                   eval      b2levr = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = d_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+      * Filen er tom
+      *
+     c                   if        b1biln = 0
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Oppdater
+      *
+     c                   if        b1valg = 2
+     c                   eval      *in30  = *off
+     c                   eval      c2nyen = ' Endring '
+     c                   exsr      xc2win                                                  . .
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30  = *on
+     c                   eval      c2nyen = '   Vis   '
+     c                   exsr      xc2win                                                  . .
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   read      rltrl2
+     c                   other
+     c                   read      rltrlc
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             rofirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *                                                                 .
+     c                   if        b2raar <> *zero and                                 ..... .
+     c                             b2raar <> roraar
+     c                   iter                                                              . .
+     c                   endif                                                         ..... .
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      rltrl2_levr = robelØ
+     c                   other
+     c                   eval      rltrlc_biln = robiln
+     c                   endsl
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1bdat = robdat
+     c                   eval      b1tist = rotist
+     c                   eval      b1biln = robiln
+     c     *dmy          move      robdat        b1bida
+     c                   eval      b1bilk = robilk
+     c                   eval      b1text = rotext
+7.01 c                   if        robelØ > 9999999
+7.01 c                   eval      b1belØ = 9999999
+7.01 c                   elseif    robelØ < -9999999,99
+7.01 c                   eval      b1belØ = -9999999,99
+7.01 c                   else
+     c                   eval      b1belØ = robelØ
+7.01 c                   endif
+     c                   eval      b1levr = rolevr
+      *                                                                 .
+      * Hent leverandør                                                  .
+      *                                                                 .
+     c                   eval      rlevl1_levr = rolevr                                      .
+     c     rlevl1_key    chain     rlevl1                             61                     .
+     c                   if        *in61 = *off                                              .
+     c                   eval      b1navn = rlnavn                                           .
+     c                   endif                                                               .
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c                   select
+     c                   when      w_seqe = 'B'
+     c     rltrl2_key    setgt     rltrl2
+     c                   readp     rltrl2
+     c                   other
+     c     rltrlc_key    setgt     rltrlc
+     c                   readp     rltrlc
+     c                   endsl
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   readp     rltrl2
+     c                   other
+     c                   readp     rltrlc
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             rofirm <> w_firm
+     c                   leave
+     c                   endif
+      *                                                                 .
+     c                   if        b2raar <> *zero and                                 ..... .
+     c                             b2raar <> roraar
+     c                   iter                                                              . .
+     c                   endif                                                         ..... .
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      rltrl2_levr = robelØ
+     c                   other
+     c                   eval      rltrlc_biln = robiln
+     c                   endsl
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c                   select
+     c                   when      w_seqe = 'B'
+     c     rltrl2_key    setll     rltrl2
+     c                   other
+     c     rltrlc_key    setll     rltrlc
+     c                   endsl
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * C2WIN Behandle bilde for oppdatering                            *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xc2win        begsr
+      *
+     c                   eval      rltrlu_levr = b1levr
+     c                   eval      rltrlu_bdat = b1bdat
+     c                   eval      rltrlu_tist = b1tist
+     c     rltrlu_key    chain     rltrlu                             60
+      *
+     c                   move      robiln        c2biln                                      .
+     c                   move      robilk        c2bilk                                      .
+     c                   move      rotext        c2text                                      .
+     c     *dmy          move      robdat        c2bdat                                      .
+     c     *dmy          move      rofdat        c2fdat                                      .
+     c                   move      rorper        c2rper                                      .
+     c                   move      roraar        c2raar                                      .
+     c                   move      rorekl        c2rekl                                      .
+     c                   move      rojour        c2jour                                      .
+     c                   move      rorefn        c2refn                                      .
+     c                   move      robelØ        c2belØ                                      .
+     c                   move      rorest        c2rest                                      .
+     c                   move      rovalk        c2valk                                      .
+     c                   move      roavde        c2avde                                      .
+     c                   move      rovalb        c2valb                                      .
+     c                   move      rovalr        c2valr                                      .
+      *
+     c                   move      roatts        c2atts                                      .
+     c                   if        roatts = '1'                                              .
+     c                   move      'J'           c2atts                                      .
+     c                   endif
+T5.40c                   move      roattu        c2attu                                      .
+T5.40c                   if        roadat = *loval
+T5.40c                   move      *zeros        c2adat
+T5.40c                   else
+T5.40c     *dmy          move      roadat        c2adat                                      .
+T5.40c                   endif
+      *
+     c                   move      robetk        c2betk                                      .
+     c                   move      rosamb        c2samb                                      .
+     c                   move      rorrf1        c2rrf1                                      .
+     c                   move      rorrf2        c2rrf2                                      .
+     c                   move      rodeck        c2deck                                      .
+     c                   move      robfnr        c2bfnr                                      .
+     c                   move      robfli        c2bfli                                      .
+     c                   move      rokidi        c2kidi                                      .
+     c                   move      rodelb        c2delb                                      .
+     c                   move      robetb        c2betb                                      .
+     c                   move      *blank        c2ctxt                                      .
+     c                   move      *blank        c2gtxt                                      .
+      *
+      * Hent betalingsbetingelsetekst
+      *
+     c                   if        robetb <> *zero                                       .....
+     c                   move      robetb        p_ckod                                      .
+     c                   call      'RS703R'                                      avdelings-
+     c                   parm                    p_stat                           kode
+     c                   parm                    p_ckod                           kode
+     c                   parm                    p_ctxt                           kode
+      *
+     c                   movel     p_ctxt        c2ctxt                                      .
+     c                   endif                                                           .....
+      *
+      * Hent avdelingstekst
+      *
+     c                   if        roavde <> *zero                                       .....
+     c                   move      roavde        p_gkod                                      .
+     c                   call      'RS707R'                                      avdelings-
+     c                   parm                    p_stat                           kode
+     c                   parm                    p_gkod                           kode
+     c                   parm                    p_gtxt                           kode
+      *
+     c                   movel     p_gtxt        c2gtxt                                      .
+     c                   endif                                                           .....
+      *
+     c     c2taga        tag
+      *
+     c                   exfmt     c2win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      * Call program for bilagskode
+      *
+     c                   if        *inkd = *on and                                       .....
+     c                             w_afld = 'C2BILK'                                         .
+     c                   call      'RA501R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    p_akod                                      .
+     c                   parm                    p_atxt                                      .
+      *                                                                 .
+     c                   if        p_akod <> *zero                                           .
+     c                   eval      c2bilk = p_akod                                           .
+     c                   eval      c2text = p_atxt                                           .
+     c                   endif                                                               .
+      *                                                                 .
+     c                   move      *on           *in33                                       .
+     c                   goto      c2taga                                                    .
+     c                   endif                                                           .....
+      *
+      * Call program for betalingsbetingelse
+      *
+     c                   if        *inkd = *on and                                       .....
+     c                             w_afld = 'C2BETB'                                         .
+     c                   call      'RA503R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    p_ckod                                      .
+     c                   parm                    p_ctxt                                      .
+      *                                                                 .
+     c                   if        p_ckod <> *zero                                           .
+     c                   eval      c2betb = p_ckod                                           .
+     c                   eval      c2ctxt = p_ctxt                                           .
+     c                   endif                                                               .
+      *                                                                 .
+     c                   move      *on           *in34                                       .
+     c                   goto      c2taga                                                    .
+     c                   endif                                                           .....
+      *
+      * Call program for avdeling
+      *
+     c                   if        *inkd = *on and                                       .....
+     c                             w_afld = 'C2AVDE'                                         .
+     c                   call      'RA507R'                                                  .
+     c                   parm                    w_firm                                      .
+     c                   parm                    p_gkod                                      .
+     c                   parm                    p_gtxt                                      .
+      *                                                                 .
+     c                   if        p_gkod <> *zero                                           .
+     c                   move      p_gkod        c2avde                                      .
+     c                   movel     p_gtxt        c2gtxt                                      .
+     c                   endif                                                               .
+      *                                                                 .
+     c                   move      *on           *in36                                       .
+     c                   goto      c2taga                                                    .
+     c                   endif                                                               .
+      *
+      * Kontroll av skjermbildet
+      *
+     c                   exsr      sjekk_input
+      *
+     c                   if        b_feil = *on
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Oppdater posteringsregister
+      *
+     c                   eval      rltrlu_bdat = b1bdat                                      .
+     c                   eval      rltrlu_tist = b1tist                                      .
+     c     rltrlu_key    chain     rltrlur                            60
+      *
+     c                   move      c2bilk        robilk
+     c                   move      c2text        rotext
+     c     *dmy          move      c2fdat        rofdat
+     c                   move      c2rekl        rorekl
+     c                   move      c2refn        rorefn
+     c                   move      c2avde        roavde
+     c                   move      c2rest        rorest                                      .
+     c                   move      c2valr        rovalr                                      .
+      *                                                                 .
+     c                   move      c2avde        roavde                                      .
+T5.40 *
+T5.40 * Hvis attestasjonskoden er endret legges bruker og dato ut
+T5.40 *
+T5.40c                   if        c2atts <> ' ' and
+T5.40c                             roatts =  ' '
+T5.40c                   eval      roattu = l_user                                           .
+T5.40c                   time                    roadat                                      .
+T5.40c                   endif
+T5.40 *
+     c                   move      c2atts        roatts                                      .
+     c                   move      c2betb        robetb                                      .
+     c                   move      c2betk        robetk                                      .
+     c                   move      c2rrf1        rorrf1                                      .
+     c                   move      c2rrf2        rorrf2                                      .
+     c                   move      c2deck        rodeck                                      .
+     c                   move      c2kidi        rokidi                                      .
+     c                   move      c2rekl        rorekl                                      .
+      *
+     c                   if        *in60 = *off                                          .....
+6.10 c                   time                    roedat
+6.10 c                   time                    roetim
+6.10 c                   eval      roeusr = l_user
+     c                   update    rltrlur                                                   .
+     c                   endif                                                           .....
+      *
+     c                   if        b1valg = 2
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Kontroll  C2 bilde (endringer)                                  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     sjekk_input   begsr
+      *
+     c                   eval      b_feil = *off
+     c                   eval      *in32  = *off
+     c                   eval      *in33  = *off
+     c                   eval      *in34  = *off
+     c                   eval      *in35  = *off
+      *
+      * Sjekke om kjøredato er gyldig
+      *
+     c     *dmy          test(d)                 c2fdat                 32
+     c                   if        *in32 = *on                                           .....
+     c                   goto      end_sjekk
+     c                   endif                                                           .....
+      *
+      * Sjekk om bilagskode er gyldig
+      *
+     c                   move      c2bilk        p_akod
+     c                   call      'RS701R'
+     c                   parm                    p_stat
+     c                   parm                    p_akod
+     c                   parm                    p_atxt
+      *
+     c                   if        p_stat = 'N'
+     c                   move      *on           *in33
+     c                   move      *on           *in81
+     c                   eval      b_feil = *on
+     c                   goto      end_sjekk
+     c                   endif                                                           .....
+      *
+      * Sjekk om avdeling er gyldig
+      *
+     c                   if        c2avde <> *zero                                       .....
+     c                   move      c2avde        p_gkod                                      .
+     c                   call      'RS707R'
+     c                   parm                    p_stat
+     c                   parm                    p_gkod
+     c                   parm                    p_gtxt
+      *
+     c                   if        p_stat = 'N'
+     c                   move      *on           *in34
+     c                   move      *on           *in81
+     c                   eval      b_feil = *on
+     c                   goto      end_sjekk
+     c                   endif                                                               .
+     c                   endif                                                           .....
+      *
+     c     end_sjekk     endsr
+      *
+      /eject
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for posisjonering på bilagsnummer
+      *
+     c     rltrlc_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rltrlc_raar
+     c                   kfld                    rltrlc_biln
+      *
+      * Key for posisjonering på leverandør
+      *
+     c     rltrl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rltrl2_levr
+      *
+      * Key for leverandørregister
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+      *
+      * Key for oppdatering av postering
+      *
+     c     rltrlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rltrlu_levr
+     c                   kfld                    rltrlu_bdat
+     c                   kfld                    rltrlu_tist
+      *
+      * Henter parametre, og initierer skjermbildet
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      b2raar = *year
+     c                   eval      w_raar = *year
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      rltrlc_raar = *year
+     c                   eval      rltrlc_biln = 0
+     c     rltrlc_key    setll     rltrlc
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

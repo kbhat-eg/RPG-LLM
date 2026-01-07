@@ -1,0 +1,875 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : LP102R
+      * Beskrivelse . . : Leverandør pakkseddelinformasjon, vedlikehold
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+7.01  *       200819 bsa  Nytt program
+7.02  *       250220 bsa  Feil ved sletting
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       16 = Readc 16 on, no more records
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fllpai1    if   e           k disk    rename(llpast:llpai1r)
+     fllpaiu    uf a e           k disk    rename(llpast:llpaiur)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+      *
+     flp102d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Definering av array
+      *
+     d a_meld          s             11    dim(3) ctdata perrcd(1)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av variabler i nøkler
+      *
+     d llpai1_ldor     s                   like(pvldor)
+     d llpai1_lage     s                   like(pvlage)
+     d llpaiu_ldor     s                   like(pvldor)
+     d llpaiu_lage     s                   like(pvlage)
+     d rlevl1_levr     s                   like(rllevr)
+      *
+      * Definering av variable
+      *
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+      *
+     d w_seqe          s              1
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(pvfirm)
+     d w_ldor          s                   like(pvldor)
+     d w_lage          s              2  0
+     d w_lagr          s              2
+     d w_lage_alf      s              2
+     d w_latx          s             20
+     d w_adrs          s             30
+     d w_ponr          s              4  0
+     d w_pste          s             30
+     d w_avde          s              4  0
+     d w_lnav          s                   like(rlnavn)
+      *
+      * Konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_srrn - Relativt recordnummer i subfile
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * wvisrn - Vis den side som inneholder denne record.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for å opprette ny rad
+      * C1MSG  - C1 Meleingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * F1WIN  - F1 Vindu for spørring på valgalternativer (Hardkodet)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av standard funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      b2taga
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2ldor <> 0
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c     llpai1_key    setll     llpai1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjonerer på leverandørnummer
+      *
+     c                   if        b2ldor <> 0
+     c                   eval      w_seqe = *blank
+     c                   eval      llpai1_ldor = b2ldor
+     c     llpai1_key    setll     llpai1
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2ldor = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+      * Beholder eksisterende posisjonering i subfilen
+      *
+     c                   if        wcurrn > 0
+     c                   eval      wvisrn = wcurrn
+     c                   endif
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl                                  16
+      *
+     c                   if        *in16
+     c                   leave
+     c                   endif
+      *
+     c                   eval      wvisrn = w_srrn
+      *
+      * Endre post
+      *
+     c                   if        b1valg = 2
+     c                   eval      c1ldor = b1ldor
+     c                   eval      c1lage = b1lage
+     c                   eval      llpai1_ldor = c1ldor
+     c                   eval      llpai1_lage = c1lage
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Kopiere post
+      *
+     c                   if        b1valg = 3
+     c                   eval      k1ldor = b1ldor
+     c                   eval      k1lage = b1lage
+     c                   exsr      xk1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slette post
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1ldor = b1ldor
+     c                   eval      d1lage = b1lage
+     c                   exsr      xd1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vise post
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1ldor = b1ldor
+     c                   eval      c1lage = b1lage
+     c                   eval      llpai1_ldor = c1ldor
+     c                   eval      llpai1_lage = c1lage
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      c1ldor = 0
+     c                   eval      c1lnav = *blank
+     c                   eval      c1lage = 0
+     c                   eval      c1lagn = *blank
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_c1bld
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      c1taga
+     c                   endsl
+      *
+      * Validering
+      *
+     c                   if        c1ldor = 0
+     c                   eval      *in31  = *on
+     c                   goto      c1taga
+     c                   endif
+      *
+     c                   eval      c1lnav = *blank
+     c                   eval      rlevl1_levr = c1ldor
+     c     rlevl1_key    chain     rlevl1                             90
+     c                   if        *in90
+     c                   eval      *in31 = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   eval      c1lnav = rlnavn
+      *
+     c*                  eval      w_lage_alf = c1lage
+     c                   if        c1lage <> 0
+     c                   move      c1lage        w_lage_alf
+     c                   exsr      hent_lag
+     c                   if        b_feil = *on
+     c                   eval      *in32  = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * hvis lager er utfylt sett 0 foran
+      *
+     c*                  if        c1lage <> *blank
+     c*    ' ':'0'       xlate     c1lage        c1lage
+     c*                  endif
+      *
+      * Sender opp informasjonsbilde dersom rad finnes fra før
+      *
+     c                   eval      llpai1_ldor = c1ldor
+     c                   eval      llpai1_lage = c1lage
+     c     llpai1_key    chain     llpai1
+     c                   if        %found
+     c                   exsr      xc1msg
+     c                   if        b_anul = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   eval      llpai1_ldor = c1ldor
+     c                   eval      llpai1_lage = c1lage
+     c                   exsr      xc2bld
+      *
+     c     end_c1bld     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbilde legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   goto      end_c1msg
+     c                   endif
+      *
+     c     end_c1msg     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle skjermbilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c     xc2bld_ny     tag
+      *
+     c**                 eval      w_lage_alf = c1lage
+     c                   if        c1lage <> 0
+     c                   move      c1lage        w_lage_alf
+     c                   exsr      hent_lag
+     c                   eval      c2lagn = w_latx
+     c                   else
+     c                   eval      c2lagn = 'Alle lager'
+     c                   endif
+      *
+     c     llpai1_key    chain     llpai1
+      *
+     c                   if        %found
+     c                   eval      c2nyen = a_meld(2)
+     c                   eval      c2pniv = pvpniv
+     c                   eval      c2tfrk = pvtfrk
+      *
+     c                   eval      c2eusr = pveusr
+     c     *dmy          move      pvedat        c2edat
+     c                   else
+     c                   eval      c2nyen = a_meld(1)
+     c                   eval      c2pniv = 0
+     c                   eval      c2tfrk = 0
+     c                   eval      c2edat = 0
+     c                   eval      c2eusr = *blank
+     c                   endif
+      *
+     c                   if        b1valg = 3
+     c                   eval      c2nyen = a_meld(1)
+     c                   eval      c1ldor = k1ldor
+     c                   eval      c1lage = k1lage
+     c                   eval      llpai1_ldor = k1ldor
+     c                   eval      llpai1_lage = k1lage
+     c                   endif
+      *
+      * Henter beskrivelse av felter
+      *
+     c                   eval      c1lnav = *blank
+      *
+     c                   eval      rlevl1_levr = c1ldor
+     c     rlevl1_key    chain     rlevl1
+     c                   if        %found
+     c                   eval      c1lnav = rlnavn
+     c                   endif
+      *
+      * Dersom 'vise' settes protect-indikatoer
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30 = *on
+     c                   eval      c2nyen = a_meld(3)
+     c                   endif
+      *
+     C     c2tagb        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      * Spørring
+      *
+     c                   if        *inkd
+      *
+     c                   endif
+      *
+      * Valider pakkseddelnivå
+      *
+     c                   if        c2pniv >  3
+     c                   eval      *in31 = *on
+     c                   goto      c2tagb
+     c                   endif
+      *
+      * Valider stikkprøvefrekvens
+      *
+     c                   if        c2tfrk >  100
+     c                   eval      *in32 = *on
+     c                   goto      c2tagb
+     c                   endif
+      *
+      * Oppdaterer tabell
+      *
+     c                   clear                   llpaiur
+      *
+     c                   eval      llpaiu_ldor = c1ldor
+     c                   eval      llpaiu_lage = c1lage
+     c     llpaiu_key    chain     llpaiur
+      *
+     c                   eval      pvpniv = c2pniv
+     c                   eval      pvtfrk = c2tfrk
+     c                   eval      pveusr = l_user
+      *
+     c                   time                    pvedat
+     c                   time                    pvetim
+      *
+     c                   if        %found
+     c                   update    llpaiur
+     c                   else
+     c                   eval      pvfirm = w_firm
+     c                   eval      pvldor = c1ldor
+     c                   eval      pvlage = c1lage
+     c                   write     llpaiur
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c                   if        b1valg = 2
+     c                   eval      b1ldor = pvldor
+     c                   endif
+      *
+     c                   if        b1valg = 1 or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      llpai1_ldor = d1ldor
+     c                   eval      llpai1_lage = d1lage
+     c     llpai1_key    chain     llpai1
+      *
+     c                   eval      rlevl1_levr = d1ldor
+     c     rlevl1_key    chain     rlevl1
+     c                   eval      d1lnav = rlnavn
+      *
+     c**                 eval      w_lage_alf = d1lage
+     c                   move      d1lage        w_lage_alf
+     c                   exsr      hent_lag
+     c                   eval      d1lagn = w_latx
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_d1win
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+7.02 c                   eval      llpaiu_ldor = d1ldor
+7.02 c                   eval      llpaiu_lage = d1lage
+     c     llpaiu_key    chain     llpaiur
+7.02 c                   if        %found
+     c                   delete    llpaiur
+7.02 c                   endif
+      *
+     c     end_d1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle kopierings-bildet (K1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xk1win        begsr
+      *
+      * Tar vare på nøkkel til rad det skal kopieres fra
+      *
+     c                   eval      w_ldor   = k1ldor
+     c**                 eval      w_lagr   = k1lage
+     c                   move      k1lage        w_lagr
+     c                   eval      k2ldor   = k1ldor
+     c                   eval      k2lage   = k1lage
+     c                   eval      k1ldor   = 0
+     c                   eval      k1lage   = 0
+      *
+      * Fyller kopierings-bildet
+      *
+     c                   eval      llpai1_ldor = k2ldor
+     c                   eval      llpai1_lage = k2lage
+     c     llpai1_key    chain     llpai1
+      *
+     c                   eval      rlevl1_levr = k2ldor
+     c     rlevl1_key    chain     rlevl1
+     c                   eval      k2lnav = rlnavn
+      *
+     c**                 eval      w_lage_alf = k2lage
+     c                   move      k2lage        w_lage_alf
+     c                   exsr      hent_lag
+     c                   eval      k2lagn = w_latx
+     c                   eval      k1lnav = *blank
+     c                   eval      k1lagn = *blank
+      *
+     c     k1tagb        tag
+      *
+     c                   exfmt     k1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_k1win
+     c                   endif
+      *
+      * Spørring
+      *
+     c                   if        *inkd
+     c                   exsr      spØrring
+     c                   goto      k1tagb
+     c                   endif
+      *
+      * Validering
+      *
+     c                   if        k1ldor = 0
+     c                   eval      *in31 = *on
+     c                   goto      k1tagb
+     c                   endif
+      *
+     c                   eval      rlevl1_levr = k1ldor
+     c     rlevl1_key    chain     rlevl1                             90
+     c                   if        *in90
+     c                   eval      *in31 = *on
+     c                   goto      k1tagb
+     c                   endif
+      *
+     c**                 eval      w_lage_alf = k1lage
+     c                   move      k1lage        w_lage_alf
+     c                   exsr      hent_lag
+     c                   if        b_feil = *on
+     c                   eval      *in32  = *on
+     c                   goto      k1tagb
+     c                   endif
+      *
+      * hvis lager er utfylt sett 0 foran
+      *
+     c*                  if        k1lage <> *blank
+     c*    ' ':'0'       xlate     k1lage        k1lage
+     c*                  endif
+      *
+      * Sjekker om rad finnes fra før
+      *
+     c                   eval      llpai1_ldor = k1ldor
+     c                   eval      llpai1_lage = k1lage
+     c     llpai1_key    chain     llpai1
+     c                   if        %found
+     c                   eval      *in33 = *on
+     c                   goto      k1tagb
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   eval      c1ldor = k1ldor
+     c                   eval      c1lage = k1lage
+     c                   eval      llpai1_ldor = w_ldor
+     c                   eval      llpai1_lage = %int(w_lagr)
+     c                   exsr      xc2bld
+      *
+     c     end_k1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      llpai1                                 15
+      *
+     c                   if        *in15
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   if        pvfirm <> l_firm
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1ldor = pvldor
+     c                   eval      b1lage = pvlage
+     c                   eval      b1pniv = pvpniv
+     c                   eval      b1tfrk = pvtfrk
+      *
+     c                   eval      b1lnav = *blank
+     c                   eval      rlevl1_levr = b1ldor
+     c     rlevl1_key    chain     rlevl1
+     c                   if        %found
+     c                   eval      b1lnav = rlnavn
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c     end_crt       tag
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      wvisrn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in12 = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av spørring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     spØrring      begsr
+      *
+      * Leverandør
+      *
+     c                   if        wactfe = 'B2LDOR'
+     c                   call      'RL500R'
+     c                   parm                    w_firm
+     c                   parm                    b2ldor
+     c                   parm                    w_lnav
+     c                   goto      end_spØrr
+     c                   endif
+      *
+     c                   if        wactfe = 'C1LDOR'
+     c                   eval      c1lnav = *blank
+     c                   call      'RL500R'
+     c                   parm                    w_firm
+     c                   parm                    c1ldor
+     c                   parm                    c1lnav
+     c                   goto      end_spØrr
+     c                   endif
+      *
+     c                   if        wactfe = 'K1LDOR'
+     c                   call      'RL500R'
+     c                   parm                    w_firm
+     c                   parm                    k1ldor
+     c                   parm                    k1lnav
+     c                   goto      end_spØrr
+     c                   endif
+      *
+      * Lager
+      *
+     c                   if        wactfe = 'B2LAGE'
+     c                   eval      w_lage = 0
+     c                   call      'RA510R'
+     c                   parm                    w_firm
+     c                   parm                    w_lage
+     c                   parm                    c1lagn
+     c                   move      w_lage        b2lage
+     c                   goto      end_spØrr
+     c                   endif
+      *
+     c                   if        wactfe = 'C1LAGE'
+     c                   eval      c1lagn = *blank
+     c                   eval      w_lage = 0
+     c                   call      'RA510R'
+     c                   parm                    w_firm
+     c                   parm                    w_lage
+     c                   parm                    c1lagn
+     c                   move      w_lage        c1lage
+     c                   goto      end_spØrr
+     c                   endif
+      *
+     c                   if        wactfe = 'K1LAGE'
+     c                   eval      k1lagn = *blank
+     c                   eval      w_lage = 0
+     c                   call      'RA510R'
+     c                   parm                    w_firm
+     c                   parm                    w_lage
+     c                   parm                    k1lagn
+     c                   move      w_lage        k1lage
+     c                   goto      end_spØrr
+     c                   endif
+      *
+     c     end_spØrr     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for henting av lagerinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_lag      begsr
+      *
+     c                   if        w_lage_alf = *blank
+     c                   eval      w_latx = 'Alle lager'
+     c                   goto      end_lag
+     c                   else
+     c                   move      w_lage_alf    w_lage
+     c                   endif
+      *
+     c                   call      'FÅ720R'
+     c                   parm                    w_firm
+     c                   parm                    w_lage
+     c                   parm                    w_latx
+     c                   parm                    w_adrs
+     c                   parm                    w_ponr
+     c                   parm                    w_pste
+     c                   parm                    w_avde
+     c                   parm                    b_feil
+      *
+     c                   if        b_feil = *on
+     c                   eval      w_latx = 'Ugyldig lager'
+     c                   endif
+      *
+     c     end_lag       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for posisjonering leverandør pakkseddelnivå
+      *
+     c     llpai1_key    klist
+     C                   kfld                    w_firm
+     c                   kfld                    llpai1_ldor
+     c                   kfld                    llpai1_lage
+      *
+      * Key for oppdatering av leverandør pakkseddelnivå
+      *
+     c     llpaiu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    llpaiu_ldor
+     c                   kfld                    llpaiu_lage
+      *
+      * Key for oppslag på leverandør
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+      *
+      * Kopierer firma til firma-variabel
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      llpai1_ldor = 0
+     c                   eval      llpai1_lage = 0
+     c     llpai1_key    setll     llpai1
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+**
+  Ny post                  001
+  Endring                  002
+  Vise                     003

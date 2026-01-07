@@ -1,0 +1,82 @@
+             PGM
+/* 9.01  Kunde kjøre denne summering fra 6.20                        */
+/*7.01  21.08.20 bsa Feiul i filnavn                                 */
+
+             DCL        VAR(&FILN)  TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FILS)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MAPX) TYPE(*CHAR) LEN(30)
+             DCL        VAR(&CLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&IFSV) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILT) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILG) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&BIBL) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&BAN1) TYPE(*CHAR) LEN(5) +
+                          VALUE('/asp/')
+             DCL        VAR(&BAN2) TYPE(*CHAR) LEN(10) +
+                          VALUE('/UniMicro/')
+             DCL        VAR(&BAN3) TYPE(*CHAR) LEN(10) +
+                          VALUE('/qsys.lib/')
+             DCL        VAR(&BAN4) TYPE(*CHAR) LEN(31) +
+                          VALUE('.lib/UniMfak.file/UniMfak.mbr')
+/* Henter filgruppe og firmanummer:                                  */
+
+             RTVDTAARA  DTAARA(*LDA (931 3)) RTNVAR(&FILG)
+             RTVDTAARA  DTAARA(*LDA (934 6)) RTNVAR(&BIBL)
+
+/* Lager til-katalogen på IFS hvis den ikke finnes                   */
+
+             CHGVAR     VAR(&MAPX)     VALUE(&BAN1 *CAT &FILG +
+                                             *CAT &BAN2)
+             CRTDIR     DIR(&MAPX)
+             MONMSG     MSGID(CPF0000)
+
+/* Tømmer transaksjonsfil før danning av transaksjoner               */
+
+             CLRPFM     FILE(RV01PF)
+             CLRPFM     FILE(FOVIPF)
+             CLRPFM     FILE(FOVUPF)
+
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+
+/* Omkjøring                                                         */
+
+             CPYF       FROMFILE(FOMKPF) TOFILE(FOVIPF) MBROPT(*REPLACE)
+             OVRDBF     FILE(FOVFL1) TOFILE(*LIBL/FOMKL1)
+
+/* Kaller program for danning av transaksjoner                       */
+             CALL       PGM(RV009R)  /* Hva gjør denne?  */
+             CALL       PGM(RB032R)  /* Legger ut kunder */
+             CALL       PGM(RB031R)  /* Fakturaposter    */
+
+
+/* Test om overføringsregister finnes - bygg evt.                    */
+
+             CHKOBJ     OBJ(*LIBL/UniMFAK) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+             CRTPF      FILE(UniMfak) RCDLEN(800) +
+                          TEXT('Posteringer til Uni Micro')           +
+                          MAXMBRS(*NOMAX)
+             ENDDO
+
+/* Kopier data til overføringsfil                                    */
+
+             CPYF       FROMFILE(*libl/RV01PF) +
+                          TOFILE(*libl/UniMFak) FROMMBR(RV01PF) +
+                           MBROPT(*REPLACE) FMTOPT(*NOCHK)
+
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+
+/* Starter kopiering til integret filsystem                          */
+
+             CALL       PGM(LO762R) PARM(&FILN)  /* Lager unikt filnavn */
+   CHGVAR VAR(&FILN)    VALUE((%sst(&filn 1 7)) *cat '_' +
+                         *cat (%sst(&FILN 10 6)) *cat '.txt')
+   CHGVAR VAR(&FILS) VALUE(&BAN1 *CAT &FILG *CAT &BAN2 *tcat &FILN)
+   CHGVAR VAR(&FILT) VALUE(&BAN3 *CAT &BIBL *CAT &BAN4)
+             CPYTOSTMF  +
+                          FROMMBR(&FILT) TOSTMF(&FILS) +
+                          STMFOPT(*REPLACE) STMFCODPAG(*PCASCII)
+             CHGAUT     OBJ(&FILS) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+
+ END:        ENDPGM

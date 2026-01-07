@@ -1,0 +1,269 @@
+**FREE
+CTL-OPT MAIN(AG942R) OPTION(*nodebugio : *SRCSTMT);
+CTL-OPT datedit(*dmy);
+CTL-OPT datfmt(*iso);
+CTL-OPT dftactgrp(*no);
+
+DCL-PR AG942R EXTPGM('AG942R');
+  p_valg              char(2)     const;
+  p_versjon           char(3)     const;
+  p_tabell            char(10)    const;
+END-PR;
+
+//      * System  . . . . : ASPGPLU
+//      * Program . . . . : AG942R
+//      * Beskrivelse . . : Looper alle frilgruper
+//      *
+//      * Programmet får inn en parameter for hva
+//      *   p_valg
+//      *     S1 :  oppdatere inn views
+//      *     S2 :  slett og legg inn views
+//      *     S3 :  legg inn index
+//      *     S4 :  slett og legg inn index
+//      *     S8 :  oppdater inn trigger
+//      *     S9 :  slett og legg inn trigger
+//      *
+//      *     D1:   Oppdatere database tabeller
+//      *
+//      * Ref.   Dato  Sign Endringsbeskrivelse
+//      * ----- ------ ---- -------------------------------------------------
+//      *       080619 BKV  Nytt program
+
+DCL-PROC AG942R;
+  DCL-PI *N;
+    p_valg              char(2)     const;
+    p_versjon           char(3)     const;
+    p_tabell            char(10)    const;
+  END-PI;
+
+  dcl-s sqlqueryMiljo  char(256);
+  dcl-s miljo  char(3);
+  dcl-s versjon   packed(3:0);
+  dcl-s command char(500) ;
+
+  versjon = %dec(p_versjon:3:0);
+
+  command = 'ADDLIBLE ASPGPL'+p_versjon;
+  exec sql CALL QSYS2.QCMDEXC(:command) ;
+  command = 'ADDLIBLE ASPGPLU'+p_versjon;
+  exec sql CALL QSYS2.QCMDEXC(:command) ;
+
+  sqlqueryMiljo = 'SELECT ARMILJ FROM ADB.AMILPF WHERE ARVERS = ?';
+  EXEC SQL PREPARE S1 FROM :sqlqueryMiljo;
+  EXEC SQL DECLARE C1 CURSOR FOR S1;
+  EXEC SQL OPEN C1 USING :versjon;
+
+  dow (1 = 1) ;
+    EXEC SQL FETCH C1 INTO :miljo;
+    if ((sqlcode =100) or (sqlcode < 0));
+      leave;
+    endif;
+
+    BehandleMiljo(miljo : p_versjon : p_valg : p_tabell);
+
+  enddo;
+
+  EXEC SQL CLOSE C1;
+
+  *inlr = *on ;
+END-PROC;
+
+
+dcl-proc BehandleMiljo ;
+  DCL-PI *N;
+    miljoet char(3) const;
+    versjon           char(3)     const;
+    valg              char(2)     const;
+    tabell            char(10)     const;
+  END-PI;
+
+  dcl-s sqlqueryFilgr char(256);
+  dcl-s filgr         char(3);
+  dcl-s dbib         char(10);
+  dcl-s lvr          char(10);
+
+  sqlqueryFilgr = 'SELECT AGFGRP, AGBIBL +
+   , IFNULL((SELECT ALBIBL FROM '+miljoet+'.ALIBPF WHERE ALUSER = +
+     (SELECT ABRLIB FROM '+miljoet+'.AUSRPF +
+      WHERE ABUSER = ''ASP_'' CONCAT AGFGRP +
+     AND ALBIBL LIKE ''%LVR%'') +
+     ORDER BY ALPLAS FETCH FIRST 1 ROWS ONLY), '''') +
+       AS LVR +
+    FROM '+miljoet+'.AFILPF';
+  EXEC SQL PREPARE S2 FROM :sqlqueryFilgr;
+  EXEC SQL DECLARE C2 CURSOR FOR S2;
+  EXEC SQL OPEN C2;
+
+  dow (1 = 1) ;
+    EXEC SQL FETCH C2 INTO :filgr, :dbib, :lvr;
+    if ((sqlcode =100) or (sqlcode < 0));
+      leave;
+    endif;
+
+    BehandleFilgr( miljoet : filgr : versjon : dbib : lvr : valg : tabell);
+
+  enddo;
+
+  EXEC SQL CLOSE C2;
+
+end-proc ;
+
+dcl-proc BehandleFilgr ;
+  DCL-PI *N;
+    miljoet   char(3) const;
+    filgruppe char(3) const;
+    versjon   char(3) const;
+    databibl  char(10) const;
+    lvret     char(10) const;
+    valg      char(2)  const;
+    tabell    char(10) const;
+  END-PI;
+
+  dcl-s  usr char(7);
+  dcl-s command char(500) ;
+
+  command = 'CHKOBJ ' +  %TRIM(databibl) + ' OBJTYPE(*LIB)';
+  exec sql CALL QSYS2.QCMDEXC(:command) ;
+  if (sqlcode < 0);
+    return;
+  endif;
+
+  usr = 'ASP_'+filgruppe;
+  command = 'CHKOBJ ' +  usr + ' OBJTYPE(*USRPRF)';
+  exec sql CALL QSYS2.QCMDEXC(:command) ;
+  if (sqlcode < 0);
+    return;
+  endif;
+
+  command = 'CHKOBJ OBJ('+%TRIM(databibl)+'/BUTIJRN) OBJTYPE(*JRN)';
+  exec sql CALL QSYS2.QCMDEXC(:command) ;
+  if (sqlcode < 0);
+    return;
+  endif;
+
+  if (%subst(valg:1:1) = 'S');
+    BehandleSQL( miljoet:filgruppe:versjon:databibl:lvret:usr:valg:tabell);
+  endif;
+
+  if (valg = 'D1');
+    BehandleDB( miljoet:filgruppe:versjon:databibl:lvret:usr:valg:tabell);
+  endif;
+
+end-proc ;
+
+dcl-proc BehandleDB ;
+  DCL-PI *N;
+    miljoet   char(3) const;
+    filgruppe char(3) const;
+    versjon   char(3) const;
+    databibl  char(10) const;
+    lvret     char(10) const;
+    usr       char(7) const;
+    valg      char(2)  const;
+    tabell    char(10) const;
+  END-PI;
+
+  dcl-c  quote const('''');
+  dcl-s command char(500) ;
+
+  if (  (miljoet = *blank)
+     or (filgruppe=*blank)
+     or (versjon=*blank)
+     or (databibl=*blank)
+     or (lvret=*blank)
+     or (usr=*blank)
+     );
+    return;
+  endif;
+
+// Hopp over master filgrupper. Gjøres manuelt
+  if ((databibl='ADBH00') OR
+      (databibl='ADBA29') OR
+      (databibl='ADBA46') OR
+      (databibl='ADBA38') OR
+      (databibl='ADBE00')
+     );
+    return;
+  endif;
+
+// Hopp over MPO/MPX filgrupper. Gjøres manuelt
+  if ((databibl='ADBMPX') OR
+      (databibl='ADBMPO')
+     );
+    return;
+  endif;
+
+
+
+
+  command = 'CHKOBJ ' +  %TRIM(lvret) + ' OBJTYPE(*LIB)';
+  exec sql CALL QSYS2.QCMDEXC(:command) ;
+  if (sqlcode < 0);
+    return;
+  endif;
+
+
+//  if (filgruppe = 'H02');
+
+    command = 'SBMJOB CMD(CALL PGM(AG949C) PARM('+
+        quote + miljoet + quote + ' ' +
+        quote + filgruppe + quote + ' '  +
+        quote + %TRIM(lvret) + quote + ' '  +
+        quote + %TRIM(tabell) + quote + ' '  +
+        quote + valg + quote + ' '  +
+       quote + versjon + quote  + '))' +
+        '  JOBPTY(3) JOBQ(QGPL/EG_SQL) JOB(AG949' + filgruppe + ')  +
+          CCSID(277) USER(' +usr+')' ;
+
+    exec sql CALL QSYS2.QCMDEXC(:command) ;
+
+//  endif;
+
+end-proc ;
+
+dcl-proc BehandleSQL ;
+  DCL-PI *N;
+    miljoet   char(3) const;
+    filgruppe char(3) const;
+    versjon   char(3) const;
+    databibl  char(10) const;
+    lvret     char(10) const;
+    usr       char(7) const;
+    valg      char(2)  const;
+    tabell    char(10) const;
+  END-PI;
+
+  dcl-c  quote const('''');
+  dcl-s command char(500) ;
+
+  if (  (miljoet = *blank)
+     or (filgruppe=*blank)
+     or (versjon=*blank)
+     or (databibl=*blank)
+     or (lvret=*blank)
+     or (usr=*blank)
+     );
+    return;
+  endif;
+
+  // LVR må finnes
+  command = 'CHKOBJ ' +  %TRIM(lvret) + ' OBJTYPE(*LIB)';
+  exec sql CALL QSYS2.QCMDEXC(:command) ;
+  if (sqlcode < 0);
+    return;
+  endif;
+
+  command = 'SBMJOB CMD(CALL PGM(AG948C) PARM('+
+      quote + miljoet + quote + ' ' +
+      quote + filgruppe + quote + ' '  +
+      quote + %TRIM(lvret) + quote + ' '  +
+      quote + %TRIM(tabell) + quote + ' '  +
+      quote + valg + quote + ' '  +
+     quote + versjon + quote  + '))' +
+      '  JOBPTY(3) JOBQ(QGPL/EG_SQL) JOB(AG948' + filgruppe + ')  +
+        CCSID(277) USER(' +usr+')' ;
+
+  exec sql CALL QSYS2.QCMDEXC(:command) ;
+
+end-proc ;
+

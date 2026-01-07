@@ -1,0 +1,489 @@
+     h option(*nodebugio) datedit(*dmy)
+     h decedit('0.')
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : RV001R
+      * Beskrivelse . . : Leser linjer fra FOVF til kommaseparert til
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+7.04  * 7.00  281022 mst  Sjekker også firma=000 vedr. bilagskode
+      * ----- ------ ---- -------------------------------------------------
+      *       030522 sst  Nytt program Visma / Global
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     flovfl1    ip   e           k disk
+     fsohel1    if   e           k disk    rename(sohepfr:sohel1r)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     faforl1    if   e           k disk    rename(aforpfr:aforl1r)
+     frb10l1    if   e           k disk    rename(rb10pfr:rb10l1r)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+     frb00l1    if   e           k disk    rename(rb00pfr:rb00l1r)
+      *
+      *
+     frv01pf    o    e           k disk
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_firm                944    946  0
+      *
+     d w_pste          s             30
+     d xxbilk          s              5  0
+      *
+     d w_dato_alf      s              6
+     d w_dato_al1      s              6
+     d w_dato_al2      s              6
+      * Datastruktur for forfallsdato
+     d                 ds
+     d d_fdat                  1      6  0
+     d  d_fa1                  1      1  0
+     d  d_fag                  1      2  0
+     d  d_fnd                  3      4  0
+     d  d_far                  5      6  0
+      *
+     d                 ds
+     d d_fdati                 1     10
+     d  d_fa                   1      4
+     d  d_f1                   5      5
+     d  d_fn                   6      7
+     d  d_f2                   8      8
+     d  d_fd                   9     10
+     d*
+      *
+      * Datastruktur for bilagsdato
+     d                 ds
+     d d_date                  1      6  0
+     d  d_da1                  1      1  0
+     d  d_dag                  1      2  0
+     d  d_mnd                  3      4  0
+     d  d_aar                  5      6  0
+      *
+     d                 ds
+     d d_dati                  1     10
+     d  d_aa                   1      4
+     d  d_a1                   5      5
+     d  d_mn                   6      7
+     d  d_a2                   8      8
+     d  d_dd                   9     10
+      *
+      * Datastruktur for postted
+     d                 ds
+     d d_pste                  1     30
+     d  d_ps1                  6     30
+      *
+      * Variabler for nøkler
+      *
+     d votyl1_otyp     s                   like(vaotyp)
+     d aforl1_ruti     s                   like(afruti)
+     d rb10l1_gkod     s                   like(raakod)
+      *
+     d rlevl1_levr     s                   like(rllevr)
+     d w_firm          s                   like(sofirm)
+     d w_aarr          s                   like(soaarr)
+     d w_levr          s                   like(rllevr)
+     d w_binr          s                   like(sobinr)
+     d w_avde          s                   like(lgdavd)
+     d w_mkod          s                   like(lgdmom)
+     d w_mkodn         s              2
+     d w_fnutt         s              1    inz('"')
+     d w_ponr          s              4
+     d w_grns          s             11  2
+     d*
+     d wkalfa          s                   like(rlalfa)
+     d w2navn          s                   like(rlnavn)
+     d w2fnav          s                   like(rlnavn)
+     d wknavu          s                   like(rlnavn)
+     d w_posm          s              2  0
+     d*w_lnavn         s                   like(rlnavn)
+     d w_lnav          s                   like(rlnavn)
+     d w_ladr1         s                   like(rlgate)
+     d w_ladr2         s                   like(rladr2)
+     d w_lposn         s              4
+     d w_lposs         s                   like(rlsted)
+  nu d*w_kidr          s              6  0
+  nu d w_kidr          s              8  0
+     d w_kidd          s                   like(sokidd)
+     d w_kid2          s                   like(sokidd)
+     d t1kkid          s             23
+      *
+     d b_kkid          s              1    inz(*off)
+     d rb00l1_gkod     s                   like(r00kod)
+     d w_type          s             10
+      *
+      *
+     c                   if        l_firm <> lgfirm
+     c                   goto      slutt
+     c                   endif
+     c* Blanker felt
+     c                   eval      d_dati  = *blanks
+     c                   eval      d_fdati = *blanks
+     c**                 eval      w_lnavn = *blanks
+     c                   eval      w_lnav  = *blanks
+     c                   eval      wknavu  = *blanks
+     c                   eval      w_posm  = *zeros
+     c                   eval      w2fnav  = *blanks
+     c                   eval      wkalfa  = *blanks
+     c                   eval      w2navn  = *blanks
+     c                   eval      w_ladr1 = *blanks
+     c                   eval      w_ladr2 = *blanks
+     c                   eval      w_lposn = *blanks
+     c                   eval      w_lposs = *blanks
+      *
+      * Moms kode
+     c                   if        lgdmom = *blank
+     c                   eval      w_mkod = lgcmom
+     c                   else
+     c                   eval      w_mkod = lgdmom
+     c                   endif
+     c                   move      w_mkod        w_mkodn
+      * Sjekker om momskode  skal konverteres
+     c                   eval      w_type      = 'MVAKODE'
+     c                   move      w_mkod        rb00l1_gkod
+     c     rb00l1_key    chain     rb00l1
+     c                   if        %found
+     c*                  movel     r00nko        w_mkod
+     c                   move      r00nko        w_mkodn
+     c                   endif
+     c*
+     c*
+     c                   move      lgbdat        d_dati
+     c                   move      d_aa          d_aar
+     c                   move      d_mn          d_mnd
+     c                   move      d_dd          d_dag
+     c                   move      d_date        w_dato_al1
+     c*
+     c**********
+     c                   move      lgfdat        d_fdati
+     c                   move      d_fa          d_far
+     c                   move      d_fn          d_fnd
+     c                   move      d_fd          d_fag
+     c*
+     c                   move      d_fdat        w_dato_alf
+      *
+     c                   move      udate         w_dato_al2
+      *
+      *
+      * Finner data fra faktura-hode og levrereg
+     c                   exsr      control_init
+      * Sjekker om bilagstype skal konverteres
+     c                   eval      xxbilk = lgbilk
+     c                   eval      rb10l1_gkod = lgbilk
+     c     rb10l1_key    chain     rb10l1
+     c                   if        %found
+     c                   eval      xxbilk = rankod
+7.04 c                   else
+7.04 c                   eval      w_firm = *zeros
+7.04 c     rb10l1_key    chain     rb10l1
+7.04 c                   if        %found
+7.04 c                   eval      xxbilk = rankod
+7.04 c                   endif
+     c                   endif
+      *
+      *
+     c                   move      rlponr        w_ponr
+     c                   z-add     *zero         w_grns
+     c*
+     c                   if        lgdavd = *zeros
+     c                   eval      w_avde = lgcavd
+     c                   else
+     c                   eval      w_avde = lgdavd
+     c                   endif
+     c*
+     c                   eval      d_pste = rlsted
+     c                   eval      w_pste = d_ps1
+     c*
+     c**********
+     c                   eval      rvdata = *blank
+      * Trans.type
+     c                   eval      rvdata =  %char(1)        + ',' +
+      * Post.dato
+     c                                     %trim(w_dato_al2) + ',' +
+      * Bilagsnr.
+     c                                     %char(lgbiln)     + ',' +
+      * Bil.dato
+     c                                     %trim(w_dato_al1) + ',' +
+      * Bil.art ??????
+     c**                                   %char(lgbilk)     + ',' +
+     c                                     %char(xxbilk)     + ',' +
+      * Bil.tekst
+     c                               '"'+  %trim(lgtext) + '"' + ',' +
+      * Avdeling
+     c                                     %char(w_avde)     + ',' +
+      * Prosjektnr.
+     c**                                   %char(lgproj)     + ',' +
+     c                                     %trim(lgproj)     + ',' +
+      * Deb.konto
+     c                                     %char(lgdkto)     + ',' +
+      * Kred.konto
+     c                                     %char(lgckto)     + ',' +
+     c*
+      * MVA-kode deb???????
+     c*                                    %trim(w_mkod)     + ',' +
+     c                                     %trim(w_mkodn)    + ',' +
+      * Valutakode
+     c                                     %char(0)          + ',' +
+      * Valutakurs
+     c                                     %char(0)          + ',' +
+      * Valutabeløp
+     c                                     %char(lgvalb)     + ',' +
+      * Beløp på linje
+     c                                     %char(lgbelp)     + ',' +
+      * Motbilagsnr ???????
+     c                                     %char(0)          + ',' +
+      * Forf.dato
+     c                                     %trim(w_dato_alf) + ',' +
+      * Kjedenummer
+     c                                     %char(0)          + ',' +
+      * Mengde
+     c                                     %char(lgmngd)     + ',' +
+      * Kid nr ???????
+     c                               '"'+  %trim(t1kkid) + '"' + ',' +
+      * Avgifts klasse ???????
+     c                                     %char(0)          + ',' +
+      * Hovedbokskto levre ????
+     c                                     %char(lgkund)     + ',' +
+      * Lev.fakturanr.
+     c                               '"'+  %trim(w_fnutt)    + ',' +
+      * Remittance no.
+     c                                     %char(0)          + ',' +
+      * Produktnr.
+     c                                     %char(0)          + ',' +
+      * Medarbeidernr.
+     c                                     %char(0)          + ',' +
+      * Ekstra 1 nr
+     c                                     %char(0)          + ',' +
+      * Ekstra 2 nr
+     c                                     %char(0)          + ',' +
+      * Ekstra 3 nr
+     c                                     %char(0)          + ',' +
+      * Ekstra 4 nr
+     c                                     %char(0)          + ',' +
+      * levrenr
+     c                                     %char(lgkund)     + ',' +
+      * Kjedenr
+     c                                     %char(0)          + ',' +
+      * Navn
+     c**                             '"'+  %trim(rlnavn) + '"' + ',' +
+     c                               '"'+  %trim(wknavu) + '"' + ',' +
+      * Adresse 1
+     c                               '"'+  %trim(rlgate) + '"' + ',' +
+      * Adresse 2
+     c                               '"'+  %trim(rladr2) + '"' + ',' +
+      * Postnr
+     c                               '"'+  %trim(w_ponr) + '"' + ',' +
+      * Poststed
+     c                               '"'+  %trim(w_pste) + '"' + ',' +
+      * Skipalfa
+     c                               '"'+  %trim(w_fnutt)    + ','   +
+      * Telefon
+     c                               '"'+  %trim(rltlfn) + '"' + ',' +
+      * Telefax
+     c                               '"'+  %trim(rltlfx) + '"' + ',' +
+      * Alfa sort. navn
+     c**                             '"'+  %trim(rlalfa) + '"' + ',' +
+     c                               '"'+  %trim(wkalfa) + '"' + ',' +
+      * Postkto nr.
+     c                               '"'+  %trim(w_fnutt)    + ','   +
+      * Bankkonto ?????????
+     c***                            '"'+  %trim(rlbgir) + '"' + ','    +
+     c                               '"'+  %char(rlbgir) + '"' + ','    +
+      * Kredittgrense
+     c                                     %char(w_grns)     + ','   +
+      * Lev.navn  ?????????
+     c**                             '"'+  %trim(w_lnavn) + '"' + ','   +
+     c                               '"'+  %trim(w_lnav) + '"' + ','    +
+      * Lev.adr.1 ?????????
+     c                               '"'+  %trim(w_ladr1) + '"' + ','   +
+      * Lev.adr.2 ?????????
+     c                               '"'+  %trim(w_ladr2) + '"' + ','   +
+      * Lev.postn ?????????
+     c                               '"'+  %trim(w_lposn) + '"'  + ','  +
+      * Lev.poststed ??????
+     c                               '"'+  %trim(w_lposs) + '"'  + ','   +
+      * Medarb.nr på levren???
+     c                                     %char(0)          + ',' +
+      * Distrikt
+     c                                     %char(rldist)     + ',' +
+      * Betalingsbet
+     c                                     %char(rlbetb)     + ',' +
+      * Skipnum????
+     c                                     %char(0)          + ',' +
+      * levretype
+     c                                     %char(0)          + ',' +
+      * Rabattgr./bet.profiler
+     c                                     %char(rlrabk)     + ',' +
+      * Behandlingsprofiler
+     c                                     %char(0)          + ','
+     c************************************************************************
+     c*    'Æ':X'46'     xlate     nsdata        nsdata
+     c*    'æ':X'A0'     xlate     nsdata        nsdata
+     c*    'Ø':X'77'     xlate     nsdata        nsdata
+     c*    'ø':X'90'     xlate     nsdata        nsdata
+     c*    'Å':X'2A'     xlate     nsdata        nsdata
+     c*    'å':X'EF'     xlate     nsdata        nsdata
+     c                   write     rv01pfr
+      *
+     c                   eval      t1kkid = *blanks
+      *
+     c     slutt         tag
+      *
+     c     dd999         tag
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å finne  data på hist.faktura, levre mm.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     control_init  begsr
+      *
+     c                   eval      w_firm = lgfirm
+     c                   eval      w_binr = lgbiln
+     c                   move      d_aa          w_aarr
+      * Finner siste faktura-hode for faktura
+      *
+     c*    sohel1_key    setll     sohel1
+     c*    sohel1_key    reade     sohel1                                 90
+     c*                  if        *in90 = *on
+     c*                  goto      avslutt
+     c*                  endif
+      *
+     c*                  dow       *in90 = *off
+     c*    sohel1_key    reade     sohel1                                 90
+     c*                  enddo
+      *
+     c*    avslutt       tag
+      * Henter lev.adresse dersom fyllt ut
+     c*                  if        solkun  <> *zeros
+     c*                  eval      rlevl1_levr = solkun
+     c*    rlevl1_key    chain     rlevl1                             90
+      * Sjekker om det ligger ',' i leveringsnavn
+     c*                  eval      w_posm = 0
+     c*                  eval      w_posm = %scan(',':rlnavn)
+      *
+     c*                  if        w_posm > 0 and
+     c*                            w_posm < 29
+     c*                  eval      w2navn = %subst(rlnavn:1:w_posm - 1)
+     c*                  eval      w2fnav = %subst(rlnavn:w_posm + 2)
+     c*                  eval      w_lnav = %trim(w2navn) + ' ' + %trim(w2fnav)
+     c*                  else
+     c*                  eval      w_lnav = rlnavn
+     c*                  endif
+     c*                  eval      w_ladr1     = rlgate
+     c*                  eval      w_ladr2     = rladr2
+     c*                  move      rlponr        w_lposn
+     c*                  eval      w_lposs     = rlsted
+     c*                  endif
+      * Henter levrenavn
+      *
+     c                   eval      rlevl1_levr = lgkund
+     c     rlevl1_key    chain     rlevl1                             90
+      *
+      * Sjekker om det ligger ',' i levrenavn
+     c                   eval      w_posm = 0
+     c                   eval      w_posm = %scan(',':rlnavn)
+      *
+     c                   if        w_posm > 0 and
+     c                             w_posm < 29
+     c                   eval      w2navn = %subst(rlnavn:1:w_posm - 1)
+     c                   eval      w2fnav = %subst(rlnavn:w_posm + 2)
+     c                   eval      wknavu = %trim(w2navn) + ' ' + %trim(w2fnav)
+     c                   else
+     c                   eval      wknavu = rlnavn
+     c                   endif
+      *
+      *
+      * Sjekker om det ligger ',' i alfafelt
+     c                   eval      w_posm = 0
+     c                   eval      w_posm = %scan(',':rlalfa)
+      *
+     c                   if        w_posm > 0 and
+     c* 6.25                       w_posm < 29
+     c                             w_posm < 17
+     c                   eval      w2navn = %subst(rlalfa:1:w_posm - 1)
+     c                   eval      w2fnav = %subst(rlalfa:w_posm + 2)
+     c                   eval      wkalfa = %trim(w2navn) + ' ' + %trim(w2fnav)
+     c                   else
+     c                   eval      wkalfa = rlalfa
+     c                   endif
+      *
+      *
+      * Henter rutine fra ordretype
+      *
+     c                   eval      b_kkid = *off
+     c                   eval      votyl1_otyp = sootyp
+     c     votyl1_key    chain     votyl1
+     c                   if        %found(votyl1)   and
+     c                             vaorut <> *blank
+     c                   eval      aforl1_ruti = vaorut
+     c     aforl1_key    chain     aforl1
+     c                   if        %found(aforl1) and
+     c                             afkidk = 1
+     c                   movel     sokidd        t1kkid
+     c                   else
+     c                   if        afkidk = 2
+     c                   movel     sokidr        t1kkid
+     c                   else
+     c                   if        afkidk = 3
+     c                   movel     sokidr        w_kidr
+     c                   movel     sokidr        w_kidr
+     c                   call      'AK710R'
+     c                   parm                    w_firm
+     c                   parm                    w_kidr
+     c                   parm                    w_kidd
+     c                   parm                    w_kid2
+     c                   movel     w_kid2        t1kkid
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for oppslag på faktura-hode-register
+      *
+     c     sohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_binr
+      *
+      * Key for oppslag på levre
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+      *
+      * Key for les av ordretype
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      * Key for les av rutine-register
+      *
+     c     aforl1_key    klist
+     c                   kfld                    aforl1_ruti
+      *
+      * Key for posisjonering på bilagskoder
+      *
+     c     rb10l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rb10l1_gkod
+      *
+      * Key for posisjonering på koder (moms)
+      *
+     c     rb00l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_type
+     c                   kfld                    rb00l1_gkod
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

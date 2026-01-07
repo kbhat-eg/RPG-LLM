@@ -1,0 +1,881 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : ND101R
+      * Beskrivelse . . : Ekstern ordre-linje, plukk manuelt
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       220218 bsa  Nytt program
+7.01  *       280318 bsa  Alle skal samles på samme ordre uansett leverandør.
+7.02  *       070220 bsa  Utvider kall til ND105R.
+7.03  *       100621 bof  Lagt på unlock på eddtlu
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fnodtl1    if   e           k disk    rename(nodtpfr:nodtl1r)
+     fnodtlr    if   e           k disk    rename(nodtpfr:nodtlrr)
+     fnohel1    if   e           k disk    rename(nohepfr:nohel1r)
+     fnkeolr    if   e           k disk    rename(nkeopfr:nkeolrr)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvenl1    if   e           k disk    rename(vvenpfr:vvenl1r)
+     fvltpl1    if   e           k disk    rename(vltppfr:vltpl1r)
+     fnodtlu    uf   e           k disk    rename(nodtpfr:nodtlur)
+     feddtlu    uf a e           k disk    rename(eddtpfr:eddtlur)
+     feddtl3    if   e           k disk    rename(eddtpfr:eddtl3r)
+     f                                     prefix(xx:2)
+     fedhelu    uf a e           k disk    rename(edhepfr:edhelur)
+     fvlagl1    if   e           k disk    rename(vlagpfr:vlagl1r)
+      *
+     fnd101d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(ndfirm)
+     d p_fsys          s                   like(ndfsys)
+     d p_tell          s                   like(ndtell)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d nodtl1_line     s                   like(ndline)
+     d nodtlr_line     s                   like(ndline)
+     d vvarl1_vare     s                   like(vvvare)
+     d vvenl1_vare     s                   like(vevare)
+     d vvenl1_enhe     s                   like(veenhe)
+     d vltpl1_lety     s                   like(vylety)
+     d nodtlu_line     s                   like(ndline)
+     d nkeolr_kode     s                   like(nkkode)
+     d vlagl1_lage     s                   like(vllage)
+     d vlagl1_vare     s                   like(vlvare)
+     d eddtlu_ldat     s                   like(edldat)
+     d eddtlu_line     s                   like(edline)
+     d eddtl3_line     s                   like(edline)
+     d edhelu_ldat     s                   like(eoldat)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_forn          s              1    inz(*off)
+     d b_pluk          s              1    inz(*off)
+     d b_alle          s              1    inz(*off)
+      *
+     d w_ldat          s               d   datfmt(*iso)
+      *
+     d w_firm          s                   like(ndfirm)
+     d w_fsys          s                   like(ndfsys)
+     d w_tell          s                   like(ndtell)
+     d w_ldor          s                   like(eoldor)
+     d w_in03          s              1
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(13)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * C3BLD  - C3 Skjermbilde for å vise melding/tekstlinje
+      * D1WIN  - D1 Vindu for slette (Delete)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * F13=Statuskoder
+      *
+     c                   if        *inkm
+     c                   call      'ND110R'
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Posisjonering
+      *
+     c                   if        b2line <> 0
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+      * Slette linjer som er plukket, men ikke overført
+      *
+     c                   exsr      rydd_linjer
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   eval      nodtlr_line = b1line
+     c     nodtlr_key    setll     nodtlr
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+     c                   eval      w_seqe = *blank
+      *
+      * Varenummer
+      *
+     c                   if        b2line <> 0
+     c                   eval      nodtlr_line = b2line
+     c     nodtlr_key    setll     nodtlr
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2line = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+     c                   eval      b_pluk = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * F08=Overfør valgte linjer
+      *
+     c                   if        *inkh
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Plukk
+      *
+     c                   if        b1valg = 1
+     c                   if        b1stat > 0 and
+     c                             b1stat < 5
+     c                   eval      *in31 = *on
+     c                   iter
+     c                   endif
+      * Så legger vi varer ut for videre plukking
+     c                   exsr      plukk_linje
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c**                 iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   endif
+      *
+      * F09=Vis alle linjer - skru på og av
+      *
+     c                   if        *inki
+     c                   if        b_alle = *on
+     c                   eval      b_alle = *off
+     c                   else
+     c                   eval      b_alle = *on
+     c                   endif
+     c                   eval      b_forn = *on
+     c                   eval      b_pluk = *off
+     c                   endif
+      *
+     c                   if        b_pluk = *on
+     c                   exsr      send_ordre
+     c                   endif
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle valgte linjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     plukk_linje   begsr
+      *
+     c                   eval      nodtl1_line = b1line
+     c     nodtl1_key    chain     nodtl1
+     c                   if        %found(nodtl1)
+      * Info er hentet fra eksternordrelinje
+7.01 c*                  if        ndldat <> *loval
+7.01 c*                  eval      eddtlu_ldat = noldat
+7.01 c*                  endif
+      *
+7.01 c*                  if        eddtlu_ldat = *loval
+7.01 c*                  eval      eddtlu_ldat = noldat
+7.01 c*                  endif
+      *
+7.01 c*                  if        eddtlu_ldat = *loval
+7.01 c*                  time                    eddtlu_ldat
+7.01 c*                  endif
+7.01  * tar leveringsdato fra ordrehodet
+7.01 c                   eval      eddtlu_ldat = noldat
+      *
+     c                   eval      eddtlu_line = b1line
+     c     eddtlu_key    chain     eddtlu
+     c                   if        not %found(eddtlu)
+     c                   clear                   eddtlur
+     c                   eval      edfirm = w_firm
+     c                   eval      edfsys = w_fsys
+     c                   eval      edtell = w_tell
+7.01 c**                 eval      edldor = b1ldor
+7.01 c                   eval      edldor = 0
+     c                   eval      edline = b1line
+7.01 c**                 eval      edldat = eddtlu_ldat
+7.01 c                   eval      edldat = noldat
+     c                   time                    edodat
+     c                   time                    edotim
+     c                   eval      edousr = l_user
+     c                   endif
+      * Hent vareinfo
+     c                   eval      edvare = ndvare
+     c                   eval      edenhe = ndenhe
+     c                   eval      edlety = ndlety
+     c                   eval      edtek1 = ndtek1
+     c                   eval      edtek2 = ndtek2
+     c                   eval      ednref = ndnref
+     c                   eval      edanta = ndanta
+      *
+     c                   eval      vvarl1_vare = ndvare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+     c                   eval      ednobb = vvnobb
+     c                   eval      edlvar = vvlvar
+     c                   endif
+      *
+     c                   time                    ededat
+     c                   time                    edetim
+     c                   eval      edeusr = l_user
+      *
+     c                   if        not %found(eddtlu)
+     c                   write     eddtlur
+     c                   else
+     c                   update    eddtlur
+     c                   endif
+      *
+      * Legg ut hodet hvis ikke dette finnes
+      *
+7.01 c**                 eval      edhelu_ldat = eddtlu_ldat
+7.01 c                   eval      edhelu_ldat = noldat
+     c     edhelu_key    chain     edhelu
+      *
+     c                   if        not %found
+     c                   clear                   edhelur
+     c                   eval      eofirm = w_firm
+     c                   eval      eofsys = w_fsys
+     c                   eval      eotell = w_tell
+     c                   eval      eoldor = edldor
+     c                   eval      eoldat = edhelu_ldat
+     c                   time                    eoodat
+     c                   time                    eootim
+     c                   eval      eoousr = l_user
+      *
+     c                   eval      eonref = nonref
+     c                   eval      eolage = nolage
+     c                   eval      eoavde = noavde
+     c                   eval      eouser = nouser
+     c                   eval      eokund = nokund
+     c                   eval      eoknav = noknav
+     c                   eval      eokpro = nokpro
+     c                   eval      eopnav = nopnav
+     c                   eval      eonavn = nonavn
+     c                   eval      eoadr1 = noadr1
+     c                   eval      eoadr2 = noadr2
+     c                   eval      eoponr = noponr
+     c                   eval      eosted = nosted
+     c                   eval      eolety = nolety
+     c                   eval      eodref = nodref
+     c                   eval      eorekv = norekv
+     c                   eval      eounav = nounav
+     c                   eval      eoutlf = noutlf
+     c                   eval      eoumob = noumob
+     c                   eval      eoufax = noufax
+     c                   eval      eoumai = noumai
+     c                   eval      eobdat = nobdat
+     c                   eval      eolmat = nolmat
+      *
+     c                   write     edhelur
+     c                   else
+     c                   unlock    edhelu
+     c                   endif
+      *
+     c                   eval      b_pluk = *on
+      *
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c*                  if        b1valg = 2
+     c*                  eval      b1vare = ndvare
+     c*                  eval      b1anta = ndanta
+     c*                  eval      b1enhe = ndenhe
+     c*                  eval      b1ldat = 0
+     c*                  if        ndldat <> *loval
+     c*    *dmy          move      ndldat        b1ldat
+     c*                  endif
+     c*                  exsr      hent_status
+     c*                  endif
+      *
+     c                   eval      *in30 = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle valgte linjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     send_ordre    begsr
+      *
+     c                   call      'NO122R'
+     c                   parm                    w_firm
+     c                   parm                    w_fsys
+     c                   parm                    w_tell
+     c                   parm                    w_ldor
+     c                   parm                    w_in03
+      *
+      * Hvis F3 eller F12 er tastet, rydd opp i "plukkede" linjer
+      *
+     c                   if        w_in03 = '1'
+      *
+      * Sletter ekstern ordre-hode
+      *
+     c**                 eval      edhelu_tell = w_tell
+     c**                 eval      edhelu_fsys = w_fsys
+     c**                 eval      edhelu_ldor = 0
+     c                   eval      edhelu_ldat = *loval
+     c     edhelu_key    setll     edhelu
+     c     edhelu_key3   reade     edhelur
+     c                   dow       not %eof
+     c                   if        eonumm = 0
+     c                   delete    edhelur
+      *
+      * Sletter tilhørende ekstern ordre-linjer
+      *
+     c**                 eval      eddtlu_tell = w_tell
+     c**                 eval      eddtlu_fsys = w_fsys
+     c                   eval      w_ldor = eoldor
+     c                   eval      eddtlu_ldat = eoldat
+     c                   eval      eddtlu_line = 0
+     c     eddtlu_key    setll     eddtlu
+     c     eddtlu_key2   reade     eddtlur
+     c                   dow       not %eof
+     c                   if        edonum = 0
+     c                   delete    eddtlur
+7.03 c                   else
+7.03 c                   unlock    eddtlu
+7.03 c                   endif
+     c     eddtlu_key2   reade     eddtlur
+     c                   enddo
+      *
+     c                   endif
+      *
+     c     edhelu_key3   reade     edhelur
+     c                   enddo
+      *
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å rydde opp i linjer som ikke er overført
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     rydd_linjer   begsr
+      *
+     c     edhelu_key    setll     eddtlu
+     c     edhelu_key    reade     eddtlu
+     c                   dow       not %eof
+     c                   if        edonum = 0
+     c                   delete    eddtlur
+     c                   else
+     c                   unlock    eddtlu
+     c                   endif
+     c     edhelu_key    reade     eddtlu
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      nodtlr
+      *
+     c                   if        %eof or
+     c                             ndfirm <> w_firm or
+     c                             ndfsys <> w_fsys or
+     c                             ndtell <> w_tell
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      eddtl3_line = ndline
+     c     eddtl3_key    chain     eddtl3
+     c                   if        %found
+     c                   if        xxonum  <> 0 and
+     c                             b_alle = *off
+     c                   goto      les_neste
+     c                   endif
+     c                   else
+     c                   eval      xxonum = 0
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      nodtlr_line = ndline
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1line = ndline
+     c                   eval      b1vare = ndvare
+     c                   eval      b1tek1 = ndtek1
+     c                   eval      b1anta = ndanta
+     c                   eval      b1enhe = ndenhe
+     c                   eval      b1stat = 0
+     c                   eval      b1ldor = 0
+      * Hent leverandør fra varereg.
+     c                   eval      vvarl1_vare = ndvare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+     c                   eval      b1ldor = vvldor
+     c                   endif
+      * Bruk leverandør fra lagerreg hvis finnes
+     c                   eval      vlagl1_vare = ndvare
+     c                   eval      vlagl1_lage = nolage
+     c     vlagl1_key    chain     vlagl1
+     c                   if        %found and
+     c                             vlbldo <> 0
+     c                   eval      b1ldor = vlbldo
+     c                   endif
+      *
+     c                   if        xxonum <> 0
+     c                   eval      b1over = '1'
+     c                   else
+     c                   eval      b1over = '0'
+     c                   endif
+      *
+     c                   if        ndldat <> *loval
+     c     *dmy          move      ndldat        b1ldat
+     c                   elseif    noldat <> *loval
+     c     *dmy          move      noldat        b1ldat
+     c                   else
+     c     *dmy          move      w_ldat        b1ldat
+     c                   endif
+      *
+     c                   exsr      hent_status
+      *
+     c                   write     b1sfl
+      *
+     c     les_neste     tag
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     nodtlr_key    setgt     nodtlr
+     c                   readp     nodtlr
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     nodtlr
+      *
+     c                   if        %eof or
+     c                             ndfirm <> w_firm or
+     c                             ndfsys <> w_fsys or
+     c                             ndtell <> w_tell
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      nodtlr_line = ndline
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     nodtlr_key    setll     nodtlr
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å hente statuskode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_status   begsr
+      *
+      * Henter feilstatus fra ekstern ordre-linje
+      *
+     c                   call      'ND105R'
+     c                   parm                    w_firm
+     c                   parm                    b1stat
+     c                   parm                    nolage
+     c                   parm                    ndvare
+     c                   parm                    ndtek1
+     c                   parm                    ndanta
+     c                   parm                    ndenhe
+     c                   parm                    ndlety
+     c                   parm                    ndldat
+7.02 c                   parm                    ndfsys
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_fsys
+     c                   parm                    p_tell
+      *
+      * Key for posisjonering på linjenummer
+      *
+     c     nodtlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_fsys
+     c                   kfld                    w_tell
+     c                   kfld                    nodtlr_line
+      *
+      * Key for posisjonering på linjenummer
+      *
+     c     nodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_fsys
+     c                   kfld                    w_tell
+     c                   kfld                    nodtl1_line
+      *
+      *
+      * Key for oppslag på ekstern ordre-hode
+      *
+     c     nohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_fsys
+     c                   kfld                    w_tell
+      *
+      * Key for oppslag på vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for oppslag på vare-enhet
+      *
+     c     vvenl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl1_vare
+     c                   kfld                    vvenl1_enhe
+      *
+      * Key for oppslag på leveringstype
+      *
+     c     vltpl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltpl1_lety
+      *
+      * Key for oppdatering av ekstern ordre-linje
+      *
+     c     nodtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_fsys
+     c                   kfld                    w_tell
+     c                   kfld                    nodtlu_line
+      *
+      * Key for henting av ekstern ordrekode
+      *
+     c     nkeolr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    nkeolr_kode
+      *
+      * Key for henting av lagerinfo
+      *
+     c     vlagl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlagl1_vare
+     c                   kfld                    vlagl1_lage
+      *
+      * Key for legge ut ordrelinjer
+      *
+     c     eddtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_fsys
+     c                   kfld                    w_tell
+     c                   kfld                    w_ldor
+     c                   kfld                    eddtlu_ldat
+     c                   kfld                    eddtlu_line
+      *
+      * Key for oppdatering av ekstern ordre-linje
+      *
+     c     eddtlu_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_fsys
+     c                   kfld                    w_tell
+     c                   kfld                    w_ldor
+     c                   kfld                    eddtlu_ldat
+      *
+      * Key for legge ut ordrelinjer
+      *
+     c     eddtl3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_fsys
+     c                   kfld                    w_tell
+     c                   kfld                    eddtl3_line
+      *
+      * Key for legge ut ordrelinjer
+      *
+     c     edhelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_fsys
+     c                   kfld                    w_tell
+     c                   kfld                    w_ldor
+     c                   kfld                    edhelu_ldat
+      *
+      * Key for oppdatering av ekstern ordre-hode
+      *
+     c     edhelu_key3   klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_fsys
+     c                   kfld                    w_tell
+      *
+      * Henter firma og referanse fra parameter
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      w_fsys = p_fsys
+     c                   eval      w_tell = p_tell
+     c                   eval      w_ldor = 0
+     c                   time                    w_ldat
+      *
+      * Initierer skjermbildet
+      *
+     c                   eval      *in22 = *on
+      *
+     c                   eval      nkeolr_kode = w_fsys
+     c     nkeolr_key    chain     nkeolr
+      *
+     c     nohel1_key    chain     nohel1
+      *
+     c                   eval      b2nref = nonref
+     c                   eval      b2knav = noknav
+     c                   eval      b2kund = nokund
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      nodtlr_line = 0
+     c     nodtlr_key    setll     nodtlr
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

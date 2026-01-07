@@ -1,0 +1,800 @@
+     H DFTACTGRP(*NO) ACTGRP(*NEW)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : VV820R
+      * Beskrivelse . . : Hovedprogam  for XML fra SOLVE
+      *
+      *                   Leser katalog hvor SOLVE XML filer finnes.
+      *                   XML filene sorteres og behandles i "rett" rekkefølge,
+      *                   dvs sortert på filnavn (som er et tall)
+      *                   Etter behandling lages kvitteringsfil og innlest XML
+      *                   flyttes til en annen katalog
+      *                   Til slutt slettes gamle innlest XML
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       020519 BKV  Nytt program (kopi av JV860R)
+7.01  * 7.01  080819 BKV  Fjernet modul
+7.02  * 7.01  191219 bof  Lagt inn kampanje
+7.03  * 7.01  050520 bof  Tatt inn modul
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fafpslr    if   e           k disk    rename(afpspfr:afpslrr)
+     f                                     infsr(FileErr)
+     fjstsl1    if   e           k disk    rename(jstspfr:jstsl1r)
+     f                                     infsr(FileErr)
+     fjstslu    uf   e           k disk    rename(jstspfr:jstslur)
+     f                                     infsr(FileErr)
+      *
+     d dirBaseNavn     s            256a   Varying
+     d dirFInnNavn     s            256a   Varying
+     d dirFLestNavn    s            256a   Varying
+     d dirFKvitNavn    s            256a   Varying
+     d dirInnNavn      s              4a   Inz('inn/')
+     d dirSolveKonf    s             10a   Inz('SLVEVRXML')
+     d dirKvitNavn     s              5a   Inz('kvit/')
+     d dirLestNavn     s              5a   Inz('lest/')
+     d dirFeilNavn     s              5a   Inz('feil/')
+     d kvitExt         s              3a   Inz('txt')
+     d vareFnavn       s              4a   Inz('arti')
+7.03 d modulFnavn      s              4a   Inz('modu')
+     d prisFnavn       s              4a   Inz('pric')
+7.02 d kampFnavn       s              4a   Inz('camp')
+     d grupFnavn       s              4a   Inz('grou')
+     d deltFnavn       s              4a   Inz('LEVE')
+     d prodFnavn       s              4a   Inz('PROD')
+     d enheFnavn       s              4a   Inz('unit')
+     d typeFNavn       s             10a   varying
+     d fnavnStart      s              2  0 inz(16)
+     d fnavnLen        s              2  0 inz(4)
+      *
+     d b_ferd          s              1    inz(*off)
+      *
+      * Definering av variabler i nøkler
+      *
+     d afpslr_ufil     s                   like(l_filg)
+     d afpslr_uide     s                   like(afuide)
+      *
+      * Definering av tabell med meldinger
+     d a_meld          s            100    dim(3) ctdata perrcd(1)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s              3  0
+     d p_stat          s              1
+      * Brukes som parametre til jobblogging
+     d p_jnav          s             15
+     d p_jbid          s             41
+     d p_jtxt          s             35
+     d p_jsts          s              2  0
+     d p_jmld          s            200
+     d w_xmlf          s              5  0
+     d w_xmlk          s              5  0
+      *
+      * Definering av Local Data Area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_filg                931    933
+      *
+     d w_firm          s              3  0
+      *
+      * kode for å lese filer og kataloger er hentet fra her:
+      *   http://www.scottklement.com/rpg/ifs_ebook/ifs_ebook.html
+      ** API call to open a stream file
+      **
+     d open            PR            10I 0 extproc('open')
+     d   path                          *   value options(*string)
+     d   oflag                       10I 0 value
+     d   mode                        10U 0 value options(*nopass)
+     d   codepage                    10U 0 value options(*nopass)
+      **********************************************************************
+      *  Flags for use in open()
+      *
+      * More than one can be used -- add them together.
+      **********************************************************************
+      *  00000000000000000000000000000001          Reading Only
+     d O_RDONLY        C                   1
+      *  00000000000000000000000000000010          Writing Only
+     d O_WRONLY        C                   2
+      *  00000000000000000000000000000100          Reading & Writing
+     d O_RDWR          C                   4
+      *  00000000000000000000000000001000          Create File if needed
+     d O_CREAT         C                   8
+      *  00000000000000000000000000010000          Exclusively create --
+      *                                              open will fail if it
+      *                                              already exists.
+     d O_EXCL          C                   16
+      *  00000000000000000000000000100000          Assign a CCSID to new
+      *                                            file.
+     d O_CCSID         C                   32
+      *  00000000000000000000000001000000          Truncate file to 0 bytes
+     d O_TRUNC         C                   64
+      *  00000000000000000000000100000000          Append to file
+      *                                            (write data at end only)
+     d O_APPEND        C                   256
+      *  00000000000000000000010000000000          Synchronous write
+     d O_SYNC          C                   1024
+      *  00000000000000000000100000000000          Sync write, data only
+     d O_DSYNC         C                   2048
+      *  00000000000000000001000000000000          Sync read
+     d O_RSYNC         C                   4096
+      *  00000000000000001000000000000000          No controlling terminal
+     d O_NOCTTY        C                   32768
+      *  00000000000000010000000000000000          Share with readers only
+     d O_SHARE_RDONLY  C                   65536
+      *  00000000000000100000000000000000          Share with writers only
+     d O_SHARE_WRONLY  C                   131072
+      *  00000000000001000000000000000000          Share with read & write
+     d O_SHARE_RDWR    C                   262144
+      *  00000000000010000000000000000000          Share with nobody.
+     d O_SHARE_NONE    C                   524288
+      *  00000000100000000000000000000000          Assign a code page
+     d O_CODEPAGE      C                   8388608
+      *  00000001000000000000000000000000          Open in text-mode
+     d O_TEXTDATA      C                   16777216
+      /if defined(*V5R2M0)
+      *  00000010000000000000000000000000          Allow text translation
+      *                                            on newly created file.
+      * Note: O_TEXT_CREAT requires all of the following flags to work:
+      *           O_CREAT+O_TEXTDATA+(O_CODEPAGE or O_CCSID)
+     d O_TEXT_CREAT    C                   33554432
+      /endif
+      *  00001000000000000000000000000000          Inherit mode from dir
+     d O_INHERITMODE   C                   134217728
+      *  00100000000000000000000000000000          Large file access
+      *                                            (for >2GB files)
+     d O_LARGEFILE     C                   536870912
+
+     d RW              C                   6
+     d R               C                   4
+     d OWNER           C                   64
+     d GROUP           C                   8
+
+      ** API call to write data to a stream file
+      **
+     d write           PR            10I 0 extproc('write')
+     d   fildes                      10I 0 value
+     d   buf                           *   value
+     d   nbyte                       10U 0 value
+      ** API call to close a stream file
+      **
+     d close           PR            10I 0 extproc('close')
+     d   fildes                      10I 0 value
+
+      *--------------------------------------------------------------------
+      * Rename File or Directory
+      *
+      * int rename(const char *old, const char *new)
+      *
+      *  Note: By defailt, if a file with the new name already exists,
+      *        rename will fail with an error.  If you define
+      *        RENAMEUNLINK and a file with the new name already exists
+      *        it will be unlinked prior to renaming.
+      *--------------------------------------------------------------------
+      /if defined(RENAMEUNLINK)
+     d rename          PR            10I 0 ExtProc('Qp0lRenameUnlink')
+     d   old                           *   Value options(*string)
+     d   new                           *   Value options(*string)
+      /else
+     d rename          PR            10I 0 ExtProc('Qp0lRenameKeep')
+     d   old                           *   Value options(*string)
+     d   new                           *   Value options(*string)
+      /endif
+
+      * dirent structure http://www.scottklement.com/rpg/ifs_ebook/ifs_ebook.html
+      *
+     d p_dirent        s               *
+     d dirent          ds                  based(p_dirent)
+     d   d_reserved1                 16A
+     d   d_fileno_gen_id...
+     d                               10U 0
+     d   d_fileno                    10U 0
+     d   d_reclen                    10U 0
+     d   d_reserved3                 10I 0
+     d   d_reserved4                  8A
+     d   d_nlsinfo                   12A
+     d     nls_ccsid                 10I 0 OVERLAY(d_nlsinfo:1)
+     d     nls_cntry                  2A   OVERLAY(d_nlsinfo:5)
+     d     nls_lang                   3A   OVERLAY(d_nlsinfo:7)
+     d     nls_reserv                 3A   OVERLAY(d_nlsinfo:10)
+     d   d_namelen                   10U 0
+     d   d_name                     640A
+      *
+      * sjekk http://www.scottklement.com/rpg/ifs_ebook/ifs_ebook.html
+     d p_statds        S               *
+     d statds          DS                  BASED(p_statds)
+     d  st_mode                      10U 0
+     d  st_ino                       10U 0
+     d  st_nlink                      5U 0
+     d  st_pad                        2A
+     d  st_uid                       10U 0
+     d  st_gid                       10U 0
+     d  st_size                      10I 0
+     d  st_atime                     10I 0
+     d  st_mtime                     10I 0
+     d  st_ctime                     10I 0
+     d  st_dev                       10U 0
+     d  st_blksize                   10U 0
+     d  st_allocsize                 10U 0
+     d  st_objtype                   12A
+     d  st_codepage                   5U 0
+     d  st_reserved1                 62A
+     d  st_ino_gen_id                10U 0
+      *
+     d filnavn         S           1024A   varying
+     d fnmedkat        S           2048A   varying
+     d mystat          S                   like(statds)
+     d epoch           S               Z   inz(z'1970-01-01-00.00.00.000000')
+     d lagetdato       S               Z
+     d fildato         S               D
+     d mytime          S               T
+     d w_slett_d       S               D
+      *
+      *--------------------------------------------------------------------
+      * Open a Directory
+      *
+      * DIR *opendir(const char *dirname)
+      *--------------------------------------------------------------------
+     d opendir         PR              *   EXTPROC('opendir')
+     d  dirname                        *   VALUE options(*string)
+      *
+      *--------------------------------------------------------------------
+      * Close a directory
+      *
+      * int closedir(DIR *dirp)
+      *--------------------------------------------------------------------
+     d closedir        PR            10I 0 EXTPROC('closedir')
+     d  dirhandle                      *   VALUE
+      *
+      *--------------------------------------------------------------------
+      * Read Directory Entry
+      *
+      * struct dirent *readdir(DIR *dirp)
+      *--------------------------------------------------------------------
+     D readdir         PR              *   EXTPROC('readdir')
+     D  dirp                           *   VALUE
+      *
+      *--------------------------------------------------------------------
+      * Delete/unlik a file
+      *
+      * int unlink(DIR *dirp)
+      *--------------------------------------------------------------------
+     D unlink          PR            10I 0 ExtProc('unlink')
+     D   path                          *   Value options(*string)
+
+      *--------------------------------------------------------------------
+      * Change Directory
+      *
+      * int chdir(const char *path)
+      *--------------------------------------------------------------------
+     D chdir           PR            10I 0 ExtProc('chdir')
+     D   path                          *   Value Options(*string)
+      *
+      *
+     D stat            PR            10I 0 ExtProc('stat')
+     D   path                          *   value options(*string)
+     D   buf                           *   value
+      *
+      *
+     D fd              S             10I 0
+     D sisteDato       s             10a
+     D oppdatSts       s              1  0 inz(0)
+      *
+     D dir             s               *
+     D dlengde         S             10i 0
+      *
+      * array med alle xml filer
+     d w_batch         s              4  0 inz(2000)
+     D katV            ds                  Qualified Dim(2000)
+     D  fnavn                        50a
+     D  dnavn                       200a
+     D  fnavnP                      250a
+     D  flen                         10i 0
+     D  fplen                         3i 0
+      *
+     D numF            s             10i 0
+     d i               s              5  0
+
+     D filen           s            200a
+     D filenEtter      s            200a   varying
+     D filenFeil       s            200a   varying
+     D filenKvitt      s            200a   varying
+
+     D P_EnheXml       PR                  ExtPgm('VV821R')
+     D   filNavn                    255    options(*varsize)
+     D   lengde                       3p 0 const
+     D   sisteDato                   10a
+     D   oppdatSts                    1p 0 const
+
+     D P_VareXml       PR                  ExtPgm('VV822R')
+     D   filNavn                    255    options(*varsize)
+     D   lengde                       3p 0 const
+     D   sisteDato                   10a
+     D   oppdatSts                    1p 0 const
+
+7.02 D P_KampXml       PR                  ExtPgm('VT741R')
+7.02 D   filNavn                    255    options(*varsize)
+7.02 D   lengde                       3p 0 const
+7.02 D   sisteDato                   10a
+7.02 D   oppdatSts                    1p 0 const
+7.02  *
+     D P_ModulXml      PR                  ExtPgm('VV823R')
+     D   filNavn                    255    options(*varsize)
+     D   lengde                       3p 0 const
+     D   sisteDato                   10a
+      *
+     D P_PrisXml       PR                  ExtPgm('VV825R')
+     D   filNavn                    255    options(*varsize)
+     D   lengde                       3p 0 const
+     D   sisteDato                   10a
+      *
+     D P_VarGXml       PR                  ExtPgm('VV824R')
+     D   filNavn                    255    options(*varsize)
+     D   lengde                       3p 0 const
+     D   sisteDato                   10a
+      **
+     D* P_DeltXml       PR                  ExtPgm('JV868R_XML')
+     D*   filNavn                    255    options(*varsize)
+     D*   lengde                       3p 0 const
+     D*   sisteDato                   10a
+      **
+     D* P_ProdXml       PR                  ExtPgm('JV869R_XML')
+     D*   filNavn                    255    options(*varsize)
+     D*   lengde                       3p 0 const
+     D*   sisteDato                   10a
+      *
+      * Datastruktur for informasjon ved exceptions
+      *
+     d PgmError       sds
+     d  proc_name        *proc
+     d  pgm_status       *STATUS
+     d  prv_status            16     20s 0
+     d  line_numm             21     28
+     d  routine          *ROUTINE
+     d  parms            *PARMS
+     d  excp_type             40     42
+     d  excp_numm             43     46
+     d  pgm_lib               81     90
+     d  excp_data             91    170
+     d  excp_id              171    174
+     d  date                 191    198
+     d  year                 199    200s 0
+     d  last_file            201    208
+     d  file_info            209    243
+     d  job_name             244    253
+     d  job_user             254    263
+     d  job_numb             264    269s 0
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c
+     c                   eval      w_slett_d = %Date()
+     c     w_slett_d     subdur    1:*days       w_slett_d
+     c     jstsl1_key    chain     jstsl1
+     c                   if        not %found
+     c                   eval      p_stat = '1'
+     c                   eval      p_jsts = 40
+     c                   eval      p_jmld = *blanks
+     c                   eval      p_jmld = 'Fikk ikke lest jstspf'
+      *
+     c                   call      'AB705R'
+     c                   parm                    p_jbid
+     c                   parm                    p_jsts
+     c                   parm                    p_jmld
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Hent inn SOLVE   XML path som skal brukes
+      *
+     c                   eval      afpslr_ufil = l_filg
+     c                   eval      afpslr_uide = dirSolveKonf
+     c     afpslr_key    chain     afpslrr
+     c                   if        %found
+     c                   eval      dirBaseNavn = *blanks
+     c                   movel     afudss        dirBaseNavn
+     c                   eval      dirFInnNavn = %Trim(dirBaseNavn)
+     c                                 + %Trim(dirInnNavn)
+     c                   else
+     c                   eval      p_stat = '1'
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   eval      w_xmlf = 0
+     c                   eval      w_xmlk = 0
+      * leser filer i batch i tilfelle mange filer
+     c                   dow       b_ferd = *off
+     c                   eval      numF = 0
+     c                   exsr      beh_xmlf
+     c                   enddo
+     c                   exsr      log_xmlf
+     c
+     c                   exsr      beh_lest
+     c                   exsr      beh_kvit
+      *
+      * Oppdaterer statusregister med dato for innlesing
+      *
+     c     jstslu_key    chain     jstslu
+     c                   time                    jaaopd
+     c                   update    jstslur
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     avslutt       tag
+     c                   if        p_stat = '1'
+     c                   eval      p_jsts = 50
+     c                   eval      p_jmld = 'Alvorlig feil oppstod i JV860R'
+      *
+     c                   call      'AB705R'
+     c                   parm                    p_jbid
+     c                   parm                    p_jsts
+     c                   parm                    p_jmld
+      *
+     c                   else
+      *
+     c                   endif
+      *
+      * Vi kvitterer ut jobben fra jobbstatusfil
+     c                   call      'AB710R'
+     c                   parm                    p_jnav
+     c                   parm                    p_jbid
+      *
+     c                   eval      *inlr = *on
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av xml filer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     beh_xmlf      begsr
+
+      * list alle filer i katalogen
+     c                   eval      dlengde = %len(%trim(dirFInnNavn))
+     c                   eval      dir = opendir(%trim(dirFInnNavn))
+     c
+     c                   if        dir = *NULL
+     c                   eval      p_stat = '1'
+     c                   goto      avslutt
+     c                   endif
+      * looper alle vare filene, legger de i array
+     c                   eval      p_dirent = readdir(dir)
+     c                   dow       p_dirent <> *NULL
+     c                   eval      typeFNavn = %subst(d_name:
+     c                                  fnavnStart:fnavnLen)
+     c                   if        (d_namelen > 18 ) and (
+     c                             typeFNavn = %trim(vareFnavn)
+7.03 c                             or typeFNavn = %trim(modulFnavn)
+7.02 c                             or typeFNavn = %trim(kampFnavn)
+7.02 c                             or typeFNavn = %trim(prisFnavn)
+     c                             or typeFNavn = %trim(grupFnavn)
+     c                             or typeFNavn = %trim(deltFnavn)
+     c                             or typeFNavn = %trim(prodFnavn)
+     c                             or typeFNavn = %trim(enheFnavn)
+     c                             )
+     c                   eval      numF = numF + 1
+     c                   eval      katV(numF).fnavn = %subst(d_name:1:d_namelen)
+     c                   eval      katV(numF).dnavn =
+     c                                %subst(%trim(dirFInnNavn):1:dlengde)
+     c                   eval      katV(numF).fnavnP =
+     c                                %subst(%trim(dirFInnNavn):1:dlengde)
+     c                                + %subst(d_name:1:d_namelen)
+     c                   eval      katV(numF).flen = d_namelen
+     c                   eval      katV(numF).fplen = d_namelen + dlengde
+     c                   endif
+     c                   if        numF = (w_batch - 1)
+     c                   leave
+     c                   endif
+     c                   eval      p_dirent = readdir(dir)
+     c                   enddo
+     c                   callp     closedir(dir)
+     c
+     c                   eval      w_xmlf = w_xmlf + numF
+      * fant ingen filer
+     c                   if        numF = 0
+     c                   eval      b_ferd = *on
+     c                   leavesr
+     c                   endif
+      * sorterer  vare filene, for å lese inn i rett rekkefølge
+     c                   SORTA(A)  %subarr(katV(*).fnavn : 1 : numF)
+      * looper alle filene
+     c                   for       i = 1 to numF
+     c                   eval      typeFNavn = %subst(katV(i).fnavn
+     c                               :fnavnStart:fnavnLen)
+     c                   eval      sisteDato = *blank
+     c                   eval      filen = katV(i).fnavnP
+     c                   eval      filenEtter = %trim(dirBaseNavn) + dirLestNavn
+     c                                +  %subst(katV(i).fnavn:1:katV(i).flen)
+     c                   eval      filenFeil  = %trim(dirBaseNavn) + dirFeilNavn
+     c                                +  %subst(katV(i).fnavn:1:katV(i).flen)
+     c                   eval      filenKvitt =
+     c                               %subst(katV(i).fnavn:1:katV(i).flen-3) +
+     c                               kvitExt
+     c                   exsr      log_xmlnavn
+     c                   select
+     c                   when      %trim(typeFNavn) = vareFnavn
+     c                   callp     P_VareXml(filen: katV(i).fplen : sisteDato:
+     c                                oppdatSts)
+7.03 c                   when      %trim(typeFNavn) = modulFnavn
+7.03 c                   callp     P_ModulXml(filen: katV(i).fplen : sisteDato)
+     c                   when      %trim(typeFNavn) = prisFnavn
+     c                   callp     P_PrisXml(filen: katV(i).fplen : sisteDato)
+7.02 c                   when      %trim(typeFNavn) = kampFnavn
+7.02 c                   callp     P_KampXml(filen: katV(i).fplen : sisteDato:
+7.02 c                                oppdatSts)
+7.02 c                   when      %trim(typeFNavn) = grupFnavn
+     c                   callp     P_VarGXml(filen: katV(i).fplen : sisteDato)
+     c*                   when      %trim(typeFNavn) = deltFnavn
+     c*                   callp     P_DeltXml(filen: katV(i).fplen : sisteDato)
+     c*                   when      %trim(typeFNavn) = prodFnavn
+     c*                   callp     P_ProdXml(filen: katV(i).fplen : sisteDato)
+     c                   when      %trim(typeFNavn) = enheFnavn
+     c                   callp     P_EnheXml(filen: katV(i).fplen : sisteDato:
+     c                                oppdatSts)
+     c                   other
+     c                   iter
+     c                   endsl
+      *
+      * hvis ikke funnet siste dato, så har noe feilet... lager ikke kvittering
+     c                   if        %trim(sisteDato) = ''
+      * flytter xml fil som har feilet
+     c                   if        rename(%trimr(filen):%trimr(filenFeil)) < 0
+     c                   eval      p_stat = '1'
+     c                   goto      avslutt
+     c                   endif
+     c                   leavesr
+     c                   end
+     c
+      * lag kvitteringsfil - lages og åpnes, for å kunne skrive text
+     c                   if        chdir(%Trim(dirBaseNavn)+dirKvitNavn) >= 0
+     c                   eval      fd = open(filenKvitt :
+     c                               O_CREAT+O_WRONLY+O_CODEPAGE :
+     c                               RW*OWNER + RW*GROUP + R : 1252  )
+     c                   if        fd < 0
+     c                   eval      p_stat = '1'
+     c                   goto      avslutt
+     c                   endif
+     c                   callp     close(fd)
+     c* åpnes igjen for å skrive text
+     c                   eval      fd = open(filenKvitt :
+     c                               O_WRONLY+O_TEXTDATA)
+     c                   if        fd < 0
+     c                   eval      p_stat = '1'
+     c                   goto      avslutt
+     c                   endif
+     c                   callp     write(fd: %addr(sisteDato): %size(sisteDato))
+     c                   callp     close(fd)
+      * flytter xml fil som er lest
+     c                   if        rename(%trimr(filen):%trimr(filenEtter)) < 0
+     c                   eval      p_stat = '1'
+     c                   goto      avslutt
+     c                   endif
+     c                   eval      w_xmlk = w_xmlk + 1
+     c                   else
+     c                   goto      avslutt
+     c                   endif
+     c                   endfor                                                 looper alle filene
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for logging av xml filer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     log_xmlf      begsr
+      *
+     c                   eval      p_jsts = 10
+     c                   eval      p_jmld = *blanks
+     c                   eval      p_jmld = %trim(a_meld(1)) +' '+ %char(w_xmlf)
+      *
+     c                   call      'AB705R'
+     c                   parm                    p_jbid
+     c                   parm                    p_jsts
+     c                   parm                    p_jmld
+      *
+     c                   eval      p_jsts = 10
+     c                   eval      p_jmld = *blanks
+     c                   eval      p_jmld = %trim(a_meld(2)) +' '+ %char(w_xmlk)
+      *
+     c                   call      'AB705R'
+     c                   parm                    p_jbid
+     c                   parm                    p_jsts
+     c                   parm                    p_jmld
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for logging av filnavn
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     log_xmlnavn   begsr
+      *
+     c                   eval      p_jsts = 10
+     c                   eval      p_jmld = *blanks
+     c                   eval      p_jmld = %trim(a_meld(3)) +' '+ %trimr(filen)
+      *
+     c                   call      'AB705R'
+     c                   parm                    p_jbid
+     c                   parm                    p_jsts
+     c                   parm                    p_jmld
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av leste xml filer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     beh_lest      begsr
+      * list alle filer i katalogen
+     c                   eval      dirFLestNavn = %trim(dirBaseNavn)
+     c                               + dirLestNavn
+     c                   eval      dlengde = %len(%trim(dirFLestNavn))
+     c                   eval      dir = opendir(%trim(dirFLestNavn))
+     c
+     c                   if        dir = *NULL
+     c                   eval      p_stat = '1'
+     c                   goto      avslutt
+     c                   endif
+     c                   eval      p_statds = %addr(mystat)
+      * looper alle filene
+     c                   eval      p_dirent = readdir(dir)
+     c                   dow       p_dirent <> *NULL
+     c                   eval      typeFNavn = %subst(d_name:15:4)
+     c                   if        (d_namelen > 18 ) and (
+     c                             typeFNavn = %trim(vareFnavn)
+7.03 c                             or typeFNavn = %trim(modulFnavn)
+     c                             or typeFNavn = %trim(prisFnavn)
+7.02 c                             or typeFNavn = %trim(kampFnavn)
+     c                             or typeFNavn = %trim(grupFnavn)
+     c                             or typeFNavn = %trim(deltFnavn)
+     c                             or typeFNavn = %trim(prodFnavn)
+     c                             or typeFNavn = %trim(enheFnavn)
+     c                             )
+
+     c                   eval      filnavn = %subst(d_name:1:d_namelen)
+     c                   eval      fnmedkat = dirFLestNavn  + filnavn
+     c                   if        stat(fnmedkat: %addr(mystat))=0
+     c                   exsr      slett_fil
+     c                   endif
+
+     c                   endif
+     c                   eval      p_dirent = readdir(dir)
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av kvit  xml filer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     beh_kvit      begsr
+      * list alle filer i katalogen
+     c                   eval      dirFKvitNavn = %trim(dirBaseNavn)
+     c                               + dirKvitNavn
+     c                   eval      dlengde = %len(%trim(dirFKvitNavn))
+     c                   eval      dir = opendir(%trim(dirFKvitNavn))
+     c
+     c                   if        dir = *NULL
+     c                   eval      p_stat = '1'
+     c                   goto      avslutt
+     c                   endif
+     c                   eval      p_statds = %addr(mystat)
+      * looper alle filene
+     c                   eval      p_dirent = readdir(dir)
+     c                   dow       p_dirent <> *NULL
+     c                   eval      typeFNavn = %subst(d_name:15:4)
+     c                   if        (d_namelen > 18 ) and (
+     c                             typeFNavn = %trim(vareFnavn)
+7.03 c                             or typeFNavn = %trim(modulFnavn)
+     c                             or typeFNavn = %trim(prisFnavn)
+7.02 c                             or typeFNavn = %trim(kampFnavn)
+     c                             or typeFNavn = %trim(grupFnavn)
+     c                             or typeFNavn = %trim(deltFnavn)
+     c                             or typeFNavn = %trim(prodFnavn)
+     c                             or typeFNavn = %trim(enheFnavn)
+     c                             )
+
+     c                   eval      filnavn = %subst(d_name:1:d_namelen)
+     c                   eval      fnmedkat = dirFKvitNavn  + filnavn
+     c                   if        stat(fnmedkat: %addr(mystat))=0
+     c                   exsr      slett_fil
+     c                   endif
+
+     c                   endif
+     c                   eval      p_dirent = readdir(dir)
+     c                   enddo
+      *
+     c                   endsr
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     C* Sjekker filer i lest katalog, og slette gamle filer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     C     slett_fil     begsr
+      *
+     C* finn opprettet dato på filen
+     c     epoch         adddur    st_mtime:*S   lagetdato
+     c                   move      lagetdato     fildato
+     c                   if        fildato < w_slett_d
+     c                   if        unlink(%trimr(fnmedkat)) < 0
+     c                   eval      p_stat = '1'
+     c                   goto      avslutt
+     c                   endif
+     c                   endif
+     C                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Error rutine for file errors
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     FileErr       begsr
+      *
+     c                   eval      p_stat = '1'
+     c                   eval      p_jsts = 50
+     c                   eval      p_jmld = 'Fil ' + %trim(last_file) +
+     c                             ' feil. Info=' + %trim(excp_data) +
+     c                             '. Job=' + %trim(job_name) + '/' +
+     c                             %trim(job_user) + '/' +
+     c                             %char(job_numb)
+      *
+     c                   call      'AB705R'
+     c                   parm                    p_jbid
+     c                   parm                    p_jsts
+     c                   parm                    p_jmld
+      *
+     c                   goto      avslutt
+      *
+     c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for propertiesfil
+      *
+     c     afpslr_key    klist
+     c                   kfld                    afpslr_ufil
+     c                   kfld                    afpslr_uide
+      *
+      * Key for oppslag på status
+      *
+     c     jstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppdatering av kode/status
+      *
+     c     jstslu_key    klist
+     c                   kfld                    w_firm
+      *
+      *
+      *
+      * Henter firma fra parameter
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Vi starter jobblogging
+      *
+     c                   eval      p_jnav = dirSolveKonf
+     c                   eval      p_jtxt = *blank
+     c                   call      'AB700R'
+     c                   parm                    p_jnav
+     c                   parm                    p_jbid
+     c                   parm                    p_jtxt
+
+     c                   endsr
+**
+Antall xml filer:
+Antall kvitteringer laget:
+Begynner filnavn:

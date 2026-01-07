@@ -1,0 +1,86 @@
+/* ________________________________________________________________ */
+/* Denne jobben skal sette opp JOBSCD-jobb som oppdaterer Saldo     */
+/*       fra IFS-området til Kundereskontro                         */
+/* ________________________________________________________________ */
+
+             PGM        parm(&jobb &fgr &tix &lcd)
+             dcl        var(&stat)   type(*char) len(20)
+             dcl        var(&jobb)   type(*char) len(10)
+             dcl        var(&firm)   type(*char) len(3)
+             dcl        var(&fgr)    type(*char) len(3)
+             dcl        var(&lib)    type(*char) len(10) value('ADBxxx')
+             dcl        var(&mil)    type(*char) len(10) value('mmm')
+             dcl        var(&tix)    type(*char) len(8)
+             dcl        var(&usr)    type(*char) len(10) Value('ASP_xxx')
+             dcl        var(&gusr)   type(*char) len(10) Value('GRP_xxx')
+             dcl        var(&tusr)   type(*char) len(10) Value('xxxTEKNISK')
+             dcl        var(&frq)    type(*char) len(08)
+             dcl        var(&scdday) type(*char) len(35)
+             dcl        var(&lcd)    type(*char) len(100)
+             dcl        var(&dir)    type(*char) len(100)
+             dcl        var(&bdi)    type(*char) len(100)
+             dcl        var(&i)      type(*dec)  len(3 0)
+             dcl        var(&j)      type(*dec)  len(3 0)
+
+             chgvar     var(&usr)    value('ASP_' *cat &fgr)
+             chgvar     var(&frq)    value('*WEEKLY')
+             chgvar     var(&scdday) value('*ALL ')
+             rtvdtaara  dtaara(*lda (944 3)) rtnvar(&firm)
+
+             rmvjobscde job(&jobb)
+             monmsg     msgid(cpf0000)
+             addjobscde job(&jobb) cmd(call pgm(aabatch) +
+                          parm(&fgr 'RX001START' '2' &firm)) +
+                          frq(&frq) scddate(*none) scdday(&scdday) +
+                          rcyacn(*sbmhld) +
+                          scdtime(&tix) jobd(*usrprf) +
+                          jobq(*jobd) user(&usr) +
+                          text('Oppdat. saldo fra ekst.system')
+
+/*    Sette opp directories for overføring      */
+/*           chgvar     var(&dir)    value(&lcd)    */
+             chgvar     var(%sst(&tusr 1 3))   value(&fgr)
+             chgvar     var(%sst(&gusr 5 3))   value(&fgr)
+             chgvar     var(&I)      value(1)
+Aloop:       CallSubr   subr(getdir)
+             if         cond(&dir *ne &bdi) then(do)
+             crtdir     dir(&dir)
+             monmsg     msgid(cpfa0a0)
+
+              if        cond(&dir *ne '/ASP' *and +
+                             &dir *ne '/asp' *and +
+                             &dir *ne '/Asp' *and +
+                             &dir *ne '/home' *and +
+                             &dir *ne '/Home' *and +
+                             &dir *ne '/HOME') then(do)
+                 chgaut   obj(&dir) user(*Public) dtaaut(*exclude) +
+                                  objaut(*none)
+/*             chgaut   obj(&dir) user(&usr)    dtaaut(*RWX) +       */
+/*   &usr får auth. fra gusr      objaut(*all)                       */
+                 chgaut   obj(&dir) user(&gusr)    dtaaut(*RWX) +
+                                  objaut(*all)
+                 monmsg   msgid(cpa0702 cpf0001)
+                 chgaut   obj(&dir) user(&tusr)    dtaaut(*RWX) +
+                                  objaut(*all)
+                 monmsg   msgid(cpa0702 cpf0001)
+              enddo
+               chgvar     var(&bdi)  value(&dir)
+               goto       Aloop
+             enddo
+
+/* ______________________________________________________________________*/
+Subr         Subr(getdir)
+             chgvar     var(%sst(&dir &i 1))  value(%sst(&lcd &i 1))
+             chgvar     var(&i)               value(&i + 1)
+loop:        if         cond(%sst(&lcd &i 1) *ne '/') then(do)
+               chgvar   var(&j)   value(100 - &i)
+               if       cond(%sst(&lcd &i &j) *ne '  ') then(do)
+                 chgvar var(%sst(&dir &i 1))  value(%sst(&lcd &i 1))
+                 chgvar var(&i)               value(&i + 1)
+                 goto   loop
+               enddo
+             enddo
+EndSubr
+/* ______________________________________________________________________*/
+END:
+             ENDPGM

@@ -1,0 +1,538 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VL718R
+      * Beskrivelse . . : Henter disponibel beholdning på angitt dato
+      *                   Retur angis i lagerenhet.
+      *
+      *                   beholdning = lagerbeholdning - i ordre + i bestilling
+      *                       på angitt tidspunkt.
+      *
+      *                   Input : firma, vare, enhet, lager, dato, klslett, kalktype
+      *                   Output: disponibel beholdning, enhet
+      *
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+7.00  * K000  231020 bsa  Nytt program
+7.01  * K000  091220 bsa  Justert måten å beregne disponibelt antall fra
+7.01  * K000              bestillingen. Ref kommentar fra Bjarte Røyset
+7.01  * K000              på sak NXS-6739. Beholdning skal kun tas inn hvis
+7.01  * K000              bekreftet leveringsdato er satt på linje eller hodet.
+7.02  * K000  160621 hko  Returnerer beholdning i.h.t. enhet i input-parameter
+7.02  * K000              Rettet feil i bruk av indeks. Lagt inn avrunding
+7.02  * K000              i kalkulering, og regner ikke om antall dersom
+7.02  * K000              enhet i ordre/bestillig er lik lagerenhet på vare
+7.03  * K000  100622 sst  Ikke ta med i beholdning når lev.type = 1
+8.01  *PRG2   220622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+8.02  * 800   211124 ask lagt inn mulighet for å vise
+8.02  *                  disponibel beholdning med bekr. NXS-20463
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvlagl1    if   e           k disk    rename(vlagpfr:vlagl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+     fvvenl2    if   e           k disk    rename(vvenpfr:vvenl2r)
+     fvvenl1    if   e           k disk    rename(vvenpfr:vvenl1r)
+     ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+     ffodtlv    if   e           k disk    rename(fodtpfr:fodtlvr)
+     flohel1    if   e           k disk    rename(lohepfr:lohel1r)
+     flodtlv    if   e           k disk    rename(lodtpfr:lodtlvr)
+     fvltyl1    if   e           k disk    rename(vltypfr:vltyl1r)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+      *
+      * Definering av variable i nøkler
+      *
+     d vlagl1_firm     s                   like(vlfirm)
+     d vlagl1_vare     s                   like(vlvare)
+     d vlagl1_lage     s                   like(vllage)
+     d vvarl1_firm     s                   like(vvfirm)
+     d vvarl1_vare     s                   like(vvvare)
+     d fstsl1_firm     s                   like(faafir)
+     d vvenl2_vare     s                   like(vevare)
+     d vvenl2_saen     s                   like(vesaen)
+     d vvenl1_vare     s                   like(vevare)
+7.02 d** vvenl1_enhe     s                   like(veenhe)
+     d fodtlv_vare     s                   like(fdvare)
+     d fohel1_numm     s                   like(fonumm)
+     d fohel1_suff     s                   like(fosuff)
+     d lodtlv_vare     s                   like(ldvare)
+     d lohel1_numm     s                   like(lonumm)
+     d lohel1_suff     s                   like(losuff)
+     d vltyl1_ltyp     s                   like(valtyp)
+     d votyl1_otyp     s                   like(vaotyp)
+      *
+      * Definering av pamametre
+      *
+     d p_firm          s                   like(vlfirm)
+     d p_vare          s                   like(vlvare)
+     d p_enhe          s                   like(vvenhe)
+     d p_lage          s                   like(vllage)
+     d p_date          s                   like(vludat)
+     d p_time          s                   like(vlotim)
+     d p_kalk          s              1
+     d p_behl          s                   like(vlbehl)
+     d p_lenh          s                   like(vvenhe)
+     d p_inlr          s              1
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(vefirm)
+     d w_enh1          s                   like(veenhe)
+     d w_omrs          s                   like(veomre)
+     d w_enh4          s                   like(veenhe)
+     d w_enhl          s                   like(veenhe)
+     d w_omrl          s                   like(veomre)
+     d w_behl          s                   like(vlbehl)
+     d w_ordr          s                   like(fdanta)
+     d w_best          s                   like(fdanta)
+     d w_anta          s              9  2
+      *
+     d                uds
+     d l_user                911    920
+     d l_sfir                944    946  0
+     d l_savd                947    950  0
+8.02 d l_filg                931    933
+     d l_lagr               1001   1002  0
+8.02   dcl-s co402_verdi1  char(1);
+8.02   dcl-s co402_verdi2  char(2048);
+8.02   DCL-PR CO402R EXTPGM('CO402R');
+8.02     p_filgrp            char(3)     const;
+8.02     p_firm              packed(3:0) const;
+8.02     p_lager             packed(2:0) const;
+8.02     p_nokkel            char(50)    const;
+8.02     p_verdi1            char(1);
+8.02     p_verdi2            char(2048);
+8.02   END-PR;
+      *
+8.02 d u_802           s              1    inz(*off)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      w_behl = 0
+     c                   eval      w_best = 0
+     c                   eval      p_behl = 0
+     c                   eval      p_lenh = *blanks
+      *
+     c                   if        faalag = 1
+      *
+     c                   eval      vvarl1_firm = p_firm
+     c                   eval      vvarl1_vare = p_vare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+      *
+      * Henter lagerinfo
+      *
+     c                   eval      vlagl1_firm = p_firm
+     c                   eval      vlagl1_vare = p_vare
+     c                   eval      vlagl1_lage = p_lage
+     c     vlagl1_key    chain     vlagl1
+     c                   if        %found(vlagl1)
+      *
+     c                   if        vlvtyp <> 'D' and
+     c                             vlvtyp <> 'T' and
+     c                             vlvtyp <> 'S'
+      *
+     c                   eval      w_behl = vlbehl
+      *
+      * Kalkuler behov for ordre fram tom dato
+      *
+     c                   exsr      hent_ordre
+     c                   eval      w_behl = w_behl - w_ordr
+      *
+      * Kalkuler bestilt antall fram tom dato
+      *
+     c                   exsr      hent_bestil
+     c                   eval      w_behl = w_behl + w_best
+7.02  * Regner om kalkulert beholdning til input-enhet (parameter)
+7.02  *
+7.02 c                   if        p_enhe <> vvenhl
+7.02 c                   eval      vvenl1_vare = vvvare
+7.02 c     vvenl1_key    setll     vvenl1
+7.02 c     vvenl1_key    reade     vvenl1
+7.02 c                   dow       not %eof
+7.02 c                   if        p_enhe = veenhe
+7.02 c                   eval      w_omrl = veomre
+7.02 c                   endif
+7.02 c                   if        vvenhl = veenhe
+7.02 c                   eval      w_omrs = veomre
+7.02 c                   endif
+7.02 c     vvenl1_key    reade     vvenl1
+7.02 c                   enddo
+7.02 c                   if        w_omrl <> 0
+7.02 c                   eval(h)   w_behl = w_behl * w_omrs / w_omrl
+7.02 c                   endif
+7.02 c                   endif
+      *
+      * Returner kalkulert beholdning
+      *
+     c                   eval      p_behl = w_behl
+     c                   eval      p_lenh = vvenhl
+      *
+     c                   endif                                                  Lagervare
+      *
+     c                   endif                                                  Finnes på lager
+      *
+     c                   endif                                                  Gyldig vare
+      *
+     c                   endif                                                  Lagerstyring
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   if        p_inlr <> *on
+     c                   eval      *inlr = *on
+     c                   endif
+      *
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for lesing av ordre
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_ordre    begsr
+      *
+      *  Legger inn startverdi for lesingen
+      *
+     c                   eval      w_ordr = 0
+     c                   eval      w_anta = 0
+      *
+     c                   eval      fodtlv_vare = vvvare
+     c     fodtlv_key    setll     fodtlv
+     c     fodtlv_key    reade     fodtlvr
+      *
+     c                   dow       not %eof
+      *
+      * Sjekk linjetype
+      *
+     c                   eval      vltyl1_ltyp = fdltyp
+     c     vltyl1_key    chain     vltyl1
+     c                   if        %found
+     c                   if        vallag <> 1
+     c                   goto      les_ordre
+     c                   endif
+     c                   endif
+      *
+      *  Hent ordrehode informasjon
+      *
+     c                   eval      fohel1_numm = fdnumm
+     c                   eval      fohel1_suff = fdsuff
+     c     fohel1_key    chain     fohel1
+     c                   if        not %found
+     c                   goto      les_ordre
+     c                   endif
+      *
+      * Sjekk riktig ordretype og lageroppdateringskode
+      *
+     c                   eval      votyl1_otyp = footyp
+     c     votyl1_key    chain     votyl1
+     c                   if        %found
+     c                   if        vaosys <> 0 or
+     c                             vaoakk <> 1 or
+     c                             vaolag <> 1
+     c                   goto      les_ordre
+     c                   endif
+     c                   endif
+      *
+      * Sjekk riktig lager
+      *
+     c                   if        fdlage <> p_lage
+     c                   goto      les_ordre
+     c                   endif
+      *
+      * Er dato innefor det intervallet vi ønsker ?
+      * Sjekk mot det er leveringsdato på linja
+      *
+     c                   if        fdldat <> *loval and
+     c                             fdldat >  p_date
+     c                   goto      les_ordre
+      * Sjekk mot leveringsdato på ordren
+     c                   elseif    foldat <> *loval and
+     c                             foldat >  p_date
+     c                   goto      les_ordre
+      * Sjekk mot ordredato på ordren
+     c                   elseif    fobdat <> *loval and
+     c                             fobdat >  p_date
+     c                   goto      les_ordre
+     c                   endif
+      *
+      * Har vi kommet hit, må vi nok ta vare på beholdningen
+      *
+     c                   if        fdenh1 <> vvenhl
+     c                   eval      w_anta = fdanta
+     c                   eval      w_enh1 = fdenh1
+     c                   exsr      omr_antall
+     c                   else
+     c                   eval      w_anta = fdanta
+     c                   endif
+      *
+     c                   if        vaokre = '-'
+     c                   eval      w_anta = w_anta * -1
+     c                   endif
+      *
+     c                   if        valkre = '-'
+     c                   eval      w_anta = w_anta * -1
+     c                   endif
+      *
+7.03 c                   if        fdlety <> 1
+7.03 c                   eval      w_ordr = w_ordr + w_anta
+7.03 c                   endif
+      *
+     c     les_ordre     tag
+      *
+     c     fodtlv_key    reade     fodtlvr
+     c                   enddo
+      *
+     c     end_ordre     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for lesing av bestilling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_bestil   begsr
+      *
+      *  Legger inn startverdi for lesingen
+      *
+     c                   eval      lodtlv_vare = vvvare
+     c     lodtlv_key    setll     lodtlv
+     c     lodtlv_key    reade     lodtlvr
+      *
+     c                   dow       not %eof
+      *
+      * Sjekk linjetype
+      *
+     c                   eval      vltyl1_ltyp = ldltyp
+     c     vltyl1_key    chain     vltyl1
+     c                   if        %found
+     c                   if        vallag <> 1
+     c                   goto      les_best
+     c                   endif
+     c                   endif
+      *
+      *  Hent bestillingshode informasjon
+      *
+     c                   eval      lohel1_numm = ldnumm
+     c                   eval      lohel1_suff = ldsuff
+     c     lohel1_key    chain     lohel1
+     c                   if        not %found
+     c                   goto      les_best
+     c                   endif
+      *
+      * Sjekk riktig ordretype og lageroppdateringskode
+      *
+     c                   eval      votyl1_otyp = lootyp
+     c     votyl1_key    chain     votyl1
+     c                   if        %found
+     c                   if        vaosys <> 1 or
+     c                             vaoakk <> 1 or
+     c                             vaolag <> 1
+     c                   goto      les_best
+     c                   endif
+     c                   endif
+      *
+      * Sjekk riktig lager
+      *
+     c                   if        lolage <> p_lage
+     c                   goto      les_best
+     c                   endif
+8.02  *
+8.02  * Sjekk om bare bekreftet bestilling skal telles med
+8.02  *
+8.02 c                   if        u_802 = *on
+8.02 c                   if        lomoda = *loval
+8.02 c                   goto      les_best
+8.01 c                   endif
+8.01 c                   endif
+7.01  *
+7.01  * Sjekk om leveringsdato er satt.
+7.01  *
+7.01 c                   if        ldldat = *loval and
+7.01 c                             lomoda = *loval
+7.01 c                   goto      les_best
+7.01 c                   endif
+      *
+      * Sjekk hvilken leveringsdato som er registrert
+      *
+     c                   if        ldldat <> *loval and
+     c                             ldldat >  p_date
+     c                   goto      les_best
+      * Lover leveringsdato
+     c                   elseif    lomoda <> *loval and
+     c                             lomoda >  p_date
+     c                   goto      les_best
+7.01 c                   endif
+7.01  * Leveringsdato (Skal ikke testes
+7.01 c**                 elseif    loldat <> *loval and
+7.01 c**                           loldat >  p_date
+7.01 c**                 goto      les_best
+7.01 c**                 endif
+      *
+     c                   if        ldenh1 <> vvenhl
+     c                   eval      w_anta = ldanta
+     c                   eval      w_enh1 = ldenh1
+     c                   exsr      omr_antall
+     c                   else
+     c                   eval      w_anta = ldanta
+     c                   endif
+      *
+     c                   if        vaokre = '-'
+     c                   eval      w_anta = w_anta * -1
+     c                   endif
+      *
+     c                   if        valkre = '-'
+     c                   eval      w_anta = w_anta * -1
+     c                   endif
+      *
+     c                   eval      w_best = w_best + w_anta
+      *
+     c     les_best      tag
+      *
+     c     lodtlv_key    reade     lodtlvr
+     c                   enddo
+      *
+     c     end_bestill   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for omregning til lagerenhet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     omr_antall    begsr
+7.02 c                   if        w_enh1 = vvenhl
+7.02 c                   leavesr
+7.02 c                   endif
+      *
+      * Finner omregningsfaktor volum for lagerenhet og for opptalt enhet
+      * Antall regnes om etter forholdet mellom disse
+      *
+     c                   eval      vvenl1_vare = vvvare
+     c     vvenl1_key    setll     vvenl1
+     c     vvenl1_key    reade     vvenl1
+     c                   dow       not %eof
+     c                   if        w_enh1 = veenhe
+     c                   eval      w_omrl = veomre
+     c                   endif
+     c                   if        vvenhl = veenhe
+     c                   eval      w_omrs = veomre
+     c                   endif
+     c     vvenl1_key    reade     vvenl1
+     c                   enddo
+      *
+     c                   if        w_omrs = 0
+     c                   eval      w_omrs = 1
+     c                   endif
+      *
+     c                   if        w_omrl <> 0
+7.02 c**                 eval      w_anta = w_anta * w_omrl / w_omrs
+7.02 c                   eval(h)   w_anta = w_anta * w_omrl / w_omrs
+     c                   else
+     c                   eval      w_anta = 0
+     c                   endif
+      *
+     c     end_omr       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_vare
+     c                   parm                    p_enhe
+     c                   parm                    p_lage
+     c                   parm                    p_date
+     c                   parm                    p_time
+     c                   parm                    p_kalk
+     c                   parm                    p_behl
+     c                   parm                    p_lenh
+     c                   parm                    p_inlr
+      *
+      * Key for les på lager-register
+      *
+     c     vlagl1_key    klist
+     c                   kfld                    vlagl1_firm
+     c                   kfld                    vlagl1_vare
+     c                   kfld                    vlagl1_lage
+      *
+      * Key for les på vare-register
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    vvarl1_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for oppslag på OFAK-kode (til)
+      *
+     c     fstsl1_key    klist
+     c                   kfld                    fstsl1_firm
+      *
+      * Key for les på vare-enhet
+      *
+     c     vvenl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl2_vare
+     c                   kfld                    vvenl2_saen
+      *
+     c     vvenl2_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl2_vare
+      *
+     c     fodtlv_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtlv_vare
+      *
+     c     fohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohel1_numm
+     c                   kfld                    fohel1_suff
+      *
+     c     lodtlv_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lodtlv_vare
+      *
+     c     lohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lohel1_numm
+     c                   kfld                    lohel1_suff
+      *
+     c     vvenl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl1_vare
+7.01 c*                  kfld                    vvenl1_enhe
+      *
+      *  Key for les av linjetype
+      *
+     c     vltyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltyl1_ltyp
+      *
+      *  Key for les av ORDRE-TYPE
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+     c                   eval      w_firm = p_firm
+      *
+     c                   eval      fstsl1_firm = p_firm
+     c     fstsl1_key    chain     fstsl1                             91
+      *
+8.02  *
+8.02  * Endring 8.03
+8.02  *
+8.02   CallP CO402R(l_filg:w_firm:0:'BESTILLING_DISP':
+8.02                    co402_verdi1:co402_verdi2);
+8.02   if co402_verdi1 = '1';
+8.02     u_802 = *on;
+8.02   endif;
+     c                   endsr

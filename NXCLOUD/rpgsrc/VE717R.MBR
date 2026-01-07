@@ -1,0 +1,214 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VE717R
+      * Beskrivelse . . : Henter varenr, nobbnr + enhet ut fra gitt eannr. Tar også
+      *                   en svin innom VA hvis GTIN nummer ikke finnes i EVR.
+      *
+      *                   Input : firma, eannr.
+      *                   Output: vare, enhet,nobb, status (1 = ok)
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       230512 bsa  Nytt program
+6.20  *       270614 bsa  Sjekk varenr i VA hvis vare ikke ligger i EVR
+6.21  *       260914 bsa  Gleme å legge ut varenummer
+6.22  *       121115 bsa  Sjekker også VEAN
+6.30  * 6.30  260113 bof  Omskriving i forb. endring pakning VA
+6.31  * 6.30  091018 bof  Utvidet med trelast-sortiment
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvepl2    if   e           k disk    rename(vveppfr:vvepl2r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+6.22 fveanl1    if   e           k disk    rename(veanpfr:veanl1r)
+6.20 fjvarl1    if   e           k disk    rename(jvarpfr:jvarl1r)
+6.30 fjvpkl3    if   e           k disk    rename(jvpkpfr:jvpkl3r)
+      *
+      * Definering av variable i nøkler
+      *
+     d vvepl2_pfir     s                   like(vepfir)
+     d vvepl2_pgti     s                   like(vepgti)
+     d vvarl1_vare     s                   like(vvvare)
+6.30 d jvpkl3_gtin     s                   like(jwgtin)
+6.20 d jvarl1_vare     s                   like(jvvare)
+6.22 d veanl1_eann     s                   like(vxeann)
+      *
+      * Definering av pamametre
+      *
+     d p_firm          s                   like(vvfirm)
+     d p_eann          s                   like(vepgti)
+     d p_vare          s                   like(vvvare)
+     d p_enhe          s                   like(jwenhe)
+     d p_nobb          s                   like(vvnobb)
+     d p_stat          s              1
+      *
+6.31 d w_lv_nobb       s                   like(vvnobb)
+6.31 d w_enum          s                   like(vvldor)
+6.31 d w_ldor          s                   like(vvldor)
+      *
+     d                uds
+     d l_user                911    920
+     d l_sfir                944    946  0
+     d l_savd                947    950  0
+     d l_lagr               1001   1002  0
+      *
+6.31 C/Exec SQL
+6.31 C+  Set Option DatFmt=*ISO
+6.31 C/End-Exec
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Initierer output-parametre
+      *
+     c                   eval      p_vare = *blank
+     c                   eval      p_enhe = *blank
+     c                   eval      p_nobb = *zero
+     c                   eval      p_stat = *blank
+      *
+     c                   if        p_eann = 0
+     c                   goto      avslutt
+     c                   endif
+6.31 c                   eval      w_enum = 0
+6.31 c                   eval      w_ldor = 0
+      *
+      * Henter varenr + evt. enhet
+      *
+     c                   eval      vvepl2_pfir = p_firm
+     c                   eval      vvepl2_pgti = p_eann
+     c     vvepl2_key    chain     vvepl2
+     c                   if        %found(vvepl2)
+     c                   eval      p_vare = vepvar
+     c                   eval      p_enhe = vepenh
+6.31 c                   eval      w_enum = vepldo
+     c                   eval      p_stat = '1'
+     c                   endif
+6.22  *
+6.22  * Sjekker mot gammelt GTIN register
+6.22  *
+6.22 c                   if        p_stat = *blank
+6.22 c                   eval      veanl1_eann = p_eann
+6.22 c     veanl1_key    chain     veanl1
+6.22 c                   if        %found(veanl1)
+6.22 c                   eval      p_vare = vxvare
+6.22 c                   eval      p_enhe = vxenhe
+6.22 c                   eval      p_stat = '1'
+6.22 c                   endif
+6.22 c                   endif
+      *
+      * Sjekker mot VA
+      *
+     c                   if        p_stat = *blank
+6.30 c                   eval      jvpkl3_gtin = p_eann
+6.30 c     jvpkl3_key    chain     jvpkl3
+6.30 c                   if        %found(jvpkl3)
+6.30 c                   eval      p_enhe = jwenhe
+6.21 c                   eval      p_vare = jwvare
+     c                   eval      p_stat = '1'
+6.31 c                   eval      w_ldor = jwldor
+     c                   endif
+     c                   endif
+      *
+6.31  * sjekker om logistikk-vare
+6.31 c                   eval      w_lv_nobb = 0
+     c                   if        w_enum <> 0
+      * finner va-leverandør
+6.31 c/exec sql
+6.31 c+ select jlldor
+6.31 c+ into   :w_ldor
+6.31 c+ from   jlevpf
+6.31 c+ where  jlenum = :w_enum
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+6.31 c                   endif
+6.31 c                   if        w_ldor <> 0
+6.31 c/exec sql
+6.31 c+ select jvquno
+6.31 c+ into   :w_lv_nobb
+6.31 c+ from   jvklpf
+6.31 c+ where  jvqvnr = :p_vare and
+6.31 c+        jvqldo = :w_ldor  and jvqfir = :p_firm
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+6.31 c                   endif
+6.31  *
+6.31 c                   if        w_lv_nobb <> 0
+6.31 c                   eval      p_nobb = w_lv_nobb
+6.31 c                   else
+      * Hent nobbnummer hvis varenummer er funnet via GTIN
+      *
+      *
+     c                   if        p_stat = '1'
+     c                   eval      vvarl1_vare = p_vare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found(vvarl1)
+     c                   eval      p_nobb = vvnobb
+6.20 c                   else
+6.20 c                   eval      jvarl1_vare = p_vare
+6.20 c     jvarl1_key    chain     jvarl1
+6.20 c                   if        %found(jvarl1)
+6.20 c                   eval      p_nobb = jvnobb
+6.20 c                   endif
+     c                   endif
+     c                   endif
+6.31 c                   endif
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+      *
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_eann
+     c                   parm                    p_vare
+     c                   parm                    p_enhe
+     c                   parm                    p_nobb
+     c                   parm                    p_stat
+      *
+      * Key for les på vareenhets-register
+      *
+     c     vvepl2_key    klist
+     c                   kfld                    vvepl2_pfir
+     c                   kfld                    vvepl2_pgti
+      *
+      * Key for les på pakningsregister
+      *
+6.30 c     jvpkl3_key    klist
+6.30 c                   kfld                    jvpkl3_gtin
+      *
+      * Key for les på vareregister.
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    p_firm
+     c                   kfld                    vvarl1_vare
+6.20  *
+6.20  * Key for les på VARE nummer
+6.20  *
+6.20 c     jvarl1_key    klist
+6.20 c                   kfld                    jvarl1_vare
+6.22  *
+6.22  * Key for les på GTIN register
+6.22  *
+6.22 c     veanl1_key    klist
+6.22 c                   kfld                    p_firm
+6.22 c                   kfld                    veanl1_eann
+      *
+     c                   endsr

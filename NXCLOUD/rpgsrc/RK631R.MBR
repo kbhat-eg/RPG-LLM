@@ -1,0 +1,716 @@
+      /TITLE  Hjelperegister for saldoliste
+     h datedit(*dmy) option(*nodebugio)
+      * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+      * System. . . . . : ASOKON                                              *
+      * Program . . . . : RK631R                                              *
+      * Beskrivelse . . : Bygging av hjelpe-register for saldoliste           *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Spesialversjon. :                                                     *
+      * Tilpasset for . :                                                     *
+      *                                                                       *
+      * Referanse  Dato   Endringsbeskrivelse                            Sign *
+      * --------- ------  ---------------------------------------------- ---- *
+      * V3.40     280202  Feil kundenummer ble lagt ut i sorteringsfelt   KOB *
+      * V3.40     220502  Lagt inn opphenting av avdeling/selger          KOB *
+      * V5.00     250702  Lagt om til datofelt                            KOB *
+      * V5.10     140603  Ny fil med poster med restbeløp <> 0            KOB *
+      * V5.20     061003  Leser gammel fil hvis alle med kjøp i år valgt  KOB *
+      * V5.20     061003  Hvis RKTRL9 leses hentes kjøp i år fra kundereg KOB *
+E5.30 * V5.30     030305  Sprekk i beregning av gj.sn.kredittid.          HFL *
+T5.30 * V5.30     150805  Beløp sendt til inkasso fungerte ikke.          HFL *
+T5.30 * V5.40     110206  Korrigert datastruktur                          KOB *
+T5.30 * V5.40     220606  Plukker kode I og J til inkasso.                HFL *
+T5.40 * V5.41     021106  Lagt inn valg på kundenummer fra/til.           KOB *
+ 6.20 * R6.20     080911  Rekompilert pga endring i RPARRKDS            *NHO
+ 6.21 * R6.20     120713  Endret test på dg vedr sum av beløp           *NHO
+      *                                                                       *
+      * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+      *
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     frktrl1    if   e           k disk    rename(rktrpfr:rktrl1r)
+     frktrl6    if   e           k disk    rename(rktrpfr:rktrl6r)
+     frktrl7    if   e           k disk    rename(rktrpfr:rktrl7r)
+     frktrl8    if   e           k disk    rename(rktrpfr:rktrl8r)
+     f                                     prefix(wn:2)
+     frktrl9    if   e           k disk    rename(rktrpfr:rktrl9r)
+     fra01l1    if   e           k disk    rename(ra01pfr:ra01l1r)
+     fraa3pf    if   e           k disk    rename(raa3pfr:raa3pfr)
+     frkw1pf    o  a e           k disk
+      *
+     d sub             s              3  0 dim(13)
+     d bko             s              1  0 dim(100)                             Bilagskoder
+     d per             s              2  0 dim(13)                              Perioder
+      *
+      /eject
+      *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      * Data struktur
+      *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *
+     d                 ds
+     d wkwrec                  2    192
+     d  wkfirm                        3  0 overlay(wkwrec)
+     d  wkkund                        6  0 overlay(wkwrec:4)
+     d  wknavn                       30    overlay(wkwrec:10)
+     d  wkkper                       30    overlay(wkwrec:40)
+     d  wktlfn                       11    overlay(wkwrec:70)
+     d  wksald                       11  2 overlay(wkwrec:81)                   Saldo
+     d  wkbel0                       11  2 overlay(wkwrec:92)                   Ikke f
+     d  wkbeln                       11  2 overlay(wkwrec:103)                   0-A
+     d  wkbel1                       11  2 overlay(wkwrec:114)                   A-B
+     d  wkbel2                       11  2 overlay(wkwrec:125)                   B-C
+     d  wkbel3                       11  2 overlay(wkwrec:136)                   C-D
+     d  wkbel4                       11  2 overlay(wkwrec:147)                   > D
+     d  wkinka                       11  2 overlay(wkwrec:158)                  Inkass
+     d  wkkjop                       12  2 overlay(wkwrec:169)                  Kjøp
+     d  wkotid                        6  0 overlay(wkwrec:181)                  Kr.tid
+      *
+      * Definering av variabler i nøkler
+      *
+     d rkunl1_kund     s                   like(rkkund)
+     d rktrl1_kund     s                   like(rnkund)
+     d rktrl6_kund     s                   like(rnkund)
+     d rktrl6_avde     s                   like(rnavde)
+     d rktrl7_kund     s                   like(rnkund)
+     d rktrl7_slgr     s                   like(rnslgr)
+     d rktrl8_kund     s                   like(rnkund)
+     d rktrl8_biln     s                   like(rnbiln)
+     d rktrl9_kund     s                   like(rnkund)
+     d ra01l1_akod     s                   like(raakod)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(rkfirm)
+     d w_kund          s                   like(rkkund)
+     d w_alfa          s                   like(rkalfa)
+      *
+     d w_belo          s                   like(rnbelØ)
+     d w_bel0          s                   like(rnbelØ)
+     d w_bel1          s                   like(rnbelØ)
+     d w_bel2          s                   like(rnbelØ)
+     d w_bel3          s                   like(rnbelØ)
+     d w_bel4          s                   like(rnbelØ)
+     d w_beln          s                   like(rnbelØ)
+     d w_inka          s                   like(rnbelØ)
+     d w_kjop          s                   like(rnbelØ)
+     d w_sald          s                   like(rnbelØ)
+      *
+     d gmavde          s                   like(rnavde)
+     d gmslgr          s                   like(rnslgr)
+      *
+     d bruddx          s              1
+     d first           s              1
+     d kaarmd          s              6  0
+     d paarmd          s              6  0
+     d prdagx          s              1
+     d w_bedg          s             15  0
+     d w_bewk          s             15  0
+E5.30d w_dagr          s              8  0
+     d w_fodag         s              5  0
+     d w_krdag         s              5  0
+     d w_dato          s               d   datfmt(*iso)
+     d w_fdat          s               d   datfmt(*iso)
+     d w_bdat          s               d   datfmt(*iso)
+     d w_tran          s              7  0
+     d wkp             s              2  0
+     d wkper           s              8  0
+     d wkrtid          s              6  0
+     d wsntid          s              6  0
+     d x               s              2s 0
+      *
+     d/COPY QCPYLESRC,RPARRKDS
+      *
+      *  Statusopplysninger - aldersfordeling
+     iraa3pfr
+      *
+     i              ra3p01                      per(01)
+     i              ra3p02                      per(02)
+     i              ra3p03                      per(03)
+     i              ra3p04                      per(04)
+     i              ra3p05                      per(05)
+     i              ra3p06                      per(06)
+     i              ra3p07                      per(07)
+     i              ra3p08                      per(08)
+     i              ra3p09                      per(09)
+     i              ra3p10                      per(10)
+     i              ra3p11                      per(11)
+     i              ra3p12                      per(12)
+     i              ra3p13                      per(13)
+      *
+      /eject
+      *
+     c     rkunl1_key    setll     rkunl1
+     c     rkunl1_key    reade     rkunl1                                 98
+      *
+     c                   dow       *in98 = *off
+      *
+      * Seleksjon av ønsket kategori
+      *
+     c                   if        rkkatg < pkatf or
+     c                             rkkatg > pkatt
+     c                   goto      nykund
+     c                   endif
+      *
+      * Seleksjon av ønsket kunde
+      *
+     c                   if        rkkund < pknrf or
+     c                             rkkund > pknrt
+     c                   goto      nykund
+     c                   endif
+      *
+     c                   movel     rkalfa        w_alfa
+      *
+     c                   eval      gmavde = *zeros
+     c                   eval      gmslgr = *zeros
+     c                   eval      first  = *blank
+      *
+      * Kontaktperson
+      *
+     c                   if        pkper = *blank
+     c                   eval      wkkper = *blank
+     c                   endif
+      *
+      * Telefonnummer
+      *
+     c                   if        ptlf = *blank
+     c                   eval      wktlfn = *blank
+     c                   endif
+      *
+      * Sortering
+      *
+     c                   if        psort = *blank
+     c                   eval      w_alfa= *blank
+     c                   endif
+      *
+     c                   movel     rknavn        wknavn
+     c                   movel     rkkund        wkkund
+     c                   movel     rktlfn        wktlfn
+     c                   movel     rkpers        wkkper
+     c                   move      rkkund        rwkknr
+     c                   movel     w_alfa        rwkalf
+      *
+     c                   exsr      les_trans
+      *
+     c                   exsr      brd_kunde
+      *
+     c     nykund        tag
+      *
+     c     rkunl1_key    reade     rkunl1                                 98
+     c                   enddo
+      *
+     c/space 3
+      *
+     c     slutt         tag
+      *
+     c                   eval      *inlr = *on
+      *
+     c/eject
+      *
+      * Leser kundetransaksjoner
+      *
+     c     les_trans     begsr
+      *
+     c                   eval      rktrl1_kund = rkkund
+     c                   eval      rktrl6_kund = rkkund
+     c                   eval      rktrl7_kund = rkkund
+     c                   eval      rktrl9_kund = rkkund
+      *
+     c                   select
+     c                   when      pavds = 'J'
+     c     rktrl6_key    setll     rktrl6
+     c     rktrl6_key    reade     rktrl6                                 97
+     c                   when      psels = 'J'
+     c     rktrl7_key    setll     rktrl7
+     c     rktrl7_key    reade     rktrl7                                 97
+     c                   when      prdagx = 'X' and pkjop = ' '
+     c     rktrl9_key    setll     rktrl9
+     c     rktrl9_key    reade     rktrl9                                 97
+     c                   other
+     c     rktrl1_key    setll     rktrl1
+     c     rktrl1_key    reade     rktrl1                                 97
+     c                   endsl
+      *
+     c                   dow       *in97 =*off
+      *
+      * Hent avdeling fra motpost
+      *
+     c                   if        pavds  =  'J' and
+     c                             rnavde = 0 and
+     c                             rnrefn > 0
+     c                   eval      rktrl8_kund = rnkund
+     c                   eval      rktrl8_biln = rnrefn
+     c     rktrl8_key    chain     rktrl8
+     c                   if        %found
+     c                   eval      rnavde = wnavde
+     c                   endif
+     c                   endif
+      *
+      * Hent selger fra motpost
+      *
+     c                   if        psels  =  'J' and
+     c                             rnslgr = 0 and
+     c                             rnrefn > 0
+     c                   eval      rktrl8_kund = rnkund
+     c                   eval      rktrl8_biln = rnrefn
+     c     rktrl8_key    chain     rktrl8
+     c                   if        %found
+     c                   eval      rnslgr = wnslgr
+     c                   endif
+     c                   endif
+      *
+      * Seleksjon av ønsket avdeling
+      *
+     c                   if        rnavde < pavdf or
+     c                             rnavde > pavdt
+     c                   goto      nyles
+     c                   endif
+      *
+      * Seleksjon av ønsket selger
+      *
+     c                   if        rnslgr < pself or
+     c                             rnslgr > pselt
+     c                   goto      nyles
+     c                   endif
+      *
+      * Sjekk om brudd på avdeling
+      *
+     c                   if        pavds = 'J' and
+     c                             rnavde <> gmavde and
+     c                             first <> *blank
+     c                   exsr      brd_kunde
+     c                   endif
+      *
+      * Sjekk om brudd på selger
+      *
+     c                   if        psels = 'J' and
+     c                             rnslgr <> gmslgr and
+     c                             first <> *blank
+     c                   exsr      brd_kunde
+     c                   endif
+      *
+     c                   eval      first  = 'N'
+     c                   eval      gmavde = rnavde
+     c                   eval      gmslgr = rnslgr
+      *
+      * Utelukk poster som er nyere
+      * enn oppgitt periode
+      *
+     c                   if        rnraar > paarf
+     c                   goto      nyles
+     c                   endif
+      *
+     c                   if        rnraar = paarf and
+     c                             rnrper > ppert
+     c                   goto      nyles
+     c                   endif
+      *
+     c                   if        prdagx = 'X'
+     c                   exsr      beregn_dagens
+     c                   else
+     c                   exsr      beregn_tidlig
+     c                   endif
+      *
+     c     nyles         tag
+      *
+     c                   select
+     c                   when      pavds = 'J'
+     c     rktrl6_key    reade     rktrl6                                 97
+     c                   when      psels = 'J'
+     c     rktrl7_key    reade     rktrl7                                 97
+     c                   when      prdagx = 'X' and pkjop = ' '
+     c     rktrl9_key    reade     rktrl9                                 97
+     c                   other
+     c     rktrl1_key    reade     rktrl1                                 97
+     c                   endsl
+      *
+     c                   enddo
+      *
+     c                   endsr
+      *
+     c/eject
+      *
+      * Subrutine for beregning av denne periode
+      *
+     c     beregn_dagens begsr
+      *
+      * Beregn antall dager forfall
+      *
+     c     w_dato        subdur    rnfdat        w_fodag : *d
+      *
+      * Beregn tall for gj.snitt kredittid
+      *
+     c                   if        rnrest > *zeros
+      *
+     c     rnbdat        subdur    w_dato        w_krdag : *d
+     c                   eval      w_dagr = w_dagr + w_krdag
+     c                   eval      w_tran = w_tran + 1
+      *
+     c                   endif
+      *
+      * Beregn kjøp i år
+      *
+     c                   if        rnraar = paarf and
+     c                             rnrper <= ppert
+     c                   eval      x = rnbilk
+     c                   if        bko(x) = 1
+     c                   eval      w_kjop = w_kjop + rnbelØ
+     c                   endif
+     c                   endif
+      *
+      *   Saldo
+      *
+     c                   eval      w_sald = w_sald + rnrest
+      *
+     c                   if        rnrest > *zeros
+      *
+     c                   select
+6.21 c**                 when      w_fodag <= 0
+6.21 c                   when      w_fodag < 0
+     c                   eval      w_bel0 = w_bel0 + rnrest
+      *
+     c                   when      w_fodag <= ra3ka1
+     c                   eval      w_bel1 = w_bel1 + rnrest
+      *
+     c                   when      w_fodag <= ra3ka2
+     c                   eval      w_bel2 = w_bel2 + rnrest
+      *
+     c                   when      w_fodag <= ra3ka3
+     c                   eval      w_bel3 = w_bel3 + rnrest
+      *
+     c                   other
+     c                   eval      w_bel4 = w_bel4 + rnrest
+     c                   endsl
+      *
+     c                   else
+      *
+     c                   eval      w_beln = w_beln + rnrest
+     c                   endif
+      *
+T5.30 * Akkumuler sendt til inkasso
+      *
+S5.40c*                  if        rninko <> *blank
+T5.40c                   if        rninko = 'I' or
+T5.40c                             rninko = 'J'
+T5.30c                   eval      w_inka = w_inka + rnrest
+T5.30c                   endif
+      *
+     c                   endsr
+     c/eject
+      *
+      * Subrutine for beregning av tidligere periode
+      *
+     c     beregn_tidlig begsr
+      *
+      * Beregn antall dager forfall
+      *
+     c     *dmy          move      pdato         w_dato
+     c     w_dato        subdur    rnfdat        w_fodag : *d
+      *
+      * Hent bilagsdato hvis saldert med referanse
+      *
+     c                   if        rnbelØ > *zeros and
+     c                             rnrefn > *zeros
+      *
+     c                   eval      rktrl8_kund = rkkund
+     c                   eval      rktrl8_biln = rnrefn
+      *
+     c     rktrl8_key    chain     rktrl8                             62
+      *
+      * Beregn tall for gj.snitt kredittid
+      *
+     c                   if        *in62 = *off
+      *
+     c     rnbdat        subdur    wnbdat        w_krdag : *d
+     c                   eval      w_dagr = w_dagr + w_krdag
+     c                   eval      w_tran = w_tran + 1
+     c                   endif
+      *
+     c                   endif
+      *
+      * Beregn kjøp i år
+      *
+     c                   if        rnraar = paarf and
+     c                             rnrper <= ppert
+     c                   eval      x = rnbilk
+     c                   if        bko(x) = 1
+     c                   eval      w_kjop = w_kjop + rnbelØ
+     c                   endif
+     c                   endif
+      *
+      *   Saldo
+      *
+     c                   eval      w_sald = w_sald + rnbelØ
+      *
+     c                   select
+     c                   when      w_fodag <= 0
+     c                   eval      w_bel0 = w_bel0 + rnbelØ
+      *
+     c                   when      w_fodag <= ra3ka1
+     c                   eval      w_bel1 = w_bel1 + rnbelØ
+      *
+     c                   when      w_fodag <= ra3ka2
+     c                   eval      w_bel2 = w_bel2 + rnbelØ
+      *
+     c                   when      w_fodag <= ra3ka3
+     c                   eval      w_bel3 = w_bel3 + rnbelØ
+      *
+     c                   other
+     c                   eval      w_bel4 = w_bel4 + rnbelØ
+     c                   endsl
+      *
+T5.30 * Akkumuler sendt til inkasso
+      *
+T5.30c                   if        rninko <> *blank
+T5.30c                   eval      w_inka = w_inka + rnrest
+T5.30c                   endif
+      *
+     c                   endsr
+      *
+     c/eject
+      *
+      ** Legg ut trans før ny kunde behandles
+      *
+     c     brd_kunde     begsr
+      *
+     c                   eval      wksald = w_sald
+     c                   eval      wkbel0 = w_bel0
+     c                   eval      wkbel1 = w_bel1
+     c                   eval      wkbel2 = w_bel2
+     c                   eval      wkbel3 = w_bel3
+     c                   eval      wkbel4 = w_bel4
+     c                   eval      wkbeln = w_beln
+     c                   eval      wkinka = w_inka
+      *
+     c                   if        prdagx = 'X' and pkjop = ' '
+     c                   eval      wkkjop = rkkjØp
+     c                   else
+     c                   eval      wkkjop = w_kjop
+     c                   endif
+      *
+      * Negative tall i ald.fordeling salderes mot eldste fordeling
+      *
+     c                   if        prdagx = ' '                                 pr. dato
+      *
+     c                   if        wkbel0 < *zeros                              Ikke forfalt
+     c                   eval      wkbel4 = wkbel4 + wkbel0                      negativt?!?
+     c                   eval      wkbel0 = wkbel0 - wkbel0                       salder
+     c                   endif
+      *
+     c                   if        wkbel1 < *zeros                              1. alderfordeling
+     c                   eval      wkbel4 = wkbel4 + wkbel1                      negativt?!?
+     c                   eval      wkbel1 = wkbel1 - wkbel1                       salder
+     c                   endif
+      *
+     c                   if        wkbel2 < *zeros                              2. alderfordeling
+     c                   eval      wkbel4 = wkbel4 + wkbel2                      negativt?!?
+     c                   eval      wkbel2 = wkbel2 - wkbel2                       salder
+     c                   endif
+      *
+     c                   if        wkbel3 < *zeros                              3. alderfordeling
+     c                   eval      wkbel4 = wkbel4 + wkbel3                      negativt?!?
+     c                   eval      wkbel3 = wkbel3 - wkbel3                       salder
+     c                   endif
+      *
+      * Negative tall i eldste ald.fordeling salderes tilbake
+      *
+     c                   if        wkbel4 < *zeros                              4. alderfordeling
+     c                   eval      wkbel3 = wkbel3 + wkbel4                      negativt?!?
+     c                   eval      wkbel4 = wkbel4 - wkbel4                       salder
+      *
+     c                   if        wkbel3 < *zeros                              3. alderfordeling
+     c                   eval      wkbel2 = wkbel2 + wkbel3                      negativt?!?
+     c                   eval      wkbel3 = wkbel3 - wkbel3                       salder
+      *
+     c                   if        wkbel2 < *zeros                              2. alderfordeling
+     c                   eval      wkbel1 = wkbel1 + wkbel2                      negativt?!?
+     c                   eval      wkbel2 = wkbel2 - wkbel2                       salder
+      *
+     c                   if        wkbel1 < *zeros                              1. alderfordeling
+     c                   eval      wkbel0 = wkbel0 + wkbel1                      negativt?!?
+     c                   eval      wkbel1 = wkbel1 - wkbel1                       salder
+     c                   endif
+      *
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+      * Beregner gj.snitt kredittid pr. kunde
+      *
+     c                   eval      wkotid = *zeros
+      *
+     c                   if        w_tran <> *zeros
+     c                   eval(h)   wkotid = w_dagr / w_tran
+     c                   endif
+      *
+      * Sortert på kundekategori
+      *
+     c                   if        pkats = 'J'
+     c                   eval      rwkniv = rkkatg
+     c                   endif
+      *
+      * Sortert på avdeling ?
+      *
+     c                   if        pavds = 'J'
+     c                   eval      rwkniv = gmavde
+     c                   if        rwkniv = *zeros
+     c                   eval      rwkniv = rkavde
+     c                   endif
+     c                   endif
+      *
+      * Sortert på selger ?
+      *
+     c                   if        psels = 'J'
+     c                   eval      rwkniv = gmslgr
+     c                   if        rwkniv = *zeros
+     c                   eval      rwkniv = rkslgr
+     c                   endif
+     c                   endif
+      *
+      * Sortere på saldo ?
+      *
+     c                   if        pssal <> *blank
+     c                   eval      rwksal = w_sald
+     c                   endif
+      *
+     c                   eval      rwkknr = rkkund
+     c                   move      wkwrec        rwkrec
+      *
+     c                   write     rkw1pfr
+      *
+     c                   eval      w_bel0 = *zeros
+     c                   eval      w_bel1 = *zeros
+     c                   eval      w_bel2 = *zeros
+     c                   eval      w_bel3 = *zeros
+     c                   eval      w_bel4 = *zeros
+     c                   eval      w_beln = *zeros
+     c                   eval      w_sald = *zeros
+     c                   eval      w_inka = *zeros
+     c                   eval      w_kjop = *zeros
+     c                   eval      w_dagr = *zeros
+     c                   eval      w_tran = *zeros
+     c                   eval      w_belo = *zeros
+     c                   eval      w_bedg = *zeros
+     c                   eval      rwksal = *zeros
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     *inzsr        begsr
+      *
+     c                   eval      wkwrec = *zeros
+     c                   eval      wkp = *zeros
+      *
+     c     raa3pf_key    klist
+     c                   kfld                    w_firm
+      *
+     c     ra01l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra01l1_akod
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+      *
+     c     rktrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rktrl1_kund
+      *
+     c     rktrl6_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rktrl6_kund
+      *
+     c     rktrl7_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rktrl7_kund
+      *
+     c     rktrl8_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rktrl8_kund
+     c                   kfld                    rktrl8_biln
+      *
+     c     rktrl9_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rktrl9_kund
+      *
+      * Setter startverdier
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Skal det være brudd-sum
+      *
+     c                   if        pavds <> *blank
+     c                   movel     'X'           bruddx
+     c                   endif
+      *
+     c                   if        pkats <> *blank
+     c                   movel     'X'           bruddx
+     c                   endif
+      *
+     c                   if        psels <> *blank
+     c                   movel     'X'           bruddx
+     c                   endif
+      *
+     c     *dmy          move      pdato         w_dato                         Kjøredato
+     c                   movel     *year         kaarmd
+     c                   move      *month        kaarmd
+      *
+     c                   movel     paarf         paarmd
+     c                   move      ppert         paarmd
+      *
+     c                   if        paarmd = kaarmd                              Saldoliste
+     c                   movel     'X'           prdagx                         pr. dato
+     c                   endif
+      *
+      ** Leser parameter-file ############################ SLUTT ######
+      **
+      ** Henter kodeopplysninger ######################### START ######
+      *
+     c                   move      l_firm        ra3fir
+     c     raa3pf_key    chain     raa3pf                             99
+      *
+     c   99              do
+     c                   eval      ra3ka1 = *zeros
+     c                   eval      ra3ka2 = *zeros
+     c                   eval      ra3ka3 = *zeros
+     c                   enddo
+      *
+      * Avvikende regnskapsperiode
+      *
+     c                   xfoot     per           wkper                          Tabell finne
+      *
+     c                   move      kaarmd        wkp                            Per på trans
+      *
+     c                   if        ra3stp > 01                                  Start r.år
+     c                             and wkper > *zero                             tab.utfyllt
+     c                   move      per(wkp)      kaarmd                           bruk p.fra tab.
+     c                   movel     paarf         kaarmd                          bruk fjorår
+      *
+     c                   if        paarmd = kaarmd                              Saldoliste
+     c                   move      'X'           prdagx                         pr. dato
+     c                   endif
+      *
+     c                   endif
+      *
+      * Leser bilagskode
+      *
+     c                   eval      bko = *zeros
+     c                   eval      x = 1
+      *
+     c                   dou       x = 99                                       . . . . . . .
+     c                   move      x             ra01l1_akod                                .
+     c     ra01l1_key    chain     ra01l1                             92
+     c                   if        *in92  = *off and                                        .
+     c                             raakjØ = '1'                                             .
+     c                   move      1             bko(x)                                     .
+     c                   endif                                                              .
+     c                   eval      x = x + 1
+      *
+     c                   enddo                                                  . . . . . . .
+      *
+      ** Henter kodeopplysninger ######################### SLUTT ######
+      *
+     c                   endsr

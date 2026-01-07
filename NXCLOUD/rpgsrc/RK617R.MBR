@@ -1,0 +1,372 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOKON                                              *
+      * Program . . . . : RK617R                                              *
+      * Beskrivelse . . : Utskrift av frittstående bankgiro                   *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Spesialversjon. :                                                     *
+      * Tilpasset for . :                                                     *
+      *                                                                       *
+      * Referanse  Dato   Endringsbeskrivelse                            Sign *
+6.nu  * R6.20     280515  Utvidelse av kort kid                    nho   NHO  *
+      * --------- ------  ---------------------------------------------- ---- *
+      *                                                                       *
+      *                                                                       *
+      *                                                                       *
+      * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+      *
+     frgirpf    if   e           k disk
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+     faforl1    if   e           k disk    rename(aforpfr:aforl1r)
+     frk617p    o    e             printer oflind(*in30)
+      *
+      * Kroner i alfafelt
+      *
+     d akr             s              1    dim(9)
+      *
+      * - - - - - - - - - - - - - -
+      * Henter inn data fra LDA
+      * - - - - - - - - - - - - - -
+      *
+     d                uds
+     d l_ruti                800    809
+     d l_hex1                760    779
+     d l_hex2                780    799
+     d l_sfir                845    845
+     d l_alin                856    858  0
+     d l_kidk                883    883  0
+     d l_ocrk                885    885  0
+     d l_firm                944    946  0
+      *
+      * Datastruktur for kid-feltet
+      *
+     d                 ds
+     d d_kkid                        21
+     d  d_kkus                       20    overlay(d_kkid)
+     d   d_kfir                       3  0 overlay(d_kkus)
+     d   d_kkod                       1  0 overlay(d_kkus:4)
+6.nu d*  d_kled                       4  0 overlay(d_kkus:5)
+6.nu d   d_kled                       1  0 overlay(d_kkus:6)
+6.nu d*  d_kkto                       6  0 overlay(d_kkus:9)
+6.nu d   d_kkto                       6  0 overlay(d_kkus:7)
+6.nu d*  d_kbil                       6  0 overlay(d_kkus:15)
+6.nu d   d_kbil                       8  0 overlay(d_kkus:13)
+     d  d_kmod                        1  0 overlay(d_kkid:21)
+      *
+     d n               s              2  0
+     d w_pkid          s             25
+     d w_biln          s                   like(rgbiln)
+     d w_firm          s                   like(rgfirm)
+     d w_kund          s                   like(rgkund)
+     d w_avde          s                   like(rgavde)
+     d w_ruti          s             10
+     d w_aprt          s              1  0
+      *
+     d w_prfi          s              1  0
+     d w_ffir          s              3  0
+     d w_fnav          s             30
+     d w_fad1          s             30
+     d w_fad2          s             30
+     d w_fste          s             30
+     d w_fftx          s             30
+     d w_tfax          s              8
+     d w_ftlf          s             11
+     d w_ffax          s             11
+     d w_tbnk          s             10
+     d w_fbgi          s             13
+      *
+6.nu d*w_kidr          s              6  0
+6.nu d w_kidr          s              8  0
+     d w_ksif          s              1  0
+     d w_kkus          s             24
+     d w_kkid          s             25
+      *
+     c/space 3
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Definering av formater                                          *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      * Benyttede formater
+      * - - - - - - - - - -
+      *
+      * P1GIR  - Bankgiro hode beløpet gjelder
+      * P2GIR  - Bankgiro hode gebyr
+      * P3GIR  - Bankgiro hode rabatt
+      * P4GIR  - Bankgiro hode navn/adresse
+      * P5GIR  - Bankgiro beløpslinje
+      *
+     c/eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Styre-rutine                                                    *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      * Behandle girotransaksjoner
+      *
+     c     xlesny        tag
+      *
+     c                   read      rgirpf                                 61
+      *
+     c                   if        %eof
+     c                   goto      xslutt
+     c                   endif
+      *
+      * Beløp positivt
+      *
+     c                   if        rgbelØ <= *zero
+     c                   goto      xlesny
+     c                   endif
+      *
+      * Test type giro
+      *
+     c                   eval      d_kkod = *zero
+      *
+     c                   if        rgakti = 'P'                                  GENERALNOTA
+     c                   eval      a1txt1 = 'Beløpet gjelder generalnota'
+     c                   eval      d_kkod = 1
+     c                   endif
+      *
+     c                   if        rgakti = 'F'                                  FAKTURA
+     c                   eval      a1txt1 = 'Beløpet gjelder faktura'
+     c                   eval      d_kkod = *zero
+     c                   endif
+      *
+     c                   if        rgakti = 'R' or                               RENTE
+     c                             rgakti = 'G'                                  GEBYR
+     c                   eval      a1txt1 = 'Beløpet gjelder nota'
+     c                   eval      d_kkod = 2
+     c                   endif
+      *
+     c                   if        rgakti = 'S'                                  FORFALT SALDO
+     c                   eval      a1txt1 = 'Beløpet gjelder forfalt saldo'
+     c                   eval      d_kkod = 3
+     c                   endif
+      *
+     c                   move      rgbiln        a1biln
+     c     *dmy          move      rgbdat        a1bdat
+     c     *dmy          move      rgfdat        a1fdat
+      *
+      * Renter/Gebyr
+      *
+     c                   if        rgrent <> *zeros
+     c     rgbelØ        sub       rgrent        a1belØ
+     c                   z-add     rgrent        a2rent
+     c                   else
+     c                   z-add     rgbelØ        a1belØ
+     c                   move      *zeros        a2rent
+     c                   endif
+      *
+      * Rabatter
+      *
+     c                   if        rgrabb <> *zeros
+     c                   z-add     rgrabb        a3rabb
+     c                   else
+     c                   move      *zeros        a3rabb
+     c                   endif
+      *
+      * Navn/Adresse
+      *
+     c                   move      rgkund        a4kund
+     c                   move      rgnavn        a4navn
+     c                   move      rggate        a4gate
+     c                   move      rgadr2        a4adr2
+     c                   move      rgsted        a4sted
+      *
+      * Beløpslinje
+      *
+     c                   exsr      xajour
+      *
+     c                   exsr      xprint
+      *
+     c                   goto      xlesny
+     c/space 3
+      *
+      * Ferdig
+      *
+     c     xslutt        tag
+      *
+     c                   eval      *inlr = *on
+      *
+     c/eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * XAJOUR Klargjør data for print                                  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xajour        begsr
+      *
+      * Klargjøre kidfelt
+      *
+     c***                move      rgkkid        a5kkid
+     c                   eval      a5kkid = %trim(rgkkid)
+      *
+      * Beregne modulus 10 på beløpsfeltet
+      *
+     c                   move      *blank        d_kkus
+     c                   move      rgbelØ        w_kkus
+      *
+     c                   call      'AK720R'
+     c                   parm                    w_kkus
+     c                   parm                    w_ksif
+      *
+     c                   move      w_ksif        a5bsif
+      *
+      * Splitte kr/øre
+      *
+     c                   movel     rgbelØ        a5kron
+     c                   move      rgbelØ        a5Ører
+      *
+      * Fjerne foranstilte nuller
+      * i et alfanummerisk felt
+      *
+     c                   movea     a5kron        akr
+     c                   z-add     1             n
+      *
+     c                   dow       akr(n) = '0'
+     c                   move      ' '           akr(n)
+     c                   add       1             n
+     c     n             cabgt     9             xsorti
+     c                   enddo
+      *
+     c     xsorti        tag
+      *
+     c                   movea     akr(1)        a5kron
+      *
+     c                   endsr
+     c/eject
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * XPRINT Skriver bankgiro                                         *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xprint        begsr
+      *
+      * Skriv beløpet gjelder
+      *
+     c                   write     p1gir                                30
+      *
+      * Skriv gebyrlinje
+      *
+     c                   if        a2rent > *zero
+     c                   write     p2gir                                30
+     c                   endif
+      *
+      * Skriv rabattlinje
+      *
+     c                   if        a3rabb > *zero
+     c                   write     p3gir                                30
+     c                   endif
+      *
+      * Skriv firmanavn
+      *
+     c                   write     p4gir                                30
+      *
+      * Skrive giro H-linje dersom ikke OCR
+      *
+     c                   if        l_ocrk = 0
+     c                   write     p5gir                                30
+     c                   endif
+      *
+      * Skrive giro H-linje dersom OCR og 4224
+      *
+     c                   if        l_ocrk = 1
+     c                   write     p6gir                                30
+     c                   endif
+      *
+      * Skrive giro H-linje dersom OCR og Axix-boks
+      *
+     c                   if        l_ocrk = 2
+     c                   move      l_hex1        p1hex1
+     c                   move      l_hex2        p1hex2
+     c                   write     p7gir                                30
+     c                   endif
+      *
+      * Skrive bankgiro H-linje dersom 5224 skriver
+      *
+     c                   if        l_ocrk = 3
+     c                   write     p8gir                                30
+     c                   endif
+      *
+      * Skrive bankgiro H-linje dersom OCR og Nett-print
+      *
+     c                   if        l_ocrk = 4
+     c                   move      l_hex1        p1hex1
+     c                   move      l_hex2        p1hex2
+     c                   write     p9gir                                30
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     *inzsr        begsr
+      *
+      * Key for firmaregister
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for formular-register
+      *
+     c     aforl1_key    klist
+     c                   kfld                    w_ruti
+      *
+     c                   eval      w_firm = l_firm
+     c                   move      *zeros        w_pkid
+     c                   eval      n = *zero
+      *
+      * Hente inn formular-register
+      *
+     c                   eval      w_ruti = 'RK617 '
+     c     aforl1_key    chain     aforl1r
+      *
+     c                   if        not%found
+     c                   eval      afinst = 1
+     c                   eval      afprfi = 1
+     c                   endif
+      *
+      *  Hent inn firma/avd. opplysninger dersom
+      *  kode for det er satt i rutineregister
+      *
+     c                   if        afprfi = 1 or
+     c                             afprfi = 2
+     c                   eval      w_prfi = afprfi
+     c                   eval      w_ffir = w_firm
+     c                   eval      w_avde = rgavde
+      *
+     c                   call      'RÅ707R'
+     c                   parm                    w_prfi
+     c                   parm                    w_ffir
+     c                   parm                    w_avde
+     c                   parm                    w_fnav
+     c                   parm                    w_fad1
+     c                   parm                    w_fad2
+     c                   parm                    w_fste
+     c                   parm                    w_fftx
+     c                   parm                    w_tfax
+     c                   parm                    w_ftlf
+     c                   parm                    w_ffax
+     c                   parm                    w_tbnk
+     c                   parm                    w_fbgi
+      *
+     c                   eval      a5fbgi = w_fbgi
+     c                   eval      a6fbgi = w_fbgi
+      *
+     c                   eval      a4fnav = w_fnav
+     c                   eval      a4fad1 = w_fad1
+     c                   eval      a4fad2 = w_fad2
+     c                   eval      a4fste = w_fste
+     c                   endif
+      *
+      * Skal firmanavn droppes på bankgiro ?
+      *
+      *
+     c                   if        w_aprt = 2
+     c                   eval      a4fnav = *blank
+     c                   eval      a4fad1 = *blank
+     c                   eval      a4fad2 = *blank
+     c                   eval      a4fste = *blank
+     c                   endif
+      *
+     c                   endsr

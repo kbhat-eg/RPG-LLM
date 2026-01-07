@@ -1,0 +1,69 @@
+             PGM        PARM(&DLIB &FIRM &USER &KASS &STAT)
+
+             DCL        VAR(&DLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&FIRM) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&USER) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&KASS) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&STAT) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&ERRT) TYPE(*CHAR) LEN(120)
+
+             DCL        VAR(&MSER) TYPE(*CHAR) LEN(35)
+             DCL        VAR(&MSTA) TYPE(*CHAR) LEN(1)
+
+             DCL        VAR(&SYSNAM) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&LIBTXT) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&SUBJ) TYPE(*CHAR) LEN(200)
+
+             DCL        VAR(&COMM) TYPE(*CHAR) LEN(1) VALUE('1') /* +
+                          Velger om commitment control skal være +
+                          på. Sett til 1 for på, 0 for av. */
+
+             MONMSG   MSGID(CPF8351 CPA0702) exec(goto cmdlbl(runpgm))
+
+             RTVNETA    SYSNAME(&SYSNAM)
+             RTVLIBD    LIB(&DLIB) TEXT(&LIBTXT)
+
+/* Hente mailserver                                                  */
+
+             CALL       PGM(AM705C) PARM(&MSER &MSTA)
+
+/* Kaller program                                                    */
+
+             IF         COND(&COMM *EQ '1') THEN(STRCMTCTL +
+                          LCKLVL(*CS) CMTSCOPE(*JOB))
+RUNPGM:      CALL       PGM(BU990R) PARM(&FIRM &KASS &STAT &ERRT &COMM)
+             MONMSG     MSGID(CPF0000) EXEC(DO)
+             CHGVAR     VAR(&STAT) VALUE('SYSER')
+             ENDDO
+
+             IF         COND('X' *TCAT &STAT *NE 'X') THEN(DO)
+             IF         COND(&COMM *EQ '1') THEN(ROLLBACK)
+             GOTO       CMDLBL(END)
+             ENDDO
+
+/* Kaller opp program for evt. overføring av ByggDok                 */
+             IF         COND(&COMM *EQ '1') THEN(DO)
+             CALL       PGM(FO788R)
+             ENDDO
+
+             IF         COND(&COMM *EQ '1') THEN(COMMIT)
+
+END:
+             IF         COND(&COMM *EQ '1') THEN(ENDCMTCTL)
+
+             IF         COND('X' *TCAT &ERRT *NE 'X') THEN(DO)
+             CHGVAR     VAR(&ERRT) VALUE(&ERRT *BCAT &SYSNAM *BCAT +
+                          &DLIB)
+             CHGVAR     VAR(&SUBJ) VALUE('Feil i BU990 hos' *BCAT +
+                          &LIBTXT)
+             SNDMSG     MSG(&ERRT) TOUSR(*REQUESTER)
+             SNDMAIL    SERVER(&MSER) RECIPIENT('mads@asp-as.no') +
+                          FROM('system@asp-as.no') SUBJECT(&SUBJ) +
+                          MESSAGE(&ERRT) BMESSAGE('Hilsen AS400')
+             SNDMAIL    SERVER(&MSER) +
+                          RECIPIENT('mette.lokken@asp-as.no') +
+                          FROM('system@asp-as.no') SUBJECT(&SUBJ) +
+                          MESSAGE(&ERRT) BMESSAGE('Hilsen AS400')
+             ENDDO
+
+             ENDPGM

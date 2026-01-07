@@ -1,0 +1,179 @@
+             PGM
+
+/* Inkasso - retur fra inkassobyrå                                   */
+
+
+             DCL        VAR(&IN03)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&IN12)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&BTCH)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&MLD1)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD2)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD3)  TYPE(*CHAR) LEN(50)
+             DCL        VAR(&MLD4)  TYPE(*CHAR) LEN(50)
+             DCL        VAR(&SVAR)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&WALI)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&FIRM)  TYPE(*CHAR) LEN(3)
+             DCL        VAR(&MBER)  TYPE(*CHAR) LEN(10)
+/* FTP  */
+             DCL        VAR(&OVRF) TYPE(*CHAR) LEN(10) +
+                          VALUE('LINDRETUR ')
+             DCL        VAR(&FILN)  TYPE(*CHAR) LEN(20)
+             DCL        VAR(&STAT)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&SMSG)  TYPE(*CHAR) LEN(1) VALUE('1')
+/* SFTP  */
+             DCL        VAR(&DTAQ) TYPE(*CHAR) LEN(10) VALUE(SFTPRECV)
+             DCL        VAR(&DTAQLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&FLDLEN) TYPE(*DEC) LEN(4 0) VALUE(2000)
+             DCL        VAR(&FIELD) TYPE(*CHAR) LEN(2000)
+             DCL        VAR(&WTIM)  TYPE(*DEC) LEN(5 0) value(60)
+             DCL        VAR(&KLEN)  TYPE(*DEC) LEN(3 0) value(10)
+             DCL        VAR(&SLEN)  TYPE(*DEC) LEN(3 0) value(0)
+             DCL        VAR(&KEY) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&STAT) TYPE(*CHAR)  LEN(1)
+
+             RTVJOBA    JOB(&KEY) CURLIB(&DTAQLIB)
+             GOTO       CMDLBL(HOPP)
+
+/* Leser inn fil med åpen FTP                                       */
+
+ /*          CALL       PGM(AF700C) PARM(&OVRF &STAT &FILN &SMSG)   */
+ /*          IF         COND(&STAT *NE ' ') THEN(DO)                */
+ /*          GOTO       CMDLBL(ENDPGM)                              */
+ /*          ENDDO                                                  */
+
+/* Leser inn fil med SFTP                                           */
+
+/* Først må vi sende beskjed om at vi ønsker å hente fra SFTP server */
+/* Så venter vi på OK status for henting før vi fortsetter.          */
+
+             CHGVAR     VAR(&FIELD) VALUE(&KEY *CAT ';/home/' *TCAT +
+                          &DTAQLIB)
+
+             CALL       PGM(QSNDDTAQ) PARM(&DTAQ &DTAQLIB &FLDLEN +
+                          &FIELD)
+
+/* Vente på svar                                                     */
+
+             CHGVAR     VAR(&DTAQ) VALUE('SFTPRECVR')
+             CALL       PGM(QRCVDTAQ) PARM(&DTAQ &DTAQLIB &FLDLEN +
+                          &FIELD &WTIM 'EQ' &KLEN &KEY +
+                          &SLEN '')
+
+             IF         COND(&FLDLEN *EQ 0) THEN(GOTO CMDLBL(ERROR)) +
+                          /* 'Ikke noe svar innen timeout. Anta +
+                          feil.' */
+
+             CHGVAR     VAR(&STAT) VALUE(%SUBSTRING(&FIELD 1 1))
+             IF         COND(&STAT *EQ '2') THEN(GOTO CMDLBL(ERROR)) +
+
+/* Varselbilde Ingen filer funnet                                    */
+
+             IF         COND(&STAT *EQ '1') THEN(DO)
+             CHGVAR     VAR(&MLD3) VALUE('Ingen filer fra Lindorff ')
+             CHGVAR     VAR(&MLD4) VALUE(' Vennligst bekreft.      ')
+             CALL       PGM(AA007R)  PARM(&MLD3 &MLD4 &SVAR &IN12)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+
+/* Varselbilde OK                                                    */
+
+             CHGVAR     VAR(&WALI) VALUE(4)
+             CHGVAR     VAR(&WAPO) VALUE(2)
+             CHGVAR     VAR(&MLD1) VALUE('Overføring fra Lindorff  ')
+             CHGVAR     VAR(&MLD2) VALUE('**** OVERFØRING OK! **** ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+
+             DLYJOB     DLY(000005)
+
+
+/* Tar backup av returfil før videre behandling                     */
+
+             DLTF       FILE(RCNRPF_BAC)
+             MONMSG     MSGID(CPF2105)
+
+             CPYF       FROMFILE(RCNRPF) TOFILE(*CURLIB/RCNRPF_BAC) +
+                          MBROPT(*REPLACE) CRTFILE(*YES)
+
+/* BYGGER UNI(RCNTPFERNØKKEL -> "INKAxxx":                         */
+
+/* Hvor xxx = Firmanummer                                            */
+
+ HOPP:       RTVDTAARA  DTAARA(*LDA (944 3)) RTNVAR(&FIRM)
+             CHGVAR     VAR(%SST(&MBER 1 4)) VALUE('INKA')
+             CHGVAR     VAR(%SST(&MBER 5 3)) VALUE(&FIRM)
+
+
+/* Varselbilde 1                                                     */
+
+             IF         COND(&BTCH *NE '1') THEN(DO)
+             CHGVAR     VAR(&WALI) VALUE(4)
+             CHGVAR     VAR(&WAPO) VALUE(2)
+             CHGVAR     VAR(&MLD1) VALUE('Inkasso retur....... ... ')
+             CHGVAR     VAR(&MLD2) VALUE('**** KUNDERESKONTRO **** ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             ENDDO
+
+/* Varselbilde 2                                                     */
+
+             IF         COND(&BTCH *NE '1') THEN(DO)
+             CHGVAR     VAR(&WALI) VALUE(4)
+             CHGVAR     VAR(&WAPO) VALUE(44)
+             CHGVAR     VAR(&MLD1) VALUE('Vennligst vent litt......')
+             CHGVAR     VAR(&MLD2) VALUE('Utplukk pågår ...........')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             ENDDO
+
+/* Oppdaterer forsendelse og genererer poster til regnskap           */
+
+
+/* Program for printerstyring                                        */
+
+             CALL       PGM(AP600R) PARM('RC662 ' '0' '0' &IN03 &BTCH)
+
+             IF         COND(&IN03 *EQ '1') THEN(GOTO CMDLBL(ENDPGM))
+
+/* Overstyring av printerfile                                        */
+
+             CALL       PGM(AP601C)    PARM('RC662P' &BTCH)
+
+             CALL       PGM(RC662R) PARM(&MBER)
+
+             CALL       PGM(AP606C)    PARM('RC662P')
+
+
+/* Tildeler periode                                                  */
+
+             CALL       PGM(RF121R) PARM(&MBER)
+
+/* Legg ut regnskapsposteringer                                      */
+
+/* Varselbilde 3                                                     */
+
+             IF         COND(&BTCH *NE '1') THEN(DO)
+             CHGVAR     VAR(&WALI) VALUE(6)
+             CHGVAR     VAR(&WAPO) VALUE(40)
+             CHGVAR     VAR(&MLD1) VALUE('Vennligst vent litt......')
+             CHGVAR     VAR(&MLD2) VALUE('Legger ut posteringer....')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             ENDDO
+
+             CALL       PGM(RC664R) PARM(&MBER &MBER)
+
+             CALL       PGM(RF702R) PARM(&MBER)  /* RJOULU */
+
+/* Tømmer returfil etter endt behandling                            */
+
+             CLRPFM     FILE(RCNRPF)
+
+             GOTO       CMDLBL(ENDPGM)
+
+ ERROR:
+
+/* Varselbilde FEIL                                                  */
+
+             CHGVAR     VAR(&MLD3) VALUE('Overføring fra Lindorff feilet')
+             CHGVAR     VAR(&MLD4) VALUE('   Vennligst bekreft.     ')
+             CALL       PGM(AA007R)  PARM(&MLD3 &MLD4 &SVAR &IN12)
+
+ ENDPGM:     ENDPGM

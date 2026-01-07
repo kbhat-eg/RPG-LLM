@@ -1,0 +1,743 @@
+     h option(*nodebugio) datedit(*dmy) decedit(',')
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  *   01.10.2012 sst Justering av test på vilgasdato
+6.21  *   21.12.2012 sst Justering vedr kjøring pr firmanr.
+6.22  *   25.03.2013 sst Justering vedr valuta(feil fra compello)
+6.23  *   31.10.2013 sst Nullstille valuta dersom = nok og valk = blank
+6.23  *                  Pga feil utlegg fra Compello i enkelte tilfell
+6.24  *   06.11.2013 sst Løse både . og , som desimaltegn
+6.NU  *              sst
+6.26  *   21.05.2015 sst Rette feil etter endring 6.NU
+7.00  *   03.06.2019 sst Tilpasninger mot Opto Styrt av AKTIST, U_Opto = *on
+7.01  *   06.12.2019 bof Fjernet en setting av bilagskode, som ikke virker riktig.
+7.01  *                  (kom inn i prog. 030619, men skal kanskje ikke være der)
+      *
+     frcoml2    up   e           k disk    rename(rcompfr:rcoml2r)
+     frcmplu    uf a e           k disk    rename(rcmppfr:rcmplur)
+     f*sfdebug   o    f  128        disk
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     d                uds
+     d l_tst                   1      1
+     d l_user                911    920
+     d l_fgr                 931    933
+     d l_firm                944    946
+      *
+      * Definering av parameter
+      *
+     d p_sts           s              1
+      *
+      * Definering av variabler
+      *
+      * w_msg          s            200a
+     d w_fgrp          s              3
+     d w_firm          s              3
+7.00 d w_firmn         s              3  0
+     d w_sts           s              1
+     d w_rec           s           1000
+     d w_feil          s             30
+     d w_tell          s              6  0
+     d i               s              3  0
+     d j               s              3  0
+     d w_b             s             11
+     d wdat            s              6  0
+     d waar            s              2  0
+     d w_dat5          s              5
+     d w_dat6          s              6
+     d w2x             s              2
+     d w4x             s              4
+6.26 d w6x             s              6
+6.26 d w8x             s              8
+     d w_dmy           s              6
+     d w_dmyn          s              6  0
+     d w_kr            s             13
+     d w_or            s              2
+     d w_krn           s             13  0
+     d w_orn           s              2  0
+     d w_bilk          s              2
+6.22 d w_neg           s              3  0
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     d w_aaaa          s              4  0
+     d w_aar           s              4
+     d w_dag           s              2
+     d w_mnd           s              2
+     d w_raar          s              4  0
+     d w_raarx         s              4
+     d w_rmnd          s              2  0
+     d w_rmndx         s              2
+6.20 d w_10x           s             10
+     d wuaa            s              4  0
+     d wuaax           s              4
+     d wtst            s              3  0
+7.00  *
+7.00  * Sjekk om integrasjon kj¦res mot Opto
+7.00  *
+7.00   dcl-s co402_verdi1  char(1);
+7.00   dcl-s co402_verdi2  char(2048);
+7.00   DCL-PR CO402R EXTPGM('CO402R');
+7.00     p_filgrp            char(3)     const;
+7.00     p_firm              packed(3:0) const;
+7.00     p_lager             packed(2:0) const;
+7.00     p_nokkel            char(50)    const;
+7.00     p_verdi1            char(1);
+7.00     p_verdi2            char(2048);
+7.00   END-PR;
+7.00 d u_opto          s              1    inz(*off)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *   Legg inn alle felter fra parameter
+      *
+     c*                  move      w_rec         rc rec
+      *
+      *   Kontroll av gyldighet på alle felter
+      *
+     c                   clear                   rcmplur
+     c                   movel     l_fgr         rtfgrp
+      *  Firma
+     c                   if        rcfirm = *blank
+     c                   eval      rcfirm = '000'
+     c                   else
+     c                   if        %subst(rcfirm:2:2) = *blank
+     c                   eval      %subst(rcfirm:3:1) = %subst(rcfirm:1:1)
+     c                   eval      %subst(rcfirm:1:2) = '00'
+     c                   else
+     c                   if        %subst(rcfirm:3:1) = *blank
+     c                   eval      %subst(rcfirm:2:2) = %subst(rcfirm:1:2)
+     c                   eval      %subst(rcfirm:1:1) = '0'
+     c                   endif
+     c                   endif
+     c                   endif
+6.21  *
+6.21  *  Bare ta med det firma som kjører overføring
+6.21  *
+6.21 c                   if        rcfirm <> l_firm
+6.21 c                   goto      avslutt
+6.21 c                   endif
+6.21  *
+     c                   movel     l_fgr         w_fgrp
+     c                   movel     rcfirm        w_firm
+7.00 c                   move      w_firm        w_firmn
+     c                   call      'XC003C'
+     c                   parm                    w_fgrp
+     c                   parm                    w_firm
+     c                   parm                    w_sts
+      *
+     c                   time                    w_tell
+     c                   if        w_sts = 'F'
+     c                   eval      w_feil = 'Firma ukjent'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   movel     rcfirm        rtfirm
+      *  Bilagsnr                   Hvis mer enn 8 siffer, feil
+     c                   time                    w_tell
+6.NU c                   if        %scan(' ':rcbiln:1) > 9 or
+     c                             %check('0123456789 ':rcbiln) > 0
+     c                   eval      w_feil = 'Bilagsnr feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   eval      j   = 9
+     c                   eval      i   = 9
+6.26 c                   eval      w8x = *blank
+6.NU c                   do        8
+     c                   eval      i = i - 1
+     c                   if        %subst(rcbiln:i:1) <> *blank
+     c                   eval      j = j - 1
+6.26 c                   eval      %subst(w8x:j:1) = %subst(rcbiln:i:1)
+     c                   endif
+     c                   enddo
+6.26 c                   move      w8x           rtbiln
+      *   Bilagskode
+     c                   if        %scan(' ':rcbilk:1) > 2 or
+     c                             %check('0123456789 ':rcbilk) > 0
+     c                   eval      w_feil = 'Bilagskode feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   if        %subst(rcbilk:2:1) = ' '
+     c                   eval      %subst(w_bilk:2:1) =
+     c                             %subst(rcbilk:1:1)
+     c                   move      w_bilk        rtbilk
+     c                   else
+     c                   movel     rcbilk        rtbilk
+     c                   endif
+      *   Periode
+     c                   if        rcrper <> *blank
+     c                   if        %scan(' ':rcrper:1) > 7 or
+     c                             %check('0123456789 ':rcrper) > 0
+     c                   eval      w_feil = 'Bilagsperiode feil'
+     c                   goto      UpdFeil
+     c                   endif
+      *       År
+     c                   movel     rcrper        w_raar
+     c                   if        w_raar  < wuaa  -1 or
+     c                             w_raar  > wuaa  +1
+     c                   eval      w_feil = 'Bilagsperiode(år) feil'
+     c                   move      wuaa          wuaax
+     c                   move      w_raar        w_raarx
+     c                   eval      %subst(w_feil:24:4) = w_raarx
+     c                   goto      UpdFeil
+     c                   endif
+      *       Mnd
+     c                   move      rcrper        w_rmnd
+     c                   if        w_rmnd  < 1        or
+     c                             w_rmnd  > 12
+     c                   eval      w_feil = 'Bilagsperiode(mnd) feil'
+     c                   move      w_rmnd        w_rmndx
+     c                   eval      %subst(w_feil:26:2) = w_rmndx
+     c                   goto      UpdFeil
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   movel     rcrper        rtraar
+     c                   move      rcrper        rtrper
+      * Bilagsdato       Hvis mer enn 10 siffer, eller ikke numerisk
+     c                   if        %scan(' ':rcbdat:1) > 11         or
+6.20 c                             %check('0123456789 .':rcbdat) > 0 or
+6.20 c                             rcbdat = *blank
+     c                   eval      w_feil = 'Bilagsdato feil'
+     c                   goto      UpdFeil
+     c                   endif
+      *       Format 1:  åååå-mm-dd
+     c                   if        %scan(' ':rcbdat:1) > 10     and
+     c                             (%subst(rcbdat:3:1) <> '.'   or
+     c                              %subst(rcbdat:6:1) <> '.')
+     c                   eval      w_feil = 'Bilagsdato feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   if        %subst(rcbdat:3:1) = '.' and
+     c                             %subst(rcbdat:6:1) = '.'
+     c                   eval      w_aar =  %subst(rcbdat:7:4)
+     c                   eval      w_mnd =  %subst(rcbdat:4:2)
+     c                   eval      w_dag =  %subst(rcbdat:1:2)
+     c                   if        %check('1234567890':w_aar) > 0
+     c                   eval      w_feil = 'Bilagsdato, år feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   if        %check('1234567890':w_mnd) > 0
+     c                   eval      w_feil = 'Bilagsdato, måned feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   if        %check('1234567890':w_dag) > 0
+     c                   eval      w_feil = 'Bilagsdato, dag feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   move      w_aar         w_aaaa
+     c                   if        w_aaaa > wuaa + 1 or
+     c                             w_aaaa < wuaa - 1
+     c                   eval      w_feil = 'Bilagsdato, år feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   goto      f2ok
+     c                   endif
+      *       Format 2:  ååmmdd  eller ddmmåå
+     c                   if        %subst(rcbdat:7:9) <> *blank
+     c                   eval      w_feil = 'Bilagsdato, feil'
+     c                   goto      UpdFeil
+     c                   endif
+      *
+     c                   if        %scan(' ':rcbdat:1) > 5 and
+     c                             %scan(' ':rcbdat:1) < 8
+     c                   if        %subst(rcbdat:7:9) = *blank
+     c                   eval      w_dat6 = %subst(rcbdat:1:6)
+     c                   eval      w_dat5 = %subst(rcbdat:1:5)
+     c                   eval      wdat = *zero
+     c                   if        %subst(rcbdat:6:1) = *blank
+     c                   move      w_dat5        wdat
+     c                   else
+     c                   move      w_dat6        wdat
+     c                   endif
+     c     *ymd          test(d e)               wdat
+     c                   if        not %error
+     c                   goto      f2ok
+     c                   endif
+     c     *dmy          test(d e)               wdat
+     c                   if        not %error
+     c                   goto      f2ok
+     c                   endif
+     c                   endif
+     c                   eval      w_feil = 'Bilagsdato, feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c     f2ok          tag
+     c                   move      *loval        rtbdat
+     c                   select
+     c                   when      %subst(rcbdat:3:1) = '.' and
+     c                             %subst(rcbdat:6:1) = '.'
+     c                   eval      %subst(w_dmy:1:2) = %subst(rcbdat:1:2)
+     c                   eval      %subst(w_dmy:3:2) = %subst(rcbdat:4:2)
+     c                   eval      %subst(w_dmy:5:2) = %subst(rcbdat:9:2)
+     c                   move      w_dmy         w_dmyn
+     c     *dmy          move      w_dmyn        rtbdat
+     c                   other
+     c                   eval      w_dat6 = %subst(rcbdat:1:6)
+     c                   eval      w_dat5 = %subst(rcbdat:1:5)
+     c                   eval      wdat = *zero
+     c                   if        %subst(rcbdat:6:1) = *blank
+     c                   move      w_dat5        wdat
+     c                   else
+     c                   move      w_dat6        wdat
+     c                   endif
+     c     *ymd          test(d e)               wdat
+     c                   movel     wdat          waar
+     c                   if        not %error        and
+     c                             waar < (uyear + 1) and
+     c                             waar > (uyear - 1)
+     c     *ymd          move      wdat          rtbdat
+     c                   else
+     c     *dmy          test(d e)               wdat
+     c                   move      wdat          waar
+     c                   if        not %error         and
+     c                             waar < (uyear + 1) and
+     c                             waar > (uyear - 1)
+     c     *dmy          move      wdat          rtbdat
+     c                   endif
+     c                   endif
+     c                   endsl
+6.20 c                   movel     rtbdat        w_10x
+6.20 c                   movel     w_10x         w_raarx
+6.20 c                   move      w_raarx       w_raar
+6.20 c                   if        w_raar  < uyear + 2000 - 1 or
+6.20 c                             w_raar  > uyear + 2000 + 1
+6.20 c                   eval      w_feil = 'Bilagsdato, feil år'
+6.20 c                   goto      UpdFeil
+6.20 c                   endif
+6.22  *
+6.22  *  Sjekk om negativt beløp for ev flytting av debet til kredit
+6.22  *    vedr feil i utlegg fra compello når valuta
+6.22 c     '-'           scan      rcbelo        w_neg
+6.22 c                   if        rcbelo = *blank or
+6.22 c                             rcbelo = '0,00'
+6.22 c     '-'           scan      rcvalb        w_neg
+6.22 c                   endif
+6.22  *
+6.22  *  Flytt debetkonto til kreditkonto dersom negativt beløp og debet
+6.22 c                   if        rcdkto <> *blank and
+6.22 c                             rcckto =  *blank and
+6.22 c                             w_neg  > 0
+6.22 c                   eval      rcckto = rcdkto
+6.22 c                   eval      rccavd = rcdavd
+6.22 c                   eval      rccsps = rcdsps
+6.22 c                   eval      rccmva = rcdmva
+6.22 c                   eval      rcdkto = *zero
+6.22 c                   eval      rcdavd = *zero
+6.22 c                   eval      rcdsps = *zero
+6.22 c                   eval      rcdmva = *blank
+6.22 c                   endif
+      *
+      *   Beløp
+6.22 c                   if        rcbelo <> *blank and
+6.22 c                             rcbelo <> '0,00'
+     c     '-':'0'       xlate     rcbelo        rcbelo
+6.24 c                   eval      wtst = %check('0123456789,. ':rcbelo)
+     c                   if        %scan(' ':rcbelo:1) > 12 or
+     c                             rcbelo = *blank          or
+6.24 c                             %check('0123456789,. ':rcbelo) > 0
+     c                   eval      w_feil = 'Beløp feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   eval      w_kr = *blank
+     c                   eval      w_or = *blank
+     c     ' '           scan      rcbelo        i
+     c     ','           scan      rcbelo        j
+6.24 c                   if        j = 0
+6.24 c     '.'           scan      rcbelo        j
+6.24 c                   endif
+     c                   if        i > 1
+     c                   eval      w_b  = *blank
+     c                   if        j > 0
+     c                   eval      %subst(w_kr:13-j+2:j-1) =
+     c                             %subst(rcbelo:1:j-1)
+     c                   eval      w_or = %subst(rcbelo:j+1:2)
+     c                   move      w_kr          w_krn
+     c                   move      w_or          w_orn
+     c                   eval      rtbelo = w_krn + w_orn/100
+     c                   else
+     c                   eval      %subst(w_kr:13-i+2:i-1) =
+     c                             %subst(rcbelo:1:i-1)
+     c                   move      w_kr          w_krn
+     c                   move      w_or          w_orn
+     c                   eval      rtbelo = w_krn + w_orn/100
+     c                   endif
+     c                   else
+     c                   eval      rtbelo = *zero
+     c                   endif
+6.22 c                   else
+6.22 c                   eval      rtbelo = *zero
+6.22 c                   endif
+      *  Debet avdeling
+     c                   if        %scan(' ':rcdavd:1) >  5 or
+     c                             %check('0123456789 ':rcdavd) > 0
+     c                   eval      w_feil = 'Debet avdeling feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   eval      j   = 5
+     c                   eval      i   = 5
+     c                   eval      w4x = *blank
+     c                   do        4
+     c                   eval      i = i - 1
+     c                   if        %subst(rcdavd:i:1) <> *blank
+     c                   eval      j = j - 1
+     c                   eval      %subst(w4x:j:1) = %subst(rcdavd:i:1)
+     c                   endif
+     c                   enddo
+     c                   move      w4x           rtdavd
+      *  Debet konto
+     c                   if        %scan(' ':rcdkto:1) >  7 or
+     c                             %check('0123456789 ':rcdkto) > 0
+     c                   eval      w_feil = 'Debet konto feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   eval      j   = 7
+     c                   eval      i   = 7
+     c                   eval      w6x = *blank
+     c                   do        6
+     c                   eval      i = i - 1
+     c                   if        %subst(rcdkto:i:1) <> *blank
+     c                   eval      j = j - 1
+     c                   eval      %subst(w6x:j:1) = %subst(rcdkto:i:1)
+     c                   endif
+     c                   enddo
+     c                   move      w6x           rtdkto
+      *  Debet bærer
+     c                   if        %scan(' ':rcdsps:1) >  5 or
+     c                             %check('0123456789 ':rcdsps) > 0
+     c                   eval      w_feil = 'Debet bærer feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   eval      j   = 5
+     c                   eval      i   = 5
+     c                   eval      w4x = *blank
+     c                   do        4
+     c                   eval      i = i - 1
+     c                   if        %subst(rcdsps:i:1) <> *blank
+     c                   eval      j = j - 1
+     c                   eval      %subst(w4x:j:1) = %subst(rcdsps:i:1)
+     c                   endif
+     c                   enddo
+     c                   move      w4x           rtdsps
+     c                   movel     rcdmva        rtdmva
+      *  Kreidt avdeling
+     c                   if        %scan(' ':rccavd:1) >  5 or
+     c                             %check('0123456789 ':rccavd) > 0
+     c                   eval      w_feil = 'Kredit avdeling feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   eval      j   = 5
+     c                   eval      i   = 5
+     c                   eval      w4x = *blank
+     c                   do        4
+     c                   eval      i = i - 1
+     c                   if        %subst(rccavd:i:1) <> *blank
+     c                   eval      j = j - 1
+     c                   eval      %subst(w4x:j:1) = %subst(rccavd:i:1)
+     c                   endif
+     c                   enddo
+     c                   move      w4x           rtcavd
+      *  Kredit konto
+     c                   if        %scan(' ':rcckto:1) >  7 or
+     c                             %check('0123456789 ':rcckto) > 0
+     c                   eval      w_feil = 'Kredit konto feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   eval      j   = 7
+     c                   eval      i   = 7
+     c                   eval      w6x = *blank
+     c                   do        6
+     c                   eval      i = i - 1
+     c                   if        %subst(rcckto:i:1) <> *blank
+     c                   eval      j = j - 1
+     c                   eval      %subst(w6x:j:1) = %subst(rcckto:i:1)
+     c                   endif
+     c                   enddo
+     c                   move      w6x           rtckto
+      *  Kreidt bærer
+     c                   if        %scan(' ':rccsps:1) >  5 or
+     c                             %check('0123456789 ':rccsps) > 0
+     c                   eval      w_feil = 'Kredit bærer feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   eval      j   = 5
+     c                   eval      i   = 5
+     c                   eval      w4x = *blank
+     c                   do        4
+     c                   eval      i = i - 1
+     c                   if        %subst(rccsps:i:1) <> *blank
+     c                   eval      j = j - 1
+     c                   eval      %subst(w4x:j:1) = %subst(rccsps:i:1)
+     c                   endif
+     c                   enddo
+     c                   move      w4x           rtcsps
+      *  Kredit momskode
+     c                   movel     rccmva        rtcmva
+      * Forfallsdato
+      *  Hvis blank settes forfall = *loval og denne blir tildelt i oppdat.
+     c                   if        rcfdat = *blank
+     c                   move      *loval        rtfdat
+     c                   goto      forfallok
+     c                   endif
+      *
+      *  Hvis mer enn 10 siffer, eller ikke numerisk
+     c                   if        %scan(' ':rcfdat:1) > 11          or
+     c                             %check('0123456789 .':rcfdat) > 0
+     c                   eval      w_feil = 'Forfallsdato feil'
+     c                   goto      UpdFeil
+     c                   endif
+      *       Format 1:  åååå-mm-dd
+     c                   if        %scan(' ':rcfdat:1) = 11     and
+     c                             (%subst(rcfdat:3:1) <> '.'   or
+     c                              %subst(rcfdat:6:1) <> '.')
+     c                   eval      w_feil = 'Forfallsdato feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   if        %subst(rcfdat:3:1) = '.' and
+     c                             %subst(rcfdat:6:1) = '.'
+     c                   eval      w_aar =  %subst(rcfdat:7:4)
+     c                   eval      w_mnd =  %subst(rcfdat:4:2)
+     c                   eval      w_dag =  %subst(rcfdat:1:2)
+     c                   if        %check('1234567890':w_aar) > 0
+     c                   eval      w_feil = 'Forfallsdato, år feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   if        %check('1234567890':w_mnd) > 0
+     c                   eval      w_feil = 'Forfallsdato, måned feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   if        %check('1234567890':w_dag) > 0
+     c                   eval      w_feil = 'Forfallsdato, dag feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   move      w_aar         w_aaaa
+     c                   if        w_aaaa > wuaa + 1 or
+     c                             w_aaaa < wuaa - 1
+     c                   eval      w_feil = 'Forfallsdato, år feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   goto      f2okf
+     c                   endif
+      *       Format 2:  ååmmdd  eller ddmmåå
+     c                   if        %subst(rcfdat:7:9) <> *blank
+     c                   eval      w_feil = 'Forfallsdato, feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   if        %subst(rcfdat:7:9) = *blank
+     c                   movel     rcfdat        wdat
+     c     *ymd          test(d e)               wdat
+     c                   if        not %error
+     c                   goto      f2okf
+     c                   endif
+     c     *dmy          test(d e)               wdat
+     c                   if        not %error
+     c                   goto      f2okf
+     c                   endif
+     c                   eval      w_feil = 'Forfallsdato, feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c     f2okf         tag
+     c                   move      *loval        rtfdat
+     c                   select
+     c                   when      %subst(rcfdat:3:1) = '.' and
+     c                             %subst(rcfdat:6:1) = '.'
+     c                   eval      %subst(w_dmy:1:2) = %subst(rcfdat:1:2)
+     c                   eval      %subst(w_dmy:3:2) = %subst(rcfdat:4:2)
+     c                   eval      %subst(w_dmy:5:2) = %subst(rcfdat:9:2)
+     c                   move      w_dmy         w_dmyn
+     c     *dmy          move      w_dmyn        rtfdat
+     c                   other
+     c                   eval      w_dat6 = %subst(rcfdat:1:6)
+     c                   eval      w_dat5 = %subst(rcfdat:1:5)
+     c                   eval      wdat = *zero
+     c                   if        %subst(rcfdat:6:1) = *blank
+     c                   move      w_dat5        wdat
+     c                   else
+     c                   move      w_dat6        wdat
+     c                   endif
+     c     *ymd          test(d e)               wdat
+     c                   movel     wdat          waar
+     c                   if        not %error        and
+     c                             waar < (uyear + 1) and
+     c                             waar > (uyear - 1)
+     c     *ymd          move      wdat          rtfdat
+     c                   else
+     c     *dmy          test(d e)               wdat
+     c                   move      wdat          waar
+     c                   if        not %error        and
+     c                             waar < (uyear + 1) and
+     c                             waar > (uyear - 1)
+     c     *dmy          move      wdat          rtfdat
+     c                   endif
+     c                   endif
+     c                   endsl
+     c     forfallok     tag
+      *
+      *   Valuta beløp
+     c     '-':'0'       xlate     rcvalb        rcvalb
+     c                   if        %scan(' ':rcvalb:1) > 12 or
+6.24 c                             %check('0123456789,. ':rcvalb) > 0
+     c                   eval      w_feil = 'Valutabeløp feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   eval      w_b  = *blank
+     c                   eval      w_kr = *blank
+     c                   eval      w_or = *blank
+     c     ' '           scan      rcvalb        i
+     c     ','           scan      rcvalb        j
+6.24 c                   if        j = 0
+6.24 c     '.'           scan      rcbelo        j
+6.24 c                   endif
+     c                   if        i > 1
+     c                   if        j > 0
+     c                   eval      %subst(w_kr:13-j+2:j-1) =
+     c                             %subst(rcvalb:1:j-1)
+     c                   eval      w_or = %subst(rcvalb:j+1:2)
+     c                   move      w_kr          w_krn
+     c                   move      w_or          w_orn
+     c                   eval      rtvalb = w_krn + w_orn/100
+     c                   else
+     c                   eval      %subst(w_kr:13-i+2:i-1) =
+     c                             %subst(rcvalb:1:i-1)
+     c                   move      w_kr          w_krn
+     c                   move      w_or          w_orn
+     c                   eval      rtvalb = w_krn + w_orn/100
+     c                   endif
+     c                   else
+     c                   eval      rtvalb = *zero
+     c                   endif
+6.23  *
+6.23  *  Dersom valutabeløp = norske kr og valutakode = *blank
+6.23  *     settes valutabeløp = 0, PGA feil fra Compello
+6.23 c                   if        rtbelo = rtvalb and
+6.23 c                             rcvalk = *blank
+6.23 c                   eval      rtvalb = 0
+6.23 c                   endif
+      *   Kreidt Valutakode
+     c                   movel     rcvalk        rtvalk
+      *   Bilagstekst
+     c                   if        %scan(' ':rctext:1) > 21
+     c                   eval      w_feil = 'Tekst mer enn 20 pos.'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   movel     rctext        rttext
+      *   Leverandørens Faktura nummer
+     c                   if        %scan(' ':rclfak:1) > 16 or
+     c                             %subst(rclfak:21:10) <> ' '
+     c                   eval      w_feil = 'LevFaktNr > 20 pos.'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   movel     rclfak        rtlfak
+      *   Kidd
+     c                   if        %scan(' ':rckidi:1) > 26  or
+     c                             %check('0123456789 -':rckidi) > 0
+     c                   eval      w_feil = 'Kid feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   movel     rckidi        rtkidi
+      *  Prosjekt foreløpig
+     c                   if        %scan(' ':rcpros:1) > 7
+     c*                            %check('0123456789 ':rcpros) > 0
+     c                   eval      w_feil = 'Prosjektnr feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c* Dette            eval      j   = 7
+     c*  skal            eval      i   = 7
+     c*   kun            eval      w6x = *blank
+     c*    kjøres        do        6
+     c*     dersom       eval      i = i - 1
+     c*      det         if        %subst(rcpros:i:1) <> *blank
+     c*       kjøres     eval      j = j - 1
+     c*        6.10      eval      %subst(w6x:j:1) = %subst(rcpros:i:1)
+     c*       med       endif
+     c*      gammelt     enddo
+     c*     prosjekt.    move      w6x           rtpros
+     c                   movel     rcpros        rtpros
+      *  Aktivitet
+     c                   if        %scan(' ':rcakti:1) > 7
+     c                   eval      w_feil = 'Aktivitet feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   movel     rcakti        rtakti
+7.00  *  _____ Kj¦res ikke ved integrasjon mot Opto ____start_______
+7.00 c                   if        u_opto = *off
+      *  CompelloId
+     c                   if        %scan(' ':rchuid:1) > 37 or
+     c                             rchuid = *blank
+     c                   eval      w_feil = 'CompelloId mangler/feil'
+     c                   goto      UpdFeil
+     c                   endif
+     c                   movel     rchuid        rthuid
+7.00  *  _____ Kj¦res ikke ved intagrasjon mot Opto ____end_________
+     c                   endif
+
+7.01  *  Bilagskode
+7.01 c*                  if        (    w_neg > 0
+7.01 c*                            and rtckto > 0)
+7.01 c*                            or  (w_neg = 0
+7.01 c*                            and rtdkto > 0)
+7.01 c*                  eval      rtbilk = 2
+7.01 c*                  else
+7.01 c*                  eval      rtbilk = 4
+7.01 c*                  endif
+      *  CompelloId
+     c                   time                    rtedat
+     c                   time                    rtetim
+     c                   movel     l_user        rteusr
+     c                   move      *blank        rthent
+      * Felter som ikke er i bruk
+     c*    Regner med disse er ok fra CLEAR RTREC
+      *
+     c                   if        l_tst <> 'J'
+     c                   write     rcmplur
+     c                   endif
+      *  Sett at det er overført poster
+     c                   if        p_sts <> 'F'
+     c                   eval      p_sts = ' '
+     c                   endif
+     c                   if        l_tst <> 'J'
+     c                   eval      rchent = 'J'
+     c                   eval      rcfeil = 'Overført RTRAPF'
+     c                   update    rcoml2r
+     c                   endif
+     c                   goto      avslutt
+      *
+      *  Rapportere feil tilbake til RCOMPF
+      *
+     c     UpdFeil       tag
+      *    Status til cl om avbrudd pga feil i trans
+     c                   eval      p_sts  = 'F'
+      *    Feilmelding legges ut på trans for ev justering
+     c                   eval      rchent = 'F'
+     c                   eval      rcfeil = w_feil
+     c                   update    rcoml2r
+     c                   goto      avslutt
+      *
+     c     avslutt       tag
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parameter
+      *
+     c     *entry        plist
+     c                   parm                    p_sts
+      *  Sett i utgangspunktet at 0 poster blir overført
+     c                   eval      p_sts = '0'
+     c                   move      uyear         wuaa
+     c                   eval      wuaa = wuaa + 2000
+      *
+7.00  *
+7.00  * Kj¦res integrasjon mot Opto
+7.00  *
+7.00   CallP CO402R(l_fgr:w_firmn:0:'Scanne_System':
+7.00                    co402_verdi1:co402_verdi2);
+7.00   if co402_verdi1 = '1'
+7.00      and co402_verdi2 = 'Opto';
+7.00     u_opto = *on;
+7.00   endif;
+     c                   endsr
+      *

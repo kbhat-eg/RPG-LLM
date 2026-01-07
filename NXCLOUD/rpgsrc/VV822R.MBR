@@ -1,0 +1,1991 @@
+     h option(*nodebugio : *srcstmt) datedit(*dmy)
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : VV822R
+      * Beskrivelse . . : Oppdater fra SOLVE vare
+      *
+      *                   Oppdaterer vare    SOLVE  (XML-format)
+      *                 - hovedleverandør = vvnlev (vvldor)
+      *                       oppdateres fra supplier (Mainsupplier)
+      *                 - vare-enhet (vvenpf)
+      *                       oppdateres fra units på hovedlev.
+      *                       salgsrekkefølge settes ut fra nobbrekkefølge
+      *                       og at den er salesunit
+      *                       innkjøpsrekkefølge settes ut fra nobbrekkefølge
+      *                       og at den er purchaseunit
+      *                       Prisbokrekkefølge settes ut fra nobbrekkefølge
+      *                       og at den er Pricebookunit
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       210519 BKV
+      *       111219 bof  Tilpasset til xml og lagt inn ny logikk
+7.01  *       150120 bof  Lagt inn mer input kontroll og logging av dette
+7.02  *       150120 bof  Danner søketekst
+      *       170120 hko  Legger inn Nobb-nr ved opprettelse av varer
+7.04  *       290120 bof  Oppslag mot RLEVlB for å finne nobb.lev.
+7.05  *       180220 bof  Utvidet med varetype
+7.06  *       093020 bof  Utvidet med array fra 20 til 1000
+7.07  *       060520 bof  Utvidet med logistikk-varer
+7.08  *       200520 bof  Utvidet med feilliste på mail slipstream FXL3ST
+7.09  * k00   030620 bof  NXS-1195 Hvis ny vare og hoved.lev, så rydd varekort
+7.10  * k00   040620 bof           Varetype skal endres hver gang
+7.11  * k00   180820 bof  NXS-5199 Endring på å sette enhetsrekkefølge
+7.11  * k00   180820 bof  NXS-5199 Skal kun sette enhetsrekkefølge når hovedlev og
+7.12  * k00   060720 bof  NXS-5031 Oppdatere sortiment fra Solve. (ikke DMM foreløpig)
+7.13  * k00   070920 bof  NXS-5452 Tekst skal gjøres om til store bokstaver
+7.14  * k00   150920 bof  HKOmail  Skal ikke endre lager/stat enhet + feilretting
+7.15  * k00   041020 bof  Styrer om det skal gå blind-kopi på mail
+7.16  * k00   031120 bof  Legger ut feil hvis feil i sql + logging
+7.17  * k00   201120 bof  NXS-6252 skal oppdatere enhetsrekkefølge hver gang
+7.18  * k00   201120 bof  Ønske fra Optimera - alle varelinjer skal på rapport
+7.19  * k00   091220 bof  Fjernet 7.17, den var ikke i orden
+7.20  * k00   210121 bof  Test på om endring av basisenhet - avvis
+7.21  * k00   250120 bof  Setter rekkefølge i pgm ikke fra xml
+7.22  * k00   040221 hko  Fjernet test på at basisenhet er endret.
+      *                   Sjekkes i importkontrollen i Solve
+7.24  * k00   040621 bof  Feilretting vedr. test på firma
+7.25  * k00   100821 bof  Hindre at leverandør blir satt til 0
+7.26  * k00   010921 bof  Hvis endring på pakn.klasse så endre enh.rekkef.        *
+7.27  * k00   030322 bof  varetype skal kun settes når ny vare           *
+7.28  * k00   021122 bof  Hvis gen.vare skal ikke enhetsrekkefølge settes annet enn
+7.28  *                   ved ny vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvarlu    uf a e           k disk    rename(vvarpfr:vvarlur)
+     fvvenlu    uf a e           k disk    rename(vvenpfr:vvenlur)
+     fvveplu    uf a e           k disk    rename(vveppfr:vveplur)
+     fvlaglu    uf a e           k disk    rename(vlagpfr:vlaglur)
+     fveanlu    uf a e           k disk    rename(veanpfr:veanlur)
+7.09 fveanl2    uf   e           k disk    rename(veanpfr:veanl2r)
+7.04 frlevlb    if   e           k disk    rename(rlevpfr:rlevlbr)
+     fvvlelu    uf a e           k disk    rename(vvlepfr:vvlelur)
+7.07 fjvkhlu    uf a e           k disk    rename(jvkhpfr:jvkhlur)
+7.07 fjvkllu    uf a e           k disk    rename(jvklpfr:jvkllur)
+     fjstsl1    if   e           k disk    rename(jstspfr:jstsl1r)
+7.01 fvenhl1    if   e           k disk    rename(venhpfr:venhl1r)
+     fra10l1    if   e           k disk    rename(ra10pfr:ra10l1r)
+7.08 ffxl3st    uf a e           k disk    rename(fxl3st:fxl3str)
+7.08 fra09l1    if   e           k disk    rename(ra09pfr:ra09l1r)
+7.08 frax9l1    if   e           k disk    rename(rax9pfr:rax9l1r)
+      *
+      * Definering av array
+      *
+     d a_vare          s             15    dim(1000)
+     d a_enhe          s              3    dim(1000)
+     d a_pakn          s              2  0 dim(1000)
+     d a_saen          s              5    dim(1000)
+     d a_inen          s              5    dim(1000)
+     d a_pben          s              5    dim(1000)
+7.11 d a_best          s              5    dim(1000)
+7.11 d a_pkla          s              1    dim(1000)
+7.20  *  array for å samle varenr som skal avvises
+7.20 d a_avvis         s             15    dim(100000)
+      *
+      * Definering av variable i nøkler
+      *
+     d vvarlu_vare     s                   like(vvvare)
+7.09 d vvarlu_vare2    s                   like(vvvare)
+     d vvenlu_vare     s                   like(vevare)
+     d vvenlu_enhe     s                   like(veenhe)
+     d vveplu_vare     s                   like(vepvar)
+     d vveplu_enhe     s                   like(vepenh)
+     d vveplu_ldor     s                   like(vepldo)
+7.04 d rlevlb_nobb     s                   like(rlnobb)
+     d vvlelu_lvnr     s                   like(vvlvnr)
+     d vvlelu_lldo     s                   like(vvlldo)
+     d vlaglu_vare     s                   like(vlvare)
+     d vlaglu_lage     s                   like(vllage)
+     d veanlu_eann     s                   like(vxeann)
+7.09 d veanl2_vare     s                   like(vxvare)
+7.01 d venhl1_enhe     s                   like(vaeenh)
+7.07 d jvkhlu_vare     s                   like(jvkvnr)
+7.07 d jvkllu_qvnr     s                   like(jvqvnr)
+7.07 d jvkllu_quno     s                   like(jvquno)
+7.07 d jvkllu_qldo     s                   like(jvqldo)
+7.08 d ra09l1_ikod     s                   like(raikod)
+7.01  *
+7.01  * Brukes som parametre til jobblogging
+7.01 d p_jnav          s             15
+7.01 d p_jbid          s             41
+7.01 d p_jtxt          s             35
+7.01 d p_jsts          s              2  0
+7.01 d p_jmld          s            200
+      *
+      * Definering av Local Data Area
+      *
+     d                uds
+     d l_user                911    920
+7.08 d l_filg                931    933
+     d l_firm                944    946  0
+      *
+     d w_firm          s              3  0
+7.04 d w_enum          s                   like(rllevr)
+      *
+7.01 D dirSolveKonf    s             10a   Inz('SLVEVRVAR')
+      *
+      * Definering av parametre
+      *
+     D p_filNavn       s            255a
+     D p_lengde        s              3p 0
+     d p_sistDato      s             10a
+     d p_stat          s              1
+      *
+      * Definering av variable
+      *
+     d b_first         s              1    inz(*off)
+     d b_ikke_funnet   s              1    inz(*off)
+     d b_ine1          s              1    inz(*off)
+     d b_ine2          s              1    inz(*off)
+     d b_ine3          s              1    inz(*off)
+     d b_ine4          s              1    inz(*off)
+     d b_ine5          s              1    inz(*off)
+     d b_sae1          s              1    inz(*off)
+     d b_sae2          s              1    inz(*off)
+     d b_sae3          s              1    inz(*off)
+     d b_sae4          s              1    inz(*off)
+     d b_sae5          s              1    inz(*off)
+     d b_pbe1          s              1    inz(*off)
+     d b_pbe2          s              1    inz(*off)
+     d b_pbe3          s              1    inz(*off)
+     d b_pbe4          s              1    inz(*off)
+     d b_pbe5          s              1    inz(*off)
+     d b_ny_vare       s              1    inz(*off)
+7.04 d b_feil          s              1    inz(*off)
+7.18 d b_feil1         s              1    inz(*off)
+7.18 d b_feil2         s              1    inz(*off)
+7.18 d b_feil3         s              1    inz(*off)
+7.20 d b_feil4         s              1    inz(*off)
+7.11 d b_ny_enh        s              1    inz(*off)
+7.26 d b_e_pkla        s              1    inz(*off)
+7.26 d b_vepny         s              1    inz(*off)
+7.28 d b_logi          s              1    inz(*off)
+      *
+      *  Dataelementer vare
+      *
+     d w_vare          s             15
+     d w_nobb          s              8
+     d w_nmod          s              8
+     d w_ogrp          s              2
+     d w_hgrp          s              2
+     d w_ugrp          s              3
+     d w_tek1          s             35
+     d w_tek2          s             35
+     d w_ldor          s              8
+     d w_lvar          s             20
+     d w_nlev          s              6
+     d w_enhe          s              3
+     d w_enhl          s              3
+     d w_enhs          s              3
+7.05 d w_vtyp          s              1
+7.07 d w_logi          s             10
+7.12 d w_sort          s             10
+     d w_nuda          s             19
+      *
+      *  Dataelementer enhet
+      *
+     d w_pakn          s              3
+     d w_omre          s             13
+     d w_ennr          s              1
+     d w_leng          s              7
+     d w_hoyd          s              7
+     d w_bred          s              7
+     d w_vekt          s             10
+     d w_volu          s             10
+     d w_saen          s              5
+     d w_inen          s              5
+     d w_pben          s              5
+      *
+      *  Dataelementer gtin
+      *
+     d w_gtin          s             14
+     d w_best          s             10
+     d w_pkas          s             10
+     d w_mgti          s             10
+     d w_fpak          s              5
+     d w_dpak          s              5
+     d w_tpak          s              5
+      *
+      *  Dataelementer vare-leverandør
+      *
+     d w_lvnr          s             15
+     d w_lnob          s              8
+     d w_llva          s             20
+     d w_lldo          s              6
+     d w_lmod          s              8
+     d w_lnle          s              6
+     d w_luda          s             19
+     d w_lhov          s              5
+      *
+7.08 d w_feil          s             50
+7.08 d w_exsql         s          10000
+7.08 d w_exmap         s             30    inz('excel')
+7.08 d w_exfil         s             50    inz('Varer')
+7.08 d w_extyp         s              4    inz('XLS')
+7.08 d w_lnav          s             35
+7.08 d w_rec1          s             50
+7.08 d w_rec2          s             50
+7.08 d w_rec3          s             50
+7.08 d w_subj          s            100
+7.08 d w_txt1          s            100
+7.08 d w_txt2          s            100
+7.08 d w_txt3          s            100
+7.08 d w_txt4          s            100
+7.08 d w_avsl          s            100
+7.08 d w_filn          s            256
+7.08 d w_fnav          s             50
+7.08 d w_mime          s            150
+7.15 d w_bcc           s              1
+
+      *
+      * diverse felter
+     d sjk_vare        s                   like(vvvare)
+7.09 d sjk_ldor        s                   like(vvldor)
+7.09 d sjk_odat        s                   like(vvodat)
+     d sjk_nlev        s                   like(vvnlev)
+     d sjk_enhe        s                   like(vvenhe)
+     d s_vare          s                   like(vvvare)
+     d s_nlev          s                   like(vvnlev)
+     d s_pgti          s                   like(vepgti)
+     d i               s              4  0
+7.21 d r               s              4  0
+     d x               s              4  0
+7.20 d z               s              6  0
+7.20 d y               s              6  0
+7.28 d w_anta          s              6  0
+7.16 d antall          s              6  0
+7.16 d ant_del         s              6  0
+     d w_inlr          s              1
+      *
+      * Definering av konstanter
+      *
+     d c_digi          s             10    inz('0123456789')
+7.13 d lo              c                   'abcdefghijklmnopqrstuvwxyzæøåäö'
+7.13 d up              c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅÄÖ'
+      *
+     d   navnet        s            100a   varying
+     d   len           s              3i 0
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+       len = p_lengde;
+       navnet = %trim(%subst(p_filNavn:1:len));
+7.16   antall = 0;
+7.16   ant_del = 0;
+
+       // setter navn på XML fil, brukes av view
+       exec sql SET VARE_SOLVE_XML_V = :navnet;
+
+7.08   b_feil = *off;
+7.18   b_feil1 = *off;
+7.18   b_feil2 = *off;
+7.18   b_feil3 = *off;
+7.20   b_feil4 = *off;
+l      a_avvis(*) = *blank;
+
+7.08   exsr rydd_xls;
+7.16  * legger ut en logg med navnet på xml som blir lest
+7.16 c                   eval      p_jmld = *blanks
+7.16 c                   eval      p_jmld = 'Start VV822R navn  ' +
+7.16 c                             %trim(navnet)
+7.16 c                   call      'AB705R'
+7.16 c                   parm                    p_jbid
+7.16 c                   parm                    p_jsts
+7.16 c                   parm                    p_jmld
+7.16 c                   eval      w_feil = %trim(%subst(p_jmld:36:41))
+7.16 c                   exsr      skriv_xls
+
+       exsr beh_vare;
+       exsr beh_supplier;
+       exsr beh_enhet;
+
+       p_sistDato = %char(%date(): *iso);  // OK
+
+      * legger ut en logg med antall lest og slettet
+7.16 c                   eval      p_jmld = *blanks
+7.16 c                   eval      w_Vare = *blank
+7.16 c                   eval      w_nobb = *blank
+7.16 c                   eval      w_nmod = *blank
+7.16 c                   eval      w_ogrp = *blank
+7.16 c                   eval      w_hgrp = *blank
+7.16 c                   eval      w_ugrp = *blank
+7.16 c                   eval      w_tek1 = *blank
+7.16 c                   eval      w_tek2 = *blank
+7.16 c                   eval      w_ldor = *blank
+7.16 c                   eval      rlnavn = *blank
+7.16 c                   eval      w_enhe = *blank
+7.16 c                   eval      w_enhs = *blank
+7.16 c                   eval      w_enhl = *blank
+7.16 c                   eval      p_jmld = 'Antall skrevet ' +
+7.16 c                             %char(antall) + ' Antall slettet ' +
+7.16 c                             %char(ant_del)
+7.16 c                   call      'AB705R'
+7.16 c                   parm                    p_jbid
+7.16 c                   parm                    p_jsts
+7.16 c                   parm                    p_jmld
+7.16 c                   eval      w_feil = %trim(p_jmld)
+7.16 c                   exsr      skriv_xls
+
+7.08   if  b_feil = *on;
+7.08   // hvis feil dannes regneark og det sendes mail
+7.08   exsr lag_excel;
+7.08   exsr send_mail;
+7.08   endif;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandle vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     beh_vare      begsr
+      *
+     c                   eval      b_first = *off
+     c                   eval      s_vare = *blank
+      *
+       exec sql close c1;
+       // bruk view til å lese XML fil
+       exec sql
+         declare c1 cursor for
+            select distinct
+               ArticleNo
+              ,ArticleOverGroupCode
+              ,ArticleMainGroupCode
+              ,ArticleGroupCode
+              ,ArticleText1
+              ,ArticleText2
+       //       ,HovedSupplierNo
+       //       ,HovedSupplierArticleNumber
+       //       ,HovedNOBBSupplierNo
+              ,BaseUnit
+              ,StatisticsUnit
+              ,InventoryUnit
+7.05          ,ArticleType
+7.07          ,UPPER(GenericArticle)
+7.12          ,Assortment
+            from VARE_XML_SOLVE_VIEW
+                for read only;
+       exec sql
+         Open c1;
+
+       doW (1 = 1);
+
+         exec sql
+         Fetch c1 INTO
+            :w_vare         -- VARENR
+           ,:w_ogrp         --,UNDERGRUPPE
+           ,:w_hgrp         --,UNDERGRUPPE
+           ,:w_ugrp         --,UNDERGRUPPE
+           ,:w_tek1         --,VARETEKST1
+           ,:w_tek2         --,VARETEKST2
+       //    ,:w_ldor         --,LEVNR
+       //    ,:w_lvar         --,LEVVARENR
+       //    ,:w_nlev         --,NOBBLEVNR
+           ,:w_enhe         --,BASISENHET
+7.14       ,:w_enhs         --,statistikkenhet
+7.14       ,:w_enhl         --,LAGERENHET
+7.05       ,:w_vtyp         --,varetype
+7.07       ,:w_logi         --,logistikkvare true/false
+7.12       ,:w_sort         --,Sortimentskode
+           ;
+
+         if ((SQLCode < 0) or (SQLCode = 100));
+7.16       if sqlcode < 0;
+7.16 c                   eval      p_jmld = *blanks
+7.16 c                   eval      p_jmld = 'Feil i Fetch 1 sqlcode ' +
+7.16 c                             %char(sqlcode) + ' **Kontakt EG**'
+7.16 c                   call      'AB705R'
+7.16 c                   parm                    p_jbid
+7.16 c                   parm                    p_jsts
+7.16 c                   parm                    p_jmld
+7.16 c                   eval      w_feil = %trim(p_jmld)
+7.18 c                   eval      b_feil3 = *on
+7.16 c                   exsr      skriv_xls
+7.16       endif;
+           leave;
+         endif;
+7.09     eval      b_ny_vare = *off;
+7.20     eval      b_feil4   = *off;
+7.09
+         if %check(c_digi : %trim(w_vare)) = 0;
+           if  s_vare <> w_vare;
+           exsr skr_vare;
+           s_vare = w_Vare;
+           endif;
+         endif;
+       enddo;
+
+       exec sql close c1;
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandle leverandør
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     beh_supplier  begsr
+      *
+       exec sql close c3;
+       // bruk view til å lese XML fil
+       exec sql
+         declare c3 cursor for
+            select distinct
+            SArticleNo
+           ,SupplierNOBBArticleNo
+           ,SupplierArticleNumber
+           ,ModuleNo
+           ,SupplierNo
+           ,ExpiryDate
+           ,UPPER(MainSupplier)
+            from VARE_XML_SOLVE_VIEW
+                for read only;
+
+       exec sql Open c3;
+
+       doW (1 = 1);
+
+         exec sql
+         Fetch c3 INTO
+            :w_vare         -- VARENR
+           ,:w_lnob         --,nobbnr
+           ,:w_llva         --,lev.varenr
+           ,:w_lmod         --,modulnr
+           ,:w_lnle         --,nobb.leverandør
+           ,:w_luda         --,utgår dato
+           ,:w_lhov         --,hovedleverandør
+           ;
+
+         if ((SQLCode < 0) or (SQLCode = 100));
+7.16       if sqlcode < 0;
+7.16 c                   eval      p_jmld = *blanks
+7.16 c                   eval      p_jmld = 'Feil i Fetch 2 sqlcode ' +
+7.16 c                             %char(sqlcode) + ' **Kontakt EG**'
+7.16 c                   call      'AB705R'
+7.16 c                   parm                    p_jbid
+7.16 c                   parm                    p_jsts
+7.16 c                   parm                    p_jmld
+7.16 c                   eval      w_feil = %trim(p_jmld)
+7.18 c                   eval      b_feil3 = *on
+7.16 c                   exsr      skriv_xls
+7.16       endif;
+           leave;
+         endif;
+
+         if %check(c_digi : %trim(w_vare)) = 0;
+           exsr skr_vare_lev;
+         endif;
+       enddo;
+
+       exec sql close c3;
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandle enhet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     beh_enhet     begsr
+      *
+     c                   eval      b_first = *off
+     c                   eval      a_vare(*) = *blank
+     c                   eval      a_enhe(*) = *blank
+     c                   eval      a_saen(*) = *blank
+     c                   eval      a_inen(*) = *blank
+     c                   eval      a_pben(*) = *blank
+7.11 c                   eval      a_best(*) = *blank
+7.11 c                   eval      a_pkla(*) = *blank
+     c                   eval      a_pakn(*) = 0
+     c                   eval      i = 0
+7.21 c                   eval      r = 0
+7.20 c                   eval      z = 0
+7.20 c                   eval      y = 0
+7.11 c                   eval      b_ny_enh = *off
+7.26 c                   eval      b_e_pkla = *off
+      *
+       exec sql close c2;
+      *
+       // bruk view til å lese XML fil
+       exec sql
+         declare c2 cursor for
+            select
+            USupplierNo
+           ,UArticleNo
+           ,PackageNumber
+           ,UnitCode
+           ,UPPER(SalesUnit)
+           ,UPPER(PurchaseUnit)
+           ,UPPER(PricebookUnit)
+           ,ConversionFactor
+           ,LengthInMillimeters
+           ,WidthInMillimeters
+           ,HeightInMillimeters
+           ,WeightInKilograms
+           ,VolumeInCubicMeters
+           ,Gtin
+           ,UPPER(Purchasable)
+           ,UPPER(FPak)
+           ,UPPER(DPak)
+           ,UPPER(TPak)
+            from VARE_XML_SOLVE_VIEW
+                for read only;
+
+       exec sql Open c2;
+
+       doW (1 = 1);
+
+         exec sql
+         Fetch c2 INTO
+            :w_nlev         --,NOBBLDOR
+           ,:w_vare         -- VARENR
+           ,:w_pakn         -- VARENR
+           ,:w_enhe         --,ENHET
+           ,:w_saen         --,SALGSNR true/false
+           ,:w_inen         --,KJOPSNR true/false
+           ,:w_pben         --,PRISBOKNR true/false
+           ,:w_omre         --,omregningsfaktor
+           ,:w_leng         --,LENGDE
+           ,:w_bred         --,bredde
+           ,:w_hoyd         --,høyde
+           ,:w_vekt         --,VEKT
+           ,:w_volu         --,VEKT
+           ,:w_gtin         --,GTIN
+           ,:w_best         --,bestillbar  true/false
+           ,:w_fpak         --,fpak true/false
+           ,:w_dpak         --,dpak true/false
+           ,:w_tpak         --,tpak true/false
+           ;
+
+         if ((SQLCode < 0) or (SQLCode = 100));
+7.16       if sqlcode < 0;
+7.16 c                   eval      p_jmld = *blanks
+7.16 c                   eval      p_jmld = 'Feil i Fetch 3 sqlcode ' +
+7.16 c                             %char(sqlcode) + ' **Kontakt EG**'
+7.16 c                   call      'AB705R'
+7.16 c                   parm                    p_jbid
+7.16 c                   parm                    p_jsts
+7.16 c                   parm                    p_jmld
+7.16 c                   eval      w_feil = %trim(p_jmld)
+7.18 c                   eval      b_feil3 = *on
+7.16 c                   exsr      skriv_xls
+7.16       endif;
+           leave;
+         endif;
+
+         if %check(c_digi : %trim(w_vare)) = 0;
+           //
+
+7.26       if b_first = *on and s_vare <> w_vare and
+7.26          (b_ny_enh = *on or b_e_pkla = *on);
+7.17   //    if b_first = *on and s_vare <> w_vare;
+              exsr  enh_rekkef;
+7.11       endif;
+7.11       if  s_vare <> w_vare;
+7.11         // nullstill arrays
+7.11           a_vare(*) = *blank;
+7.11           a_enhe(*) = *blank;
+7.11           a_saen(*) = *blank;
+7.11           a_inen(*) = *blank;
+7.11           a_pben(*) = *blank;
+7.11           a_best(*) = *blank;
+7.11           a_pkla(*) = *blank;
+7.11           a_pakn(*) = 0;
+7.11           i = 0;
+7.21           r = 0;
+7.11           b_ny_Enh = *off;
+7.26           b_e_pkla = *off;
+7.11       endif;
+           //
+           exsr skr_enhet;
+           exsr skr_gtin;
+7.02       exsr upd_sok;
+         endif;
+       enddo;
+
+7.26       if b_first = *on and (b_ny_enh = *on or b_e_pkla = *on);
+              exsr  enh_rekkef;
+           endif;
+
+       exec sql close c2;
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppdaterer vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skr_vare      begsr
+      *
+7.01 c                   exsr      ktrl_vare
+7.01 c                   if        p_stat = '1'
+7.01 c                   leavesr
+7.01 c                   endif
+      *
+     c                   clear                   vvarlur
+      *
+     c                   eval      vvarlu_vare = w_vare
+     c     vvarlu_key    chain     vvarlur
+     c                   exsr      prs_vare
+     c                   time                    vvedat
+     c                   time                    vvetim
+     c                   eval      vveusr = l_user
+7.16 c                   eval      antall = antall + 1
+     c                   if        %found
+     c                   update    vvarlur
+     c                   else
+     c                   eval      vvfirm = w_firm
+     c                   time                    vvodat
+     c                   time                    vvotim
+     c                   eval      vvousr = l_user
+7.27 c                   eval      vvvtyp = w_vtyp
+     c                   eval      vvdesi = 2
+     c                   eval      b_ny_vare = *on
+     c                   write     vvarlur
+     c                   endif
+      *
+7.27  * dann lager (det er kun nye lager som oppdateres
+     c                   exsr      dann_lager
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppretting av vare-leverandør
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skr_vare_lev  begsr
+7.20  *
+7.20  * sjekk om vare er avvist pga. feil på varekortet
+7.20  *
+7.20 c                   eval      z = %lookup(w_vare:a_avvis)
+7.20 c                   if        z > 0
+7.20 c                   leavesr
+7.20 c                   endif
+7.20  *
+      * sjekk om vare finnes
+      *
+     c                   exsr      sjekk_vare
+     c                   if        b_ikke_funnet = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   eval      w_enum = 0
+7.04 c                   eval      rlevlb_nobb = %dec(w_lnle:6:0)
+7.04 c     rlevlb_key    chain     rlevlb
+     c                   if        %found
+7.04 c                   eval      w_enum = rllevr
+     c                   else
+7.01 c                   eval      p_stat = '1'
+7.01 c                   eval      p_jsts = 30
+7.01 c                   eval      p_jmld = *blanks
+7.01 c                   eval      p_jmld = 'VA - leverandør mangler' +
+7.01 c                             '** skr_vare_lev ** ' +
+7.04 c                             %char(rlevlb_nobb)
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    p_jbid
+7.01 c                   parm                    p_jsts
+7.01 c                   parm                    p_jmld
+7.08 c                   eval      w_feil = %trim(p_jmld)
+      *nullstill felter, untatt varenr
+7.18 c                   eval      w_nobb = *blank
+7.18 c                   eval      w_nmod = *blank
+7.18 c                   eval      w_ogrp = *blank
+7.18 c                   eval      w_hgrp = *blank
+7.18 c                   eval      w_ugrp = *blank
+7.18 c                   eval      w_tek1 = *blank
+7.18 c                   eval      w_tek2 = *blank
+7.18 c                   eval      w_ldor = *blank
+7.18 c                   eval      rlnavn = *blank
+7.18 c                   eval      w_enhe = *blank
+7.18 c                   eval      w_enhs = *blank
+7.18 c                   eval      w_enhl = *blank
+7.18 c                   eval      b_feil2 = *on
+7.08 c                   exsr      skriv_xls
+7.09 c                   if        b_ny_vare  = *on and
+7.09 c                             w_lhov = 'TRUE'
+7.09 c                   exsr      rydd_Vare
+7.09 c                   endif
+7.01 c                   leavesr
+     c                   endif
+7.01  *    sjekker om leverandør er knyttet
+7.01 c                   if        w_enum = 0
+7.01 c                   eval      p_stat = '1'
+7.01 c                   eval      p_jsts = 30
+7.01 c                   eval      p_jmld = *blanks
+7.01 c                   eval      p_jmld = 'VA - leverandør er ikke knyttet' +
+7.01 c                             '** skr_vare_lev ** ' +
+7.04 c                             %char(rlevlb_nobb)
+7.01  *
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    p_jbid
+7.01 c                   parm                    p_jsts
+7.01 c                   parm                    p_jmld
+7.01 c                   leavesr
+7.08 c                   eval      w_feil = %trim(p_jmld)
+7.18 c                   eval      b_feil2 = *on
+7.08 c                   exsr      skriv_xls
+7.09 c                   if        b_ny_vare  = *on and
+7.09 c                             w_lhov = 'TRUE'
+7.09 c                   exsr      rydd_Vare
+7.09 c                   endif
+7.01 c                   leavesr
+7.01 c                   endif
+      *
+     c                   clear                   vvlelur
+      *
+     c                   eval      vvlelu_lvnr = w_vare
+     c                   eval      vvlelu_lldo = w_enum
+     c
+     c     vvlelu_key    chain     vvlelu
+     c                   exsr      prs_vare_lev
+     c                   time                    vvleda
+     c                   time                    vvleti
+     c                   eval      vvleus = l_user
+     c                   if        %found
+     c                   update    vvlelur
+     c                   else
+     c                   eval      vvlfir = w_firm
+     c                   time                    vvloda
+     c                   time                    vvloti
+     c                   eval      vvlous = l_user
+     c                   write     vvlelur
+     c                   endif
+      *
+      * oppdater vare hvis hovedleverandør
+7.25 c                   if        w_lhov = 'TRUE' and
+7.25 c                             w_enum <> 0
+     c                   eval      vvarlu_vare = w_vare
+     c     vvarlu_key    chain     vvarlur
+     c                   if        %found
+     c                   eval      vvldor = w_enum
+     c                   eval      vvnlev = vvlnle
+     c                   eval      vvnobb = vvlnob
+     c                   eval      vvnmod = vvlmod
+     c                   eval      vvlvar = vvllva
+     c                   eval      vvnuda = vvluda
+     c                   time                    vvedat
+     c                   time                    vvetim
+     c                   eval      vveusr = l_user
+     c                   update    vvarlur
+     c                   endif
+     c                   endif
+7.07  *
+7.07  * hvis logistikk vare, så oppdateres logistikk info
+7.07 c                   if        w_logi = 'TRUE'
+7.07 c                   exsr      upd_logi
+7.07 c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Oppdaterer enhet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skr_enhet     begsr
+      *
+7.20  * sjekk om vare er avvist pga. feil på varekortet
+7.20  *
+7.20 c                   eval      z = %lookup(w_vare:a_avvis)
+7.20 c                   if        z > 0
+7.20 c                   leavesr
+7.20 c                   endif
+7.11 c*                   eval      b_ny_enh = *off
+      * sjekk om vare finnes
+      *
+     c                   exsr      sjekk_vare
+     c                   if        b_ikke_funnet = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        b_first = *off
+7.11 c                   eval      b_first = *on
+     c                   endif
+7.11 c                   eval      s_vare = w_vare
+      *
+      * oppdateres kun hvis det er hovedleverandør sine unit-informasjon
+     c                   if        sjk_nlev <> %dec(w_nlev:6:0)
+     c                   leavesr
+     c                   endif
+      *
+     c                   clear                   vvenlur
+      *
+     c                   eval      vvenlu_vare = w_vare
+     c                   eval      vvenlu_enhe = w_enhe
+     c     vvenlu_key    chain     vvenlur
+     c                   exsr      prs_enhet
+     c                   if        %found
+     c                   time                    veedat
+     c                   time                    veetim
+     c                   eval      veeusr = l_user
+     c                   update    vvenlur
+     c                   else
+     c                   eval      vefirm = w_firm
+     c                   time                    veodat
+     c                   time                    veotim
+     c                   eval      veousr = l_user
+     c                   time                    veedat
+     c                   time                    veetim
+     c                   eval      veeusr = l_user
+     c                   write     vvenlur
+7.11 c                   eval      b_ny_enh = *on
+7.11 c                   endif
+     c                   if        w_enhe = sjk_Enhe
+7.18  * skriver innlest vare på liste
+7.18   exec sql
+7.18        select vvvare,
+7.18               vvnobb,
+7.18               vvnmod,
+7.18               vvogrp,
+7.18               vvhgrp,
+7.18               vvugrp,
+7.18               vvtek1,
+7.18               vvtek2,
+7.18               vvldor,
+7.18               rlnavn,
+7.18               vvenhe,
+7.18               vvenhs,
+7.18               vvenhl
+7.18        into :vvvare,
+7.18             :vvnobb,
+7.18             :vvnmod,
+7.18             :vvogrp,
+7.18             :vvhgrp,
+7.18             :vvugrp,
+7.18             :vvtek1,
+7.18             :vvtek2,
+7.18             :vvldor,
+7.18             :rlnavn,
+7.18             :vvenhe,
+7.18             :vvenhs,
+7.18             :vvenhl
+7.18        from vvarpf
+7.18        inner join rlevpf on vvfirm = rlfirm and vvldor = rllevr
+7.18        where  vvfirm = :w_firm and vvvare = :w_vare;
+7.18     if ((SQLCode < 0) or (SQLCode = 100));
+7.18       if sqlcode < 0;
+7.18 c                   eval      p_jmld = *blanks
+7.18 c                   eval      p_jmld = 'Feil i skriv vare sqlcode ' +
+7.18 c                             %char(sqlcode) + ' **Kontakt EG**'
+7.18 c                   call      'AB705R'
+7.18 c                   parm                    p_jbid
+7.18 c                   parm                    p_jsts
+7.18 c                   parm                    p_jmld
+7.18 c                   eval      w_feil = %trim(p_jmld)
+7.18 c                   eval      b_feil3 = *on
+7.18 c                   exsr      skriv_xls
+7.18       endif;
+7.18       leavesr;
+7.18     endif;
+7.18 c                   eval      w_Vare = vvvare
+7.18 c                   eval      w_nobb = %char(vvnobb)
+7.18 c                   eval      w_nmod = %char(vvnmod)
+7.18 c                   eval      w_ogrp = %char(vvogrp)
+7.18 c                   eval      w_hgrp = %char(vvhgrp)
+7.18 c                   eval      w_ugrp = %char(vvugrp)
+7.18 c                   eval      w_tek1 = vvtek1
+7.18 c                   eval      w_tek2 = vvtek2
+7.18 c                   eval      w_ldor = %char(vvldor)
+7.18 c                   eval      w_enhe = vvenhe
+7.18 c                   eval      w_enhs = vvenhs
+7.18 c                   eval      w_enhl = vvenhl
+7.18 c                   eval      w_feil = 'Vare er innlest'
+7.18 c                   exsr      skriv_xls
+7.18 c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Oppdaterer setter enhets rekkefølge
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     enh_rekkef    begsr
+
+      *
+      * oppdaterer denne rekkefølgen 1.gang (og evt. ve ny rekkefølge)
+      *
+     c
+     c                   eval      b_ine1 = *off
+     c                   eval      b_ine2 = *off
+     c                   eval      b_ine3 = *off
+     c                   eval      b_ine4 = *off
+     c                   eval      b_ine5 = *off
+     c                   eval      b_sae1 = *off
+     c                   eval      b_sae2 = *off
+     c                   eval      b_sae3 = *off
+     c                   eval      b_sae4 = *off
+     c                   eval      b_sae5 = *off
+     c                   eval      b_pbe1 = *off
+     c                   eval      b_pbe2 = *off
+     c                   eval      b_pbe3 = *off
+     c                   eval      b_pbe4 = *off
+     c                   eval      b_pbe5 = *off
+
+      *pakning 1
+     c                   eval      x = %lookup(1:a_pakn)
+     c                   if        x <> 0
+     c                   exsr      sett_rekkef
+     c                   endif
+      *pakning 2
+     c                   eval      x = %lookup(2:a_pakn)
+     c                   if        x <> 0
+     c                   exsr      sett_rekkef
+     c                   endif
+      *pakning 3
+     c                   eval      x = %lookup(3:a_pakn)
+     c                   if        x <> 0
+     c                   exsr      sett_rekkef
+     c                   endif
+      *pakning 4
+     c                   eval      x = %lookup(4:a_pakn)
+     c                   if        x <> 0
+     c                   exsr      sett_rekkef
+     c                   endif
+      *pakning 5
+     c                   eval      x = %lookup(5:a_pakn)
+     c                   if        x <> 0
+     c                   exsr      sett_rekkef
+     c                   endif
+      *
+     c                   eval      a_vare(*) = *blank
+     c                   eval      a_enhe(*) = *blank
+     c                   eval      a_saen(*) = *blank
+     c                   eval      a_inen(*) = *blank
+     c                   eval      a_pben(*) = *blank
+7.11 c                   eval      a_best(*) = *blank
+7.11 c                   eval      a_pkla(*) = *blank
+     c                   eval      a_pakn(*) = 0
+     c                   eval      i = 0
+7.21 c                   eval      r = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Oppdaterer med riktig rekkefølge
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sett_rekkef   begsr
+      *
+     c                   eval      vvenlu_vare = a_vare(x)
+     c                   eval      vvenlu_enhe = a_enhe(x)
+     c     vvenlu_key    chain     vvenlur
+     c                   if        %found
+7.11 c                   eval      vesaen = 0
+7.11 c                   eval      veinen = 0
+7.11 c                   eval      vepben = 0
+7.11  * sjekker salgsenhet
+     c                   if        a_saen(x) = 'TRUE'
+     c                   if        b_sae1 = *off
+     c                   eval      vesaen = 1
+     c                   eval      b_sae1 = *on
+7.11 c                   endif
+7.11 c                   else
+7.11 c                   if        b_sae2 = *off
+7.11 c                   if        a_pkla(x) = 'D'
+7.11 c                   eval      vesaen = 2
+7.11 c                   eval      b_sae2 = *on
+7.11 c                   endif
+7.11 c                   else
+7.11 c                   if        b_sae3 = *off
+7.11 c                   if        a_pkla(x) = 'D' or
+7.11 c                             a_pkla(x) = 'T'
+7.11 c                   eval      vesaen = 3
+7.11 c                   eval      b_sae3 = *on
+7.11 c                   endif
+7.11 c                   endif
+7.11 c                   endif
+7.11 c                   endif
+      * sjekker innkj.enhet
+     c                   if        a_inen(x) = 'TRUE'
+      *
+     c                   if        b_ine1 = *off
+     c                   eval      veinen = 1
+     c                   eval      b_ine1 = *on
+7.11 c                   endif
+     c                   else
+7.11 c                   if        b_ine2 = *off
+7.11 c                   if        a_best(x) = 'TRUE'
+7.11 c                   eval      veinen = 2
+7.11 c                   eval      b_ine2 = *on
+7.11 c                   endif
+7.11 c                   else
+7.11 c                   if        b_ine3 = *off
+7.11 c                   if        a_best(x) = 'TRUE'
+7.11 c                   eval      veinen = 3
+7.11 c                   eval      b_ine3 = *on
+7.11 c                   endif
+7.11 c                   endif
+7.11 c                   endif
+     c                   endif
+      * sjekker prisbokenhet
+     c                   if        a_pben(x) = 'TRUE'
+      *
+     c                   if        b_pbe1 = *off
+     c                   eval      vepben = 1
+     c                   eval      b_pbe1 = *on
+     c                   endif
+7.11 c                   endif
+     c                   update    vvenlur
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Oppdaterer gtin
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skr_gtin      begsr
+7.20  *
+7.20  * sjekk om vare er avvist pga. feil på varekortet
+7.20  *
+7.20 c                   eval      z = %lookup(w_vare:a_avvis)
+7.20 c                   if        z > 0
+7.20 c                   leavesr
+7.20 c                   endif
+      *
+      * sjekk om vare finnes
+      *
+     c                   eval      s_pgti = 0
+      *
+     c                   exsr      sjekk_vare
+     c                   if        b_ikke_funnet = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   eval      w_enum = 0
+7.04 c                   eval      rlevlb_nobb = %dec(w_nlev:6:0)
+7.04 c     rlevlb_key    chain     rlevlb
+     c                   if        %found
+7.04 c                   eval      w_enum = rllevr
+     c                   else
+7.01 c                   eval      p_stat = '1'
+7.01 c                   eval      p_jsts = 30
+7.01 c                   eval      p_jmld = *blanks
+7.01 c                   eval      p_jmld = 'VA - leverandør mangler' +
+7.01 c                             '** skr_gtin ** ' +
+7.04 c                             %char(rlevlb_nobb)
+7.01  *
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    p_jbid
+7.01 c                   parm                    p_jsts
+7.01 c                   parm                    p_jmld
+7.08 c                   eval      w_feil = %trim(p_jmld)
+      * nullstill felter
+7.18 c                   eval      w_nobb = *blank
+7.18 c                   eval      w_nmod = *blank
+7.18 c                   eval      w_ogrp = *blank
+7.18 c                   eval      w_hgrp = *blank
+7.18 c                   eval      w_ugrp = *blank
+7.18 c                   eval      w_tek1 = *blank
+7.18 c                   eval      w_tek2 = *blank
+7.18 c                   eval      w_ldor = *blank
+7.18 c                   eval      rlnavn = *blank
+7.18 c                   eval      w_enhe = *blank
+7.18 c                   eval      w_enhs = *blank
+7.18 c                   eval      w_enhl = *blank
+7.18 c                   eval      b_feil2 = *on
+7.08 c                   exsr      skriv_xls
+7.09 c                   if        b_ny_vare  = *on and
+7.09 c                             w_lhov = 'TRUE'
+7.09 c                   exsr      rydd_Vare
+7.09 c                   endif
+7.01 c                   leavesr
+     c                   endif
+7.01  *    sjekker om leverandør er knyttet
+7.01 c                   if        w_enum = 0
+7.01 c                   eval      p_stat = '1'
+7.01 c                   eval      p_jsts = 30
+7.01 c                   eval      p_jmld = *blanks
+7.01 c                   eval      p_jmld = 'VA - leverandør er ikke knyttet' +
+7.01 c                             '** skr_gtin ** ' +
+7.04 c                             %char(rlevlb_nobb)
+7.01  *
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    p_jbid
+7.01 c                   parm                    p_jsts
+7.01 c                   parm                    p_jmld
+7.08 c                   eval      w_feil = %trim(p_jmld)
+      * nullstill felter
+7.18 c                   eval      w_nobb = *blank
+7.18 c                   eval      w_nmod = *blank
+7.18 c                   eval      w_ogrp = *blank
+7.18 c                   eval      w_hgrp = *blank
+7.18 c                   eval      w_ugrp = *blank
+7.18 c                   eval      w_tek1 = *blank
+7.18 c                   eval      w_tek2 = *blank
+7.18 c                   eval      w_ldor = *blank
+7.18 c                   eval      rlnavn = *blank
+7.18 c                   eval      w_enhe = *blank
+7.18 c                   eval      w_enhs = *blank
+7.18 c                   eval      w_enhl = *blank
+7.18 c                   eval      b_feil2 = *on
+7.08 c                   exsr      skriv_xls
+7.09 c                   if        b_ny_vare  = *on and
+7.09 c                             w_lhov = 'TRUE'
+7.09 c                   exsr      rydd_Vare
+7.09 c                   endif
+7.01 c                   leavesr
+7.01 c                   endif
+7.01  *
+     c                   clear                   vveplur
+      *
+     c                   eval      vveplu_vare = w_vare
+     c                   eval      vveplu_enhe = w_enhe
+     c                   eval      vveplu_ldor = w_enum
+     c     vveplu_key    chain     vveplur
+     c                   exsr      prs_gtin
+     c                   time                    vepeda
+     c                   time                    vepeti
+     c                   eval      vepeus = l_user
+     c                   if        %found
+     c                   update    vveplur
+     c                   else
+     c                   eval      vepfir = w_firm
+     c                   time                    vepoda
+     c                   time                    vepoti
+     c                   eval      vepous = l_user
+     c                   write     vveplur
+     c                   endif
+      *
+      * hvis gtin finnes fra før og det ikke er likt det om kom, dytt gtin til v
+      *
+     c                   if        s_pgti <> 0 and
+     c                             s_pgti <> vepgti
+     c                   exsr      dann_gml_Gtin
+     c                   endif
+      *
+     c                   endsr
+      *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *  Oppdaterer søketekst
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01 c     upd_sok       begsr
+      *
+7.20  * sjekk om vare er avvist pga. feil på varekortet
+7.20  *
+7.20 c                   eval      z = %lookup(w_vare:a_avvis)
+7.20 c                   if        z > 0
+7.20 c                   leavesr
+7.20 c                   endif
+      *
+7.01 c                   call      'VV750R'
+7.01 c                   parm                    w_firm
+7.01 c                   parm                    w_vare
+      *
+7.01 c                   endsr
+
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Parse       vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     prs_vare      begsr
+      *
+     c                   eval      vvvare = w_vare
+     c                   eval      vvogrp = %dec(w_ogrp:2:0)
+     c                   eval      vvhgrp = %dec(w_hgrp:2:0)
+     c                   eval      vvugrp = %dec(w_ugrp:3:0)
+7.13 c     lo:up         xlate     w_tek1        w_tek1
+7.13 c     lo:up         xlate     w_tek2        w_tek2
+     c                   eval      vvtek1 = w_tek1
+     c                   eval      vvtek2 = w_tek2
+     c                   eval      vvenhe = w_enhe
+7.14 c                   if        not %found(vvarlu)
+     c                   eval      vvenhl = w_enhl
+     c                   eval      vvenhs = w_enhs
+7.14 c                   endif
+7.27 c*                   eval      vvvtyp = w_vtyp
+7.12 c                   eval      vvsort = w_sort
+      * dette blir oppdatert fra supplier
+     c                   eval      vvldor = 0
+     c                   eval      vvnlev = 0
+     c                   eval      vvnobb = 0
+     c                   eval      vvnmod = 0
+     c                   eval      vvnuda = *loval
+     c                   eval      vvlvar = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Parse       vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     prs_vare_lev  begsr
+      *
+     c                   eval      vvlvnr = w_vare
+     c                   eval      vvlldo = w_enum
+     c                   if        w_lnob <> *blank
+     c                   eval      vvlnob = %dec(w_lnob:8:0)
+     c                   else
+     c                   eval      vvlnob = 0
+     c                   endif
+     c                   eval      vvllva = w_llva
+     c                   if        w_lmod <> *Blank
+     c                   eval      vvlmod = %dec(w_lmod:8:0)
+     c                   else
+     c                   eval      vvlmod = 0
+     c                   endif
+     c                   if        w_lnle <> *blank
+     c                   eval      vvlnle = %dec(w_lnle:6:0)
+     c                   else
+     c                   eval      vvlnle = 0
+     c                   endif
+     c                   if        w_luda <> *blank
+     c                   eval      vvluda = %date(%SUBST(w_luda:1:10):*iso)
+     c                   else
+     c                   eval      vvluda = *loval
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Parse       enhet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     prs_enhet     begsr
+      *
+     c                   eval      vevare = w_vare
+     c                   eval      veenhe = w_enhe
+     c*                   eval      vesaen = %dec(w_saen:1:0)
+     c*                   eval      veinen = %dec(w_inen:1:0)
+     c*                   eval      vepben = %dec(w_pben:1:0)
+     c                   if        w_omre <> *blank
+     c                   eval      veomre = %dec(w_omre:12:6)
+     c                   else
+     c                   eval      veomre = 0
+     c                   endif
+     c                   if        w_leng <> *blank
+     c                   eval      veleng = %dec(w_leng:6:0)
+     c                   else
+     c                   eval      veleng = 0
+     c                   endif
+     c                   if        w_bred <> *blank
+     c                   eval      vebred = %dec(w_bred:6:0)
+     c                   else
+     c                   eval      vebred = 0
+     c                   endif
+     c                   if        w_hoyd <> *Blank
+     c                   eval      vehoyd = %dec(w_hoyd:6:0)
+     c                   else
+     c                   eval      vehoyd = 0
+     c                   endif
+     c                   if        w_vekt <> *blank
+     c                   eval      vevekt = %dec(w_vekt:9:3)
+     c                   else
+     c                   eval      vevekt = 0
+     c                   endif
+     c                   if        w_volu <> *blank
+     c                   eval      vevolu = %dec(w_volu:9:5)
+     c                   else
+     c                   eval      vevolu = 0
+     c                   endif
+      *
+     c                   eval      i = i + 1
+7.21 c                   eval      r = r + 1
+7.21 c                   if        w_pakn <> *blank
+     c                   eval      a_vare(i) = w_vare
+     c                   eval      a_enhe(i) = w_enhe
+7.21 c*                   eval      a_pakn(i) = %dec(w_pakn:2:0)
+7.21 c                   eval      a_pakn(i) = r
+     c                   eval      a_saen(i) = w_saen
+     c                   eval      a_inen(i) = w_inen
+     c                   eval      a_pben(i) = w_pben
+7.11 c                   eval      a_best(i) = w_best
+7.11 c                   select
+7.11 c                   when      w_fpak = 'TRUE'
+7.11 c                   eval      a_pkla(i) = 'F'
+7.11 c                   when      w_dpak = 'TRUE'
+7.11 c                   eval      a_pkla(i) = 'D'
+7.11 c                   when      w_tpak = 'TRUE'
+7.11 c                   eval      a_pkla(i) = 'T'
+7.11 c                   other
+7.11 c                   eval      a_pkla(i) = *blank
+7.11 c                   endsl
+
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Parse       enhet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     prs_gtin      begsr
+      *
+7.26 c                   eval      b_vepny = *off
+7.28 c                   if        not %found(vveplu) and
+7.28 c                             b_logi = *off
+7.26 c                   eval      b_vepny = *on
+7.26 c                   endif
+     c                   eval      vepvar = w_vare
+     c                   eval      vepenh = w_enhe
+     c                   eval      vepldo = w_enum
+     c                   eval      s_pgti = vepgti
+     c                   if        w_gtin <> *Blank
+     c                   eval      vepgti = %dec(w_gtin:14:0)
+     c                   else
+     c                   eval      vepgti = 0
+     c                   endif
+     c                   if        w_best = 'TRUE'
+     c                   eval      vepbes = 1
+     c                   else
+     c                   eval      vepbes = 0
+     c                   endif
+     c                   select
+     c                   when      w_fpak = 'TRUE'
+7.28 c                   if        b_logi = *off
+7.26 c                   if        b_vepny = *on or
+7.26 c                             (b_vepny = *off and vepkla <> 'F')
+7.26 c                   eval      b_e_pkla = *on
+7.26 c                   endif
+7.28 c                   endif
+     c                   eval      vepkla = 'F'
+     c                   when      w_dpak = 'TRUE'
+7.28 c                   if        b_logi = *off
+7.26 c                   if        b_vepny = *on or
+7.26 c                             (b_vepny = *off and vepkla <> 'D')
+7.26 c                   eval      b_e_pkla = *on
+7.26 c                   endif
+7.28 c                   endif
+     c                   eval      vepkla = 'D'
+     c                   when      w_tpak = 'TRUE'
+7.28 c                   if        b_logi = *off
+7.26 c                   if        b_vepny = *on or
+7.26 c                             (b_vepny = *off and vepkla <> 'T')
+7.26 c                   eval      b_e_pkla = *on
+7.26 c                   endif
+7.28 c                   endif
+     c                   eval      vepkla = 'T'
+     c                   other
+     c                   eval      vepkla = *blank
+     c                   endsl
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * sjekker om vare finnes
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_vare    begsr
+      *
+     c                   eval      b_ikke_funnet = *off
+7.09 c                   eval      b_ny_vare = *off
+     c                   eval      sjk_vare = *blank
+     c                   eval      sjk_nlev = 0
+       exec sql
+7.09        select vvvare,vvnlev,vvldor, vvodat, vvenhe
+7.09        into :sjk_vare, :sjk_nlev, :sjk_ldor, :sjk_odat, :sjk_enhe
+            from vvarpf
+7.24        where  vvfirm = :w_firm and vvvare = :w_vare;
+         if ((SQLCode < 0) or (SQLCode = 100));
+7.16       if sqlcode < 0;
+7.16 c                   eval      p_jmld = *blanks
+7.16 c                   eval      p_jmld = 'Feil i sjekk vare sqlcode ' +
+7.16 c                             %char(sqlcode) + ' **Kontakt EG**'
+7.16 c                   call      'AB705R'
+7.16 c                   parm                    p_jbid
+7.16 c                   parm                    p_jsts
+7.16 c                   parm                    p_jmld
+7.16 c                   eval      w_feil = %trim(p_jmld)
+7.18 c                   eval      b_feil3 = *on
+7.16 c                   exsr      skriv_xls
+7.16       endif;
+           b_ikke_funnet = *on;
+           leavesr;
+         endif;
+7.28     // sjekk om logistikkvare
+7.28     w_anta = 0;
+7.28     b_logi = *off;
+7.28   exec sql
+7.28        select count(*)
+7.28        into :w_anta
+7.28        from jvkhpf
+7.28        where  jvkfir = :w_firm and jvkvnr = :w_vare;
+7.28     if w_anta > 0;
+7.28       b_logi = *on;
+7.28     endif;
+
+7.09     if sjk_ldor = 0 and
+7.09        sjk_odat =  %date;
+7.09        b_ny_vare = *on;
+7.09     endif;
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å danne lager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dann_lager    begsr
+      *
+     c     ra10l1_key    setll     ra10l1
+     c     ra10l1_key    reade     ra10l1
+     c                   dow       not %eof(ra10l1)
+      *
+     c                   clear                   vlaglur
+     c                   eval      vlaglu_vare = vvvare
+     c                   eval      vlaglu_lage = rajkod
+     c     vlaglu_key    chain     vlaglu
+     c                   if        not %found(vlaglu)
+     c                   eval      vlfirm = w_firm
+     c                   eval      vlvare = vvvare
+     c                   eval      vllage = rajkod
+     c                   eval      vlenhl = vvenhl
+     c                   time                    vltrda
+     c                   eval      vlvtyp = vvvtyp
+     c                   time                    vlodat
+     c                   time                    vlotim
+     c                   time                    vledat
+     c                   time                    vletim
+     c                   eval      vlousr = l_user
+     c                   eval      vleusr = l_user
+     c                   write     vlaglur
+     c                   endif
+      *
+     c     ra10l1_key    reade     ra10l1
+     c                   enddo
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Danner gtin i gml. eann-reg hvis det kommer nye gtin på varen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dann_gml_Gtin begsr
+      *
+     c                   clear                   veanlur
+     c                   eval      veanlu_eann = s_pgti
+     c     veanlu_key    chain     veanlur
+     c                   if        not %found
+     c                   eval      vxfirm = w_firm
+     c                   eval      vxeann = s_pgti
+     c                   eval      vxvare = vepvar
+     c                   eval      vxeusr = l_user
+      *
+     c                   time                    vxtime
+     c                   time                    vxetim
+     c                   time                    vxedat
+      *
+     c                   write     veanlur
+     c                   endif
+      *
+     c                   endsr
+      *
+7.07  * - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.07  * Subrutine for å å danne logistikk hode
+7.07  * - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.07  *
+7.07 c     upd_logi      begsr
+7.07  *
+7.07  *
+7.07 c                   if        vvnobb = vvlnob
+7.07 c                   clear                   jvkhlur
+7.07 c                   eval      jvkhlu_vare = vvlvnr
+7.07 c     jvkhlu_key    chain     jvkhlu
+7.07 c                   eval      jvkldo = vvlnle
+7.07 c                   time                    jvkeda
+7.07 c                   time                    jvketi
+7.07 c                   eval      jvkeus = l_user
+7.07 c                   if        not %found(jvkhlu)
+7.07 c                   eval      jvkfir= w_firm
+7.07 c                   eval      jvkvnr = vvlvnr
+7.07 c                   time                    jvkoda
+7.07 c                   time                    jvkoti
+7.07 c                   eval      jvkous = l_user
+7.07 c                   write     jvkhlur
+7.07 c                   else
+7.07 c                   update    jvkhlur
+7.07 c                   endif
+7.07 c                   endif
+7.07  *
+7.07  * skriv til logistikk-undervarer
+7.07 c                   clear                   jvkllur
+7.07 c                   eval      jvkllu_qvnr = vvlvnr
+7.07 c                   eval      jvkllu_quno = vvlnob
+7.07 c                   eval      jvkllu_qldo = vvlnle
+7.07 c     jvkllu_key    chain     jvkllu
+7.07 c                   eval      jvqofa = 1
+7.07 c                   time                    jvqeda
+7.07 c                   time                    jvqeti
+7.07 c                   eval      jvqeus = l_user
+7.07 c                   if        not %found(jvkllu)
+7.07 c                   eval      jvqfir = w_firm
+7.07 c                   eval      jvqvnr = jvkllu_qvnr
+7.07 c                   eval      jvquno = jvkllu_quno
+7.07 c                   eval      jvqldo = jvkllu_qldo
+7.07 c                   time                    jvqoda
+7.07 c                   time                    jvqoti
+7.07 c                   eval      jvqous = l_user
+7.07 c                   write     jvkllur
+7.07 c                   else
+7.07 c                   update    jvkllur
+7.07 c                   endif
+7.07  *
+7.07 c                   endsr
+      *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  * Input kontroll på vare
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01 c     ktrl_vare     begsr
+7.01  *
+7.01 c                   eval      p_stat = *Blank
+7.01  * sjekker om basis enhet er gyldig
+7.01 c                   eval      venhl1_enhe = w_enhe
+7.01 c     venhl1_key    chain     venhl1
+7.01 c                   if        not %found(venhl1)
+7.01 c                   eval      p_stat = '1'
+7.01 c                   eval      p_jsts = 30
+7.01 c                   eval      p_jmld = *blanks
+7.01 c                   eval      p_jmld = 'Basisenhet finnes ikke  ' +
+7.01 c                             '** ktrl_vare ** ' +
+7.01 c                             %trim(w_enhe)
+7.01  *
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    p_jbid
+7.01 c                   parm                    p_jsts
+7.01 c                   parm                    p_jmld
+7.08 c                   eval      w_feil = %trim(p_jmld)
+7.18 c                   eval      b_feil2 = *on
+7.08 c                   exsr      skriv_xls
+7.09 c                   leavesr
+7.01 c                   endif
+7.01  * sjekker om lager enhet er gyldig
+7.01 c                   eval      venhl1_enhe = w_enhl
+7.01 c     venhl1_key    chain     venhl1
+7.01 c                   if        not %found(venhl1)
+7.01 c                   eval      p_stat = '1'
+7.01 c                   eval      p_jsts = 30
+7.01 c                   eval      p_jmld = *blanks
+7.01 c                   eval      p_jmld = 'Lager enhet finnes ikke  ' +
+7.01 c                             '** ktrl_vare ** ' +
+7.01 c                             %trim(w_enhe)
+7.01  *
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    p_jbid
+7.01 c                   parm                    p_jsts
+7.01 c                   parm                    p_jmld
+7.08 c                   eval      w_feil = %trim(p_jmld)
+7.18 c                   eval      b_feil2 = *on
+7.08 c                   exsr      skriv_xls
+7.09 c                   leavesr
+7.01 c                   endif
+7.01  * sjekker om lager enhet er gyldig
+7.01 c                   eval      venhl1_enhe = w_enhs
+7.01 c     venhl1_key    chain     venhl1
+7.01 c                   if        not %found(venhl1)
+7.01 c                   eval      p_stat = '1'
+7.01 c                   eval      p_jsts = 30
+7.01 c                   eval      p_jmld = *blanks
+7.01 c                   eval      p_jmld = 'Statistikk enhet finnes ikke  ' +
+7.01 c                             '** ktrl_vare ** ' +
+7.01 c                             %trim(w_enhe)
+7.01  *
+7.01 c                   call      'AB705R'
+7.01 c                   parm                    p_jbid
+7.01 c                   parm                    p_jsts
+7.01 c                   parm                    p_jmld
+7.08 c                   eval      w_feil = %trim(p_jmld)
+7.18 c                   eval      b_feil2 = *on
+7.08 c                   exsr      skriv_xls
+7.09 c                   leavesr
+7.01 c                   endif
+7.20  * sjekk om varen finnes fra og det er endring av basisenhet
+7.20 c                   exsr      sjekk_vare
+7.22 c                   leavesr
+7.20 c                   if        b_ikke_funnet = *off and
+7.20 c                             vvenhe <> w_enhe
+7.20 c                   eval      p_stat = '1'
+7.20 c                   eval      p_jsts = 30
+7.20 c                   eval      p_jmld = *blanks
+7.20 c                   eval      p_jmld = 'Endring av basisenhet,  ' +
+7.20 c                             'vare avvises ** ' +
+7.20 c                             %trim(w_enhe) + '-->' + %trim(vvenhe)
+7.20  *
+7.20 c                   call      'AB705R'
+7.20 c                   parm                    p_jbid
+7.20 c                   parm                    p_jsts
+7.20 c                   parm                    p_jmld
+7.20 c                   eval      w_feil = %trim(p_jmld)
+7.20 c                   eval      b_feil4 = *on
+7.20 c                   exsr      skriv_xls
+7.20  * dann i avvis tabell
+7.20 c                   eval      z = %lookup(w_vare:a_avvis)
+7.20 c                   if        z = 0
+7.20 c                   eval      y = y + 1
+7.20 c                   eval      a_avvis(y) = w_vare
+7.20 c                   endif
+7.09 c                   leavesr
+     c                   endif
+7.01 c                   endsr
+7.01
+7.08  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+7.08  * Subrutiner for XML å danne innhold i coolspool tabell           *
+7.08  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+7.08 c     skriv_xls     begsr
+7.08 c
+7.08 c                   eval      b_feil = *on
+7.08 c
+7.08 c                   clear                   fxl3str
+7.08  *
+7.08  * Filegruppe
+7.08 c                   eval      fxlfgr=%trim(l_filg)
+7.08  * Vare
+7.08 c                   eval      fxlvar=%trim(w_vare)
+7.08  * nobbnr
+7.08 c                   eval      fxlnob=%trim(W_nobb)
+7.08  * modulnr
+7.08 c                   eval      fxlmod=%trim(w_nmod)
+7.08  * overgruppe
+7.08 c                   eval      fxlogr=%trim(w_ogrp)
+7.08  * hovedgruppe
+7.08 c                   eval      fxlhgr=%trim(w_hgrp)
+7.08  * undergruppe
+7.08 c                   eval      fxlugr=%trim(w_ugrp)
+7.08  * Tekst
+7.08 c                   eval      fxltx1=%trim(w_tek1)
+7.08  * Tekst
+7.08 c                   eval      fxltx2=%trim(w_tek2)
+7.08  * Leverandør
+7.08 c                   eval      fxlpgiv = %trim(w_ldor)
+7.08  * Lev.navn
+7.08 c                   eval      fxllnav=%trim(rlnavn)
+7.08  * Enhe basis
+7.08 c                   eval      fxlenhe =%trim(w_enhe)
+7.08  * enhet stat
+7.08 c                   eval      fxlenhs=%trim(w_enhs)
+7.08  * enhet lager
+7.08 c                   eval      fxlenhs=%trim(w_enhl)
+7.08
+7.08  * Feiltekst
+7.08 c                   eval      fxlfeil=%trim(w_feil)
+7.08 c                   time                    fxlodat
+7.08 c                   time                    fxledat
+7.08 c                   time                    fxletim
+7.08 c                   eval      fxleuser = l_user
+7.08 c                   write     fxl3str
+      *
+7.08 c                   endsr
+      *
+7.08  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+7.08  * Subrutiner for XML å slette innhold i coolspool tabell          *
+7.08  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+7.08 c     rydd_xls      begsr
+7.08 c/exec sql
+7.08 c+ delete from fxl3st
+7.08 c/end-exec
+
+       exec sql commit;
+7.08 c                   endsr
+7.08
+7.08  * - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.08  * Lager Excel via Coolspool
+7.08  * - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.08  *
+7.08 c     lag_excel     begsr
+7.08  *
+7.08 c                   eval      w_exsql = 'select * from fxl3st'
+7.08 c
+7.08 c                   call      'ASPTOXLSX'
+7.08 c                   parm                    w_exsql
+7.08 c                   parm                    w_exmap
+7.08 c                   parm                    w_exfil
+7.08 c                   parm                    w_extyp
+7.08  *
+7.08 c                   endsr
+7.08  * - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.08  * Sender Excel på mail med proa
+7.08  * - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.08  *
+7.08 c     send_mail     begsr
+7.08  *
+7.08  * finner mailadresser
+7.08 c     rax9l1_key    setll     rax9l1
+7.08 c     rax9l1_key    reade     rax9l1
+7.08 c                   dow       not %eof
+7.08  *
+7.08 c                   if        raik01 = 1
+7.08 c                   eval      ra09l1_ikod = raikod
+7.08 c     ra09l1_key    chain     ra09l1
+7.08 c                   if        %found(ra09l1) and
+7.08 c                             raiema <> *Blank
+7.08  *
+7.08 c                   if        w_rec1 = *blank
+7.08 c                   eval      w_rec1 = raiema
+7.08 c                   else
+7.08 c                   if        w_rec2 = *blank
+7.08 c                   eval      w_rec2 = raiema
+7.08 c                   else
+7.08 c                   if        w_rec3 = *blank
+7.08 c                   eval      w_rec3 = raiema
+7.08 c                   endif
+7.08 c                   endif
+7.08 c                   endif
+7.08 c                   endif
+7.08 c                   endif
+7.08  *
+7.08 c     rax9l1_key    reade     rax9l1
+7.08 c                   enddo
+7.08
+7.08  *
+7.08 c*                   eval      p_rec1 = 'bjkva@eg.no'
+7.08 c*                   eval      p_rec2 = *blank
+7.08 c*                   eval      p_rec3 = *blank
+7.08 c                   eval      w_subj = 'Vare innlesing fra Solve'
+7.18 c                   select
+7.18 c                   when      b_feil3 = *on
+7.18 c                   eval      w_txt1 = 'Problemer med innlesing av varer.-
+7.18 c                             Ta kontakt med Optimera for mer informasjon.'
+7.18 c                   when      b_feil2 = *on
+7.18 c                   eval      w_txt1 = 'Varer er innlest med feil, se ved-
+7.18 c                             lagt excel for mer informasjon.'
+7.18 c                   when      b_feil1 = *on
+7.18 c                   eval      w_txt1 = 'Varer er innlest uten feil, se ved-
+7.18 c                             lagt excel for mer informasjon.'
+7.18 c                   endsl
+7.18 c*                   eval      w_txt1 = 'Varer fra Solve har feil, +
+7.18 c*                             se vedlegg for informasjon.'
+7.08 c                   eval      w_txt2 = *blank
+7.08 c                   eval      w_txt3 = *blank
+7.08 c                   eval      w_txt4 = 'Med vennlig hilsen'
+7.08 c                   eval      w_filn = '/asp/'+l_filg+'/excel/'+
+7.08 c                             %trim(w_exfil)
+7.08 c                   eval      w_fnav = 'Vareinnlesing_feil' +
+7.08 c                                       %char(%date) +   '.xlsx'
+7.08 c                   eval      w_mime = 'application/vnd.openxmlformats-'
+7.08 c                   eval      w_mime = %trim(w_mime)+'officedocument.'
+7.08 c                   eval      w_mime = %trim(w_mime)+'spreadsheetml.sheet'
+7.15 c                   eval      w_bcc  = *blank
+7.08 c                   call      'AF728R'
+7.08 c                   parm                    w_rec1
+7.08 c                   parm                    w_rec2
+7.08 c                   parm                    w_rec3
+7.08 c                   parm                    w_subj
+7.08 c                   parm                    w_txt1
+7.08 c                   parm                    w_txt2
+7.08 c                   parm                    w_txt3
+7.08 c                   parm                    w_txt4
+7.08 c                   parm                    w_avsl
+7.08 c                   parm                    w_filn
+7.08 c                   parm                    w_fnav
+7.08 c                   parm                    w_mime
+7.15 c                   parm                    w_bcc
+7.08  *
+7.08 c                   endsr
+7.08  *
+7.09  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+7.09  * Subrutiner for å rydde alt som evt. er dannet på varenr.        *
+7.09  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+7.09 c     rydd_vare     begsr
+      *
+7.16 c                   eval      p_jmld = *blanks
+7.16 c                   eval      p_jmld = 'Rydder vare  ' +
+7.16 c                             %trim(w_vare)
+7.16 c                   call      'AB705R'
+7.16 c                   parm                    p_jbid
+7.16 c                   parm                    p_jsts
+7.16 c                   parm                    p_jmld
+7.16 c                   eval      w_feil = %trim(p_jmld)
+7.18 c                   eval      b_feil2 = *on
+7.16 c                   exsr      skriv_xls
+7.09  * vare-lager
+7.09 c                   eval      vvarlu_vare2 = w_vare
+7.09 c     vvarlu_key2   setll     vlaglu
+7.09 c     vvarlu_key2   reade     vlaglu
+7.09 c                   dow       not %eof(vlaglu)
+7.09 c                   delete    vlaglur
+7.09 c     vvarlu_key2   reade     vlaglu
+7.09 c                   enddo
+7.09  * vare-gammelt ean
+7.09 c                   eval      vvarlu_vare2 = w_vare
+7.09 c     vvarlu_key2   setll     veanl2
+7.09 c     vvarlu_key2   reade     veanl2
+7.09 c                   dow       not %eof(veanl2)
+7.09 c                   delete    veanl2r
+7.09 c     vvarlu_key2   reade     veanl2
+7.09 c                   enddo
+7.09  * vare-leverandør
+7.09 c                   eval      vvarlu_vare2 = w_vare
+7.09 c     vvarlu_key2   setll     vvlelu
+7.09 c     vvarlu_key2   reade     vvlelu
+7.09 c                   dow       not %eof(vvlelu)
+7.09 c                   delete    vvlelur
+7.09 c     vvarlu_key2   reade     vvlelu
+7.09 c                   enddo
+7.09  * vare-enhet
+7.09 c                   eval      vvarlu_vare2 = w_vare
+7.09 c     vvarlu_key2   setll     vvenlu
+7.09 c     vvarlu_key2   reade     vvenlu
+7.09 c                   dow       not %eof(vvenlu)
+7.09 c                   delete    vvenlur
+7.09 c     vvarlu_key2   reade     vvenlu
+7.09 c                   enddo
+7.09  * vare-enhet-leverandør
+7.09 c                   eval      vvarlu_vare2 = w_vare
+7.09 c     vvarlu_key2   setll     vveplu
+7.09 c     vvarlu_key2   reade     vveplu
+7.09 c                   dow       not %eof(vveplu)
+7.09 c                   delete    vveplur
+7.09 c     vvarlu_key2   reade     vveplu
+7.09 c                   enddo
+7.09  * vare
+7.09 c                   eval      vvarlu_vare2 = w_vare
+7.09 c     vvarlu_key2   chain     vvarlu
+7.09 c                   if        %found(vvarlu)
+7.09 c                   delete    vvarlur
+7.16 c                   eval      ant_del = ant_del + 1
+7.09 c                   endif
+7.09  * vare-logistikk-vare heading
+7.09 c                   eval      vvarlu_vare2 = w_vare
+7.09 c     vvarlu_key2   setll     jvkhlu
+7.09 c     vvarlu_key2   reade     jvkhlu
+7.09 c                   dow       not %eof(jvkhlu)
+7.09 c                   delete    jvkhlur
+7.09 c     vvarlu_key2   reade     jvkhlu
+7.09 c                   enddo
+7.09  * vare-logistikk-vare linje
+7.09 c                   eval      vvarlu_vare2 = w_vare
+7.09 c     vvarlu_key2   setll     jvkllu
+7.09 c     vvarlu_key2   reade     jvkllu
+7.09 c                   dow       not %eof(jvkllu)
+7.09 c                   delete    jvkllur
+7.09 c     vvarlu_key2   reade     jvkllu
+7.09 c                   enddo
+      *
+7.09 c                   endsr
+7.09
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_filNavn
+     c                   parm                    p_lengde
+     c                   parm                    p_sistDato
+     c                   parm                    p_stat
+      *
+      * Key for oppdatering av vare
+      *
+     c     vvarlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarlu_vare
+      *
+      * Key for oppdatering på vare enhet
+      *
+     c     vvenlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenlu_vare
+     c                   kfld                    vvenlu_enhe
+      *
+      * Key for oppdatering på vare enhet prisgiver
+      *
+     c     vveplu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vveplu_vare
+     c                   kfld                    vveplu_enhe
+     c                   kfld                    vveplu_ldor
+      *
+      * Key for oppdatering av vare-leverandør i EVR
+      *
+     c     vvlelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvlelu_lvnr
+     c                   kfld                    vvlelu_lldo
+      *
+      * Key for oppslag på lager
+      *
+     c     vlaglu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlaglu_vare
+     c                   kfld                    vlaglu_lage
+7.09  *
+7.09  * Key for slett pr. vare (brukes på alle tabeller)
+7.09  *
+7.09 c     vvarlu_key2   klist
+7.09 c                   kfld                    w_firm
+7.09 c                   kfld                    vvarlu_vare2
+7.09  *
+      * Key for oppdatering av ean-register
+      *
+     c     veanlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    veanlu_eann
+      *
+      * Key for oppslag på leverandør
+      *
+7.04 c     rlevlb_key    klist
+7.04 c                   kfld                    w_firm
+7.04 c                   kfld                    rlevlb_nobb
+      *
+      * Key for oppslag på status
+      *
+     c     jstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for les på lager
+      *
+     c     ra10l1_key    klist
+     c                   kfld                    w_firm
+7.01  *
+7.01  * Key for oppslag på enhet
+7.01  *
+7.01 c     venhl1_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    venhl1_enhe
+7.01  *
+7.07  *
+7.07  * Key for oppdatering av logistikkvare
+7.07  *
+7.07 c     jvkhlu_key    klist
+7.07 c                   kfld                    w_firm
+7.07 c                   kfld                    jvkhlu_vare
+7.07  *
+7.07  * Key for oppdatering av logistikk undervare
+7.07  *
+7.07 c     jvkllu_key    klist
+7.07 c                   kfld                    w_firm
+7.07 c                   kfld                    jvkllu_qvnr
+7.07 c                   kfld                    jvkllu_quno
+7.07 c                   kfld                    jvkllu_qldo
+7.04  *
+7.04  * Key for oppslag på selger
+7.04  *
+7.04 c     ra09l1_key    klist
+7.04 c                   kfld                    w_firm
+7.04 c                   kfld                    ra09l1_ikod
+7.04  *
+7.04  * Key for oppslag på selger sidereg
+7.04  *
+7.04 c     rax9l1_key    klist
+7.04 c                   kfld                    w_firm
+      *
+      * Henter firma fra parameter
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c     jstsl1_key    chain     jstsl1
+7.01  *
+7.01  *
+7.01  * Vi starter jobblogging
+7.01  *
+7.01 c                   eval      p_jnav = dirSolveKonf
+7.01 c                   eval      p_jtxt = *blank
+7.01 c                   call      'AB700R'
+7.01 c                   parm                    p_jnav
+7.01 c                   parm                    p_jbid
+7.01 c                   parm                    p_jtxt
+      *
+     c                   endsr

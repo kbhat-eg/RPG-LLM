@@ -1,0 +1,457 @@
+      /TITLE  Spesial program - lageroppdatering
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  System  . . . . : ASLAGR
+      *  Program . . . . : LX741R
+      *  Beskrivelse . . : Oppdatering av informasjon på lagerregister
+      *                    fra ekstern fil.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Spesialversjon. : Excel-fil med lagerinfo
+      *  Tilpasset for . : Skattum
+      *
+      *  Referanse  Dato   Endringsbeskrivelse                       Sign.
+      * --------- ------  --------------------------------------------------
+      *           280211  Nytt program                                bof
+7.01  *           180412  Nå skal utg.dato oppdatere vlagpf           bof
+7.01  *           140220  Fjernet test på om varetype til S           bof
+8.01  *  800      120522  Endret innhenting av lagernummer til nøkkel ask
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flwexpf    if   e           k disk
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvlaglu    uf   e           k disk    rename(vlagpfr:vlaglur)
+      *
+      *  Datastruktur - excel-fil
+      *
+     d                 ds
+     d d_ex                         512
+     d  d_fill                        2    overlay(d_ex:1)
+     d  d_lage                        2    overlay(d_ex:6)
+     d  d_vare                        8    overlay(d_ex:28)
+     d  d_vtxt                       35    overlay(d_ex:36)
+     d  d_enhe                        3    overlay(d_ex:79)
+     d  d_mini                       10    overlay(d_ex:86)
+     d    d_min_hel                   6  0 overlay(d_mini:1)
+     d    d_min_des                   3  3 overlay(d_mini:8)
+     d  d_maks                       10    overlay(d_ex:96)
+     d    d_max_hel                   6  0 overlay(d_maks:1)
+     d    d_max_des                   3  3 overlay(d_maks:8)
+     d  d_bmin                       10    overlay(d_ex:106)
+     d    d_bmi_hel                   6  0 overlay(d_bmin:1)
+     d    d_bmi_des                   3  3 overlay(d_bmin:8)
+     d  d_ltid                        3    overlay(d_ex:116)
+     d    d_lti_hel                   3  0 overlay(d_ltid:1)
+     d  d_vtyp                        1    overlay(d_ex:119)
+     d  d_udat                       10    overlay(d_ex:120)
+     d    d_uda_dd                    2    overlay(d_udat:1)
+     d    d_uda_mm                    2    overlay(d_udat:4)
+     d    d_uda_aa                    4    overlay(d_udat:7)
+      *
+      *  UDS Local Data Area
+      *
+     d                uds
+     d l_firm                944    946  0
+     d l_user                911    920
+      *
+      *  Definering av variable i nøkler
+      *
+     d vvarl1_vare     s                   like(vvvare)
+     d vlaglu_lage     s                   like(vllage)
+     d vlaglu_vare     s                   like(vlvare)
+      *
+      *  Definering av variable
+      *
+     d w_firm          s                   like(vvfirm)
+     d w_n113          s             11  3
+     d w_datx          s             10
+     d w_pos           s              5u 0
+     d w_leng          s              2  0
+     d w_posi          s              2  0
+     d w_posb          s              2  0
+     d len             s              3  0
+     d st              s              3  0
+     d w_3x            s              3
+     d w_dato          s              6
+     d w_2x            s              2
+     d w_stat          s              1
+     d w_udat          s                   like(vludat)
+      *
+     d b_skaf          s              1    inz(*off)
+     d b_akti          s              1    inz(*off)
+     d b_ok            s              1    inz(*off)
+      *
+     d c_null          s             15    inz('000000000000000')
+     d digits          c                   ' 0123456789'
+      *
+      * Lageroppdatering
+      *
+     d                 ds
+6.nu d hlrec                        128
+     d  hlvare                       15    overlay(hlrec)
+     d  hllage                        2  0 overlay(hlrec:16)
+     d  hldato                         d   overlay(hlrec:18) datfmt(*iso)
+     d  hltime                         t   overlay(hlrec:28) timfmt(*iso)
+     d  hlotyp                        2    overlay(hlrec:36)
+     d  hlltyp                        2    overlay(hlrec:38)
+     d  hlanta                       11  3 overlay(hlrec:40)
+     d  hlkopr                        9  2 overlay(hlrec:51)
+     d  hlrefr                       20    overlay(hlrec:60)
+     d  hlsyst                        1    overlay(hlrec:80)
+     d  hlaltk                        2    overlay(hlrec:81)
+     d  hlrest                        1    overlay(hlrec:83)
+     d  hltype                        1    overlay(hlrec:84)
+     d  hlenhe                        3    overlay(hlrec:85)
+     d  hlinlr                        1    overlay(hlrec:88)
+     d  hllety                        1    overlay(hlrec:89)
+6.nu d  hlonum                        8  0 overlay(hlrec:90)
+6.nu d  hlolin                        4  0 overlay(hlrec:98)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Lese ekstern fil for å hente neste vare for behandling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+      *  Lese file
+      *
+     c                   read      lwexpf                                 90
+     c                   dow       *in90 = *off
+     c                   exsr      utled_ds
+      *
+      *  Sjekk at ikke heading-rad er lest inn
+      *
+     c                   if        b_ok = *on
+     c                   exsr      behand
+     c                   endif
+      *
+     c
+      *
+     c                   read      lwexpf                                 90
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xslutt        tag
+      *
+     c                   eval      *inlr = *on
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Oppdatering av LAGER-informasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behand        begsr
+     c                   eval      b_akti = *off
+     c                   eval      b_skaf = *off
+      *
+     c     ' ':'0'       xlate     d_vare        d_vare
+      *
+     c                   eval      vvarl1_vare = d_vare
+     c     vvarl1_key    chain     vvarl1r                            92
+     c                   if        *in92 = *off
+      *
+     c                   eval      vlaglu_vare = vvvare
+8.01 c*                  move      d_lage        vlaglu_lage
+8.01 c                   eval      vlaglu_lage = %dec(d_lage:2:0)
+     c     vlaglu_key    chain     vlaglur                            93
+     c                   if        %found(vlaglu)
+      *
+     c                   if        d_mini <> *blank
+     c                   eval      vlmini = d_min_hel + d_min_des
+     c                   else
+     c                   eval      vlmini = 0
+     c                   endif
+      *
+     c                   if        d_maks <> *blank
+     c                   eval      vlmaks = d_max_hel + d_max_des
+     c                   else
+     c                   eval      vlmaks = 0
+     c                   endif
+      *
+     c                   if        d_bmin <> *blank
+     c                   eval      vlbmin = d_bmi_hel + d_bmi_des
+     c                   else
+     c                   eval      vlbmin = 0
+     c                   endif
+      *
+     c                   if        d_ltid <> *blank
+     c                   eval      vlltid = d_lti_hel
+     c                   else
+     c                   eval      vlltid = 0
+     c                   endif
+      * utg.dato
+     c                   if        w_udat <> *loval
+     c                   eval      vludat = w_udat
+     c                   endif
+      *
+      * skaffevare ?
+      * hvis alle parameter er satt til 0, så prøv å sette varen
+      * til skaffevare
+      *
+7.01 c*                  if        vlmini  = 0 and
+7.01 c*                            vlmaks  = 0 and
+7.01 c*                            vlbmin  = 0
+7.01 c*                  exsr      sjekk_vare
+7.01 c*                  if        b_akti = *off
+7.01 c*                  eval      b_skaf = *on
+7.01 c*                  endif
+7.01 c*                  else
+7.01 c*                  eval      vlvtyp = 'L'
+7.01 c*                  endif
+      *
+     c                   time                    vledat
+     c                   time                    vletim
+     c                   eval      vleusr = l_user
+     c                   if        *in93 = *off
+     c                   update    vlaglur
+     c                   endif
+     c                   endif
+      *
+7.01 c*                  if        b_skaf = *on
+7.01 c*                  exsr      oppdat_lager
+7.01 c*                  endif
+      *
+     c                   endif
+     c     behand_ut     endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å sjekke om det er ordre /bestilling på varen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_vare    begsr
+      *
+     c                   if        vlbehl <> 0
+     c                   eval      b_akti = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppdatering av lager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppdat_lager  begsr
+      *
+      * Legger over verdier i overførings-felter
+      *
+     c                   eval      hlvare = vlvare
+5.31 c                   eval      hllage = vllage
+     c                   eval      hlenhe = vvenhl
+     c                   eval      hldato = *loval
+     c                   eval      hltime = *loval
+     c                   eval      hlotyp = *blank
+     c                   eval      hlltyp = *blank
+      *
+     c                   eval      hlanta = 0
+     c                   eval      hlkopr = 0
+      *
+     c                   eval      hlrefr = 'Vtyp endret L--> S '
+     c                   move      'L'           hlsyst
+     c                   eval      hlaltk = 'J '
+     c                   eval      hlrest = *blank
+      *
+      * Kaller lageroppdaterings-program
+      *
+     c                   eval      w_stat = *blank
+      *
+     c                   call      'VL001R'
+     c                   parm                    w_stat
+     c                   parm                    hlrec
+      *
+     c                   eval      vlaglu_vare = vlvare
+     c                   eval      vlaglu_vare = vlvare
+     c     vlaglu_key    chain     vlaglur                            93
+     c                   if        %found(vlaglu)
+     c                   eval      vlvtyp = 'S'
+     c                   update    vlaglur
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utleding av datastruktur
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     utled_ds      begsr
+      *
+     c     '"':' '       xlate     exclin        exclin
+      *
+      * Lager
+      *
+     c                   eval      w_posi = %scan(';':exclin)
+     c                   eval      d_lage = %trim(%subst(exclin:1:w_posi-1))
+     c                   if        d_lage = *blank
+     c                   leavesr
+     c                   endif
+     c                   if        %check(digits : d_lage) <>0
+     c                   leavesr
+     c                   endif
+      *
+      * vare
+      *
+     c                   eval      exclin = %subst(exclin:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':exclin)
+     c                   eval      d_vare = %trim(%subst(exclin:1:w_posi-1))
+     c                   if        d_vare = *blank
+     c                   leavesr
+     c                   endif
+     c                   if        %check(digits : d_vare) <>0
+     c                   leavesr
+     c                   endif
+      *
+      * Min
+      *
+     c                   eval      exclin = %subst(exclin:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':exclin)
+     c                   eval      d_mini = %trim(%subst(exclin:1:w_posi-1))
+      *
+      * Max
+      *
+     c                   eval      exclin = %subst(exclin:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':exclin)
+     c                   eval      d_maks = %trim(%subst(exclin:1:w_posi-1))
+      *
+      * Anbrekk (min.best)
+      *
+     c                   eval      exclin = %subst(exclin:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':exclin)
+     c                   eval      d_bmin = %trim(%subst(exclin:1:w_posi-1))
+      *
+      * leveringstid
+      *
+     c                   eval      exclin = %subst(exclin:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':exclin)
+     c                   eval      d_ltid = %trim(%subst(exclin:1:w_posi-1))
+     c                   eval      len     = %len(%trim(d_ltid))
+     c                   if        len     > 0
+     c                   eval      st = 4 - len
+     c                   eval      w_3x  = *blank
+     c                   eval      %subst(w_3x:st:len) = %subst(d_ltid:1:len)
+     c                   eval      d_ltid = w_3x
+     c                   endif
+     c     ' ':'0'       xlate     d_ltid        d_ltid
+      *
+      * utg.dato
+      *
+     c                   eval      exclin = %subst(exclin:w_posi+1:512-w_posi)
+     c                   eval      w_posi = %scan(';':exclin)
+     c                   if        w_posi > 0
+     c                   eval      d_udat = %trim(%subst(exclin:1:w_posi-1))
+     c                   else
+     c                   eval      d_udat = %trim(%subst(exclin:1:11))
+     c                   endif
+     c                   if        d_udat <> *blank
+     c                   eval      w_datx = d_uda_aa + '-' +
+     c                                      d_uda_mm + '-' + d_uda_dd
+      *
+     c                   move      w_datx        w_udat
+     c                   else
+     c                   eval      w_udat = *loval
+     c                   endif
+     c                   eval      b_ok = *on
+      *
+      * Utleder minimum
+      *
+     c                   if        d_mini <> *blank
+      *
+     c                   eval      d_mini = %trim(d_mini)
+     c                   eval      w_posi = %scan(',':d_mini)
+     c                   eval      w_leng = %len(%trim(d_mini))
+      *
+     c                   if        w_posi = 0
+     c                   eval      w_posi = w_leng + 1
+     c                   eval      d_mini = %trim(d_mini) + '.000'
+     c                   endif
+      *
+     c     ' ':'0'       xlate     d_mini        d_mini
+      *
+     c                   if        (w_posi-1) < 7
+     c                   eval      d_mini = %subst(c_null:1:6-w_posi+1) +
+     c                                      %subst(d_mini:1:w_posi-1) +
+     c                                      '.' +
+     c                                      %subst(d_mini:w_posi+1:3)
+     c                   endif
+      *
+     c                   else
+     c                   eval      d_mini = '000000.000'
+     c                   endif
+      *
+      * Utleder maksimum
+      *
+     c                   if        d_maks <> *blank
+      *
+     c                   eval      d_maks = %trim(d_maks)
+     c                   eval      w_posi = %scan(',':d_maks)
+     c                   eval      w_leng = %len(%trim(d_maks))
+      *
+     c                   if        w_posi = 0
+     c                   eval      w_posi = w_leng + 1
+     c                   eval      d_maks = %trim(d_maks) + '.000'
+     c                   endif
+      *
+     c     ' ':'0'       xlate     d_maks        d_maks
+      *
+     c                   if        (w_posi-1) < 7
+     c                   eval      d_maks = %subst(c_null:1:6-w_posi+1) +
+     c                                      %subst(d_maks:1:w_posi-1) +
+     c                                      '.' +
+     c                                      %subst(d_maks:w_posi+1:3)
+     c                   endif
+      *
+     c                   else
+     c                   eval      d_maks = '000000.000'
+     c                   endif
+      *
+      * Bestillingsmengde - anbrekk
+      *
+     c                   if        d_bmin <> *blank
+      *
+     c                   eval      d_bmin = %trim(d_bmin)
+     c                   eval      w_posi = %scan(',':d_bmin)
+     c                   eval      w_leng = %len(%trim(d_bmin))
+      *
+     c                   if        w_posi = 0
+     c                   eval      w_posi = w_leng + 1
+     c                   eval      d_bmin = %trim(d_bmin) + '.000'
+     c                   endif
+      *
+     c     ' ':'0'       xlate     d_bmin        d_bmin
+      *
+     c                   if        (w_posi-1) < 7
+     c                   eval      d_bmin = %subst(c_null:1:6-w_posi+1) +
+     c                                      %subst(d_bmin:1:w_posi-1) +
+     c                                      '.' +
+     c                                      %subst(d_bmin:w_posi+1:3)
+     c                   endif
+      *
+     c                   else
+     c                   eval      d_bmin = '000000.000'
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Key for les av VARE
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      *  Key for oppdatering av LAGER
+      *
+     c     vlaglu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlaglu_vare
+     c                   kfld                    vlaglu_lage
+      *
+      *  Legge inn opplysninger i nøklene
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   endsr

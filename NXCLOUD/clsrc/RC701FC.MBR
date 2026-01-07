@@ -1,0 +1,154 @@
+             PGM
+/*                           Innbetalinger til Svea                  */
+
+/* Definerer variable                                                */
+
+             DCL        VAR(&MLD1)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD2)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&WALI)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO)  TYPE(*DEC)  LEN(2 0)
+
+/*FTP*/
+             DCL        VAR(&STAT)  TYPE(*CHAR) LEN(1)
+
+/*IFS*/
+             DCL        VAR(&WPSMTP) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&QPATH) TYPE(*CHAR) LEN(50)
+             DCL        VAR(&WPFILE) TYPE(*CHAR) LEN(15)
+
+/*SFTP*/
+             DCL        VAR(&DTAQ) TYPE(*CHAR) LEN(10) VALUE(SFTPSEND)
+             DCL        VAR(&DTAQLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&FLDLEN) TYPE(*DEC) LEN(4 0) VALUE(2000)
+             DCL        VAR(&FIELD) TYPE(*CHAR) LEN(2000)
+             DCL        VAR(&WTIM)  TYPE(*DEC) LEN(5 0) VALUE(30)
+             DCL        VAR(&KLEN)  TYPE(*DEC) LEN(3 0) VALUE(10)
+             DCL        VAR(&SLEN)  TYPE(*DEC) LEN(3 0) VALUE(0)
+             DCL        VAR(&KEY) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&svar) TYPE(*CHAR)  LEN(1)
+             DCL        VAR(&in12) TYPE(*CHAR)  LEN(1)
+
+             DCL        VAR(&dat)  TYPE(*CHAR)  LEN(6)
+             DCL        VAR(&sdd)  TYPE(*CHAR)  LEN(2)
+             DCL        VAR(&stt)  TYPE(*CHAR)  LEN(2)
+             DCL        VAR(&ttn)  TYPE(*DEC)   LEN(2 0)
+
+             RTVJOBA    JOB(&KEY) CURLIB(&DTAQLIB)
+
+/* Bygger filnavn og kataloger                                       */
+
+             CHGVAR     VAR(&WPFILE) VALUE('Ummddtt.36100')
+             RTVJOBA    DATE(&DAT)
+             chgvar     var(%sst(&wpfile 2 2)) +
+                        value(%sst(&dat 3 2))
+             chgvar     var(%sst(&wpfile 4 2)) +
+                        value(%sst(&dat 1 2))
+nyret:       rtvdtaara  dtaara(sveatell (3 2)) rtnvar(&sdd)
+/*  Dtaara SVEATELL mangler ev.                                */
+             monmsg     msgid(cpf1015) exec(do)
+              crtdtaara dtaara(SVEATELL) type(*char) len(6) +
+                          text('Teller for fil m/Innbet til Svea')
+              chgdtaara dtaara(sveatell (1 2)) +
+                        value(%sst(&dat 3 2))
+              chgdtaara dtaara(sveatell (3 2)) +
+                        value(%sst(&dat 1 2))
+              chgdtaara dtaara(sveatell (5 2)) value('00')
+              goto      cmdlbl(nyret)
+             enddo
+             rtvdtaara  dtaara(sveatell (5 2)) rtnvar(&stt)
+             if         cond(%sst(&dat 1 2) *eq &sdd) then(do)
+               chgvar   var(&ttn) value(&stt)
+               chgvar   var(&ttn) value(&ttn + 1)
+               chgvar   var(&stt) value(&ttn)
+             enddo
+             chgdtaara  dtaara(sveatell (1 2)) value(%sst(&dat 3 2))
+             chgdtaara  dtaara(sveatell (3 2)) value(%sst(&dat 1 2))
+             chgdtaara  dtaara(sveatell (5 2)) value(&stt)
+
+             chgvar     var(%sst(&wpfile 6 2)) value(&stt)
+             CHGVAR     VAR(&WPSMTP) VALUE('/home/' *TCAT &DTAQLIB +
+                          *TCAT '/' *tcat &wpfile)
+             CHGVAR     VAR(&QPATH) VALUE('/qsys.lib/' *TCAT +
+                          &DTAQLIB *TCAT +
+                          '.lib/rcsvpfs.file/RCSVPFS.mbr')
+
+/* Overfører til IFS                                                 */
+
+             CRTPF      FILE(*CURLIB/RCSVPFS) RCDLEN(2000)
+             MONMSG     MSGID(CPF0000)
+             CLRPFM     FILE(RCSVPFS)
+             CPYF       FROMFILE(RCSVPF) TOFILE(RCSVPFS) +
+                          MBROPT(*REPLACE) FMTOPT(*NOCHK)
+             CPYTOSTMF  FROMMBR(&QPATH) TOSTMF(&WPSMTP) +
+                          STMFOPT(*REPLACE)
+
+
+/*  Selve overøringen kjøres via en service som Mads har satt opp.   */
+
+             goto       cmdlbl(backup)
+/* _________________________________________________________________ */
+/* Overfører saker med åpen FTP med unikt filnavn                    */
+
+     /*      CALL       PGM(RC762R) PARM(&FILN)                      */
+
+     /*      CALL       PGM(AF700C) PARM(&OVRF &STAT &FILN &SMSG)    */
+
+/* Overfører saker med secure FTP                                    */
+
+/* Legge inn fil i datakø                                           */
+
+             CHGVAR     VAR(&FIELD) VALUE(&KEY *CAT ';' *TCAT &WPSMTP)
+
+             CALL       PGM(QSNDDTAQ) PARM(&DTAQ &DTAQLIB &FLDLEN +
+                          &FIELD)
+
+/* Vente på svar                                                     */
+
+             CHGVAR     VAR(&DTAQ) VALUE('SFTPSENDR')
+             CALL       PGM(QRCVDTAQ) PARM(&DTAQ &DTAQLIB &FLDLEN +
+                          &FIELD &WTIM 'EQ' &KLEN &KEY +
+                          &SLEN '')
+
+             IF         COND(&FLDLEN *EQ 0) THEN(GOTO CMDLBL(ERROR)) +
+                          /* 'Ikke noe svar innen timeout. Anta +
+                          feil.' */
+
+             CHGVAR     VAR(&STAT) VALUE(%SUBSTRING(&FIELD 1 1))
+             IF         COND(&STAT *EQ '1') THEN(GOTO CMDLBL(ERROR)) +
+
+/* Varselbilde OK                                                    */
+
+             CHGVAR     VAR(&WALI) VALUE(4)
+             CHGVAR     VAR(&WAPO) VALUE(2)
+             CHGVAR     VAR(&MLD1) VALUE('Overføring til Svea      ')
+             CHGVAR     VAR(&MLD2) VALUE('**** OVERFØRING OK! **** ')
+             CALL       PGM(AA007r)  PARM(&mld1 &mld2 &svar &in12)
+
+             DLYJOB     DLY(000003)
+
+/* Tømmer overføringsfile for poster etter å ha tatt backup          */
+
+BACKUP:
+             DLTF       FILE(RCSVPF_BAC)
+             MONMSG     MSGID(CPF2105)
+
+             CPYF       FROMFILE(*LIBL/RCSVPF) +
+                          TOFILE(*CURLIB/RCSVPF_BAC) MBROPT(*ADD) +
+                          CRTFILE(*YES) FMTOPT(*NOCHK)
+
+             CLRPFM     FILE(*LIBL/RCSVPF) MBR(RCSVPF)
+             GOTO       CMDLBL(END)
+
+ ERROR:
+
+/* Varselbilde FEIL                                                  */
+
+             CHGVAR     VAR(&WALI) VALUE(4)
+             CHGVAR     VAR(&WAPO) VALUE(2)
+             CHGVAR     VAR(&MLD1) VALUE('Overføring til Svea       ')
+             CHGVAR     VAR(&MLD2) VALUE('**** OVERFØRING FEIL **** ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+
+             DLYJOB     DLY(000005)
+
+ END:        ENDPGM

@@ -1,0 +1,73 @@
+/* Beskrivelse av parametre                                         */
+/*   DLIB = Databibliotek, filgruppe                                */
+/*   FIRM = Firmanummer                                             */
+/*   NUMM = Returnerte teller verdi                                 */
+/*   STAT = Status. Alt annet enn *blank er tegn på feil            */
+/*                                                                  */
+/*   STAT = Status. Skal settes ved feil. Beskrivelse av status-    */
+/*           koder må lages, og beskrives her.                      */
+/*                                                                  */
+             PGM        PARM(&DLIB &FIRM &NUMM &STAT)
+
+             DCL        VAR(&DLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&FIRM) TYPE(*DEC) LEN(3 0)
+             DCL        VAR(&NUMM) TYPE(*DEC) LEN(6 0)
+             DCL        VAR(&STAT) TYPE(*CHAR) LEN(1)
+
+             DCL        VAR(&KODE) TYPE(*CHAR) LEN(1) VALUE(' ')
+             DCL        VAR(&FGRP) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&CFIR) TYPE(*CHAR) LEN(3)
+
+/* Setter biblioteksliste                                            */
+
+             CHGVAR     VAR(&FGRP) VALUE(%SUBSTRING(&DLIB 4 3))
+             CHGVAR     VAR(&CFIR) VALUE(&FIRM)
+
+             CALL       PGM(ASPINI/AA724C) PARM(&FGRP)
+
+             CHGCURLIB  CURLIB(&DLIB)
+             CHGDTAARA  DTAARA(*LDA (944 3)) VALUE(&CFIR)
+
+/* Starter transaksjon (commitment control)                          */
+
+             STRCMTCTL  LCKLVL(*CHG) CMTSCOPE(*JOB)
+
+/* Legg inn alt som skal skje under her -------------------------    */
+/* Ved feil i programmet SKAL man hoppe til ERR etter å ha satt      */
+/* &STAT til en kjent kode --------------------------------------    */
+/* Alle MONMSG SKAL også hoppe til ERR! -------------------------    */
+/* ================================================================= */
+
+             CALL       PGM(RS003R) PARM(&KODE &FIRM &NUMM)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(ERR))
+
+             IF         COND(&KODE *EQ 'N') THEN(DO)
+             CHGVAR     VAR(&STAT) VALUE('1')
+             GOTO       CMDLBL(ERR)
+             ENDDO
+
+/* ================================================================ */
+/* Her kjøres commit på evt. databaseoppdateringer -------*/
+
+             COMMIT
+
+ END:
+/* Skrur av commitment kontroll. Hvis ikke COMMIT er kjørt */
+/* vil ROLLBACK være default valg. ----------------------- */
+
+             ENDCMTCTL
+             RETURN
+
+ ERR:
+/* Kjører ROLLBACK på evt. databaseoppdateringer. --------- */
+
+             ROLLBACK
+
+/* Setter status til E hvis den ikke allerede er satt.     */
+/* Grunnen er at Status alltid SKAL være satt ved feil!    */
+
+             IF         COND('X' *TCAT &STAT *EQ 'X') THEN(CHGVAR +
+                          VAR(&STAT) VALUE('E'))
+
+             GOTO       CMDLBL(END)
+             ENDPGM

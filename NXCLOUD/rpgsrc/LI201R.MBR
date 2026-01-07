@@ -1,0 +1,839 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : LI201R
+      * Beskrivelse . . : Behandling av innkomne EDI-pakksedler - kolli informasjon
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       260819 bsa  Nytt program
+7.01  *       100120 bsa  Feil måte å finnes scannede kolli på.
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = avslutt
+      *       10 = Roll
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       16 = Readc 16 on, no more records
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flpkoi1    if   e           k disk    rename(lpkost:lpkoi1r)
+     flpkoir    if   e           k disk    rename(lpkost:lpkoirr)
+     flphoir    if   e           k disk    rename(lphost:lphoirr)
+     flbhoi3    if   e           k disk    rename(lbhost:lbhoi3r)
+     flppai1    if   e           k disk    rename(lppast:lppai1r)
+     felogl3    uf   e           k disk    rename(elogpfr:elogl3r)
+      *
+     fli201d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av LDA
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fkey               369    369
+     d  d_srow               370    370I 0
+     d  d_scol               371    371I 0
+     d  d_fcrn               378    379I 0
+      *
+      * Parameter-ut
+      *
+      *
+      * Definering av variabler i nøkler
+      *
+     d lphoir_type     s                   like(phtype)
+     d lphoir_mnum     s                   like(phmnum)
+     d lpkoir_type     s                   like(potype)
+     d lpkoir_mnum     s                   like(pomnum)
+     d lpkoi1_type     s                   like(potype)
+     d lpkoi1_mnum     s                   like(pomnum)
+     d lpkoi1_aarr     s                   like(poaarr)
+     d lpkoi1_paid     s                   like(popaid)
+     d lpkoi1_pver     s                   like(popver)
+     d lpkoi1_fsni     s                   like(pofsni)
+     d lpkoi1_fniv     s                   like(pofniv)
+     d lpkoi1_sscc     s                   like(posscc)
+     d lppai1_type     s                   like(phtype)
+     d lppai1_mnum     s                   like(phmnum)
+     d lppai1_aarr     s                   like(phaarr)
+     d lppai1_paid     s                   like(phpaid)
+     d lppai1_pver     s                   like(phpver)
+     d lppai1_paty     s                   like(pppaty)
+     d elogl3_faar     s                   like(xlfaar)
+     d elogl3_type     s                   like(xltype)
+     d elogl3_mnum     s                   like(xlmnum)
+     d lbhoi3_hpid     s                   like(pbhpid)
+     d lbhoi3_hpve     s                   like(pbhpve)
+     d lbhoi3_hssc     s                   like(pbhssc)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d b_forn          s              1    inz(*off)
+      *
+     d w_firm          s                   like(phfirm)
+     d w_modu          s             10    inz('NED     ')
+     d w_disp          s              1    inz('1')
+     d w_tilg          s              1
+     d w_lpro          s              1
+     d w_koty          s                   like(pokoty)
+     d w_benr          s              8  0
+     d x               s              2  0
+      *
+     d p_type          s              4
+     d p_mnum          s              8  0
+     d p_aarr          s              4  0
+     d p_paid          s             17
+     d p_pver          s              3  0
+     d p_fsni          s             18
+     d p_fniv          s              6  0
+     d p_sscc          s             18  0
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(17)
+      *
+     d lo              c                   'abcdefghijklmnopqrstuvwxyzæøåäö'
+     d up              c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅÄÖ'
+      *
+      * - - - - - - - - - - - - - - - - -
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_srrn - Relativt recordnummer i subfile
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * w_virn - Vis den side som inneholder denne record.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * B4WIN  - B4 Vindu for slette (Delete)
+      * F1BLD  - F1 Søke på meldingstype
+      * H1WIN  - H1 Vindu for angivelse av søkefilter
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * A1BLD Sjekk om meldingstype er fast eller skal velges
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Kontrollerer gyldig tilgang
+      *
+     c                   call      'AX700R'
+     c                   parm                    w_modu
+     c                   parm                    w_disp
+     c                   parm                    w_tilg
+      *
+     c                   if        w_tilg = '1'
+     c                   goto      end_pgm
+     c                   endif
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      lpkoir_type = p_type
+     c                   eval      lpkoir_mnum = p_mnum
+     c     lpkoir_key    setll     lpkoir
+      *
+     c                   exsr      crt_subfile
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inka
+     c                   exsr      xh1win
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkc or *inkl
+     c                   goto      end_pgm
+     c                   when      *inke
+     c                   eval      w_fcrn = *zero
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkj
+     c                   exsr      xb10win
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkm
+     c                   exsr      xb13win
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   endsl
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     end_pgm       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   eval      lpkoir_type = *blanks
+     c                   eval      lpkoir_mnum = p_mnum
+     c                   else
+     c                   eval      lpkoir_mnum = p_mnum
+     c                   endif
+      *
+     c     lpkoir_key    setll     lpkoir
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+     c                   eval      b_forn = *off
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+      * Beholder eksisterende posisjonering i subfilen
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_virn = w_srrn
+      *
+      * Se på detaljer i melding
+      *
+     c                   if        b1valg = 5
+     c                   exsr      xb5bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vise varelinjer
+      *
+     c                   if        b1valg = 8
+     c                   exsr      xb8bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å se på detaljer i melding
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb5bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+      *
+     c                   eval      lpkoi1_type = *blanks
+     c                   eval      lpkoi1_mnum = b1mnum
+     c                   eval      lpkoi1_aarr = b1aarr
+     c                   eval      lpkoi1_paid = b2paid
+     c                   eval      lpkoi1_pver = b1pver
+     c                   eval      lpkoi1_fsni = b1fsni
+     c                   eval      lpkoi1_fniv = b1fniv
+     c                   eval      lpkoi1_sscc = b1sscc
+     c     lpkoi1_key    chain     lpkoi1
+      *
+     c                   if        %found
+     c                   eval      c1paid = b2paid
+     c                   eval      c1pver = popver
+     c                   eval      c1stat = postat
+     c                   eval      c1sbes = *blanks
+     c                   eval      c1sscc = posscc
+     c                   eval      c1ksnr = poksnr
+      *
+     c                   eval      w_koty = %trim(%xlate(lo:up:pokoty))
+     c                   if        %trim(w_koty) = 'CN'
+     c                   eval      c1kotb = 'CONTAINER'
+     c                   elseif    %trim(w_koty) = 'CT'
+     c                   eval      c1kotb = 'KARTONG'
+     c                   elseif    %trim(w_koty) = 'PB'
+     c                   eval      c1kotb = 'PALL'
+     c                   elseif    %trim(w_koty) = 'PD'
+     c                   eval      c1kotb = 'PALL'
+     c                   elseif    %trim(w_koty) = 'PE'
+     c                   eval      c1kotb = 'PALL'
+     c                   elseif    %trim(w_koty) = 'PX'
+     c                   eval      c1kotb = 'PALL'
+     c                   elseif    %trim(w_koty) = 'RO'
+     c                   eval      c1kotb = 'RULL'
+     c                   else
+     c                   eval      c1kotb = %trim(w_koty)
+     c                   endif
+      *
+     c                   eval      c1akol = popant
+     c                   eval      c1hoyd = pohoyd
+     c                   eval      c1henh = pohenh
+     c                   eval      c1leng = poleng
+     c                   eval      c1lenh = polenh
+     c                   eval      c1bred = pobred
+     c                   eval      c1benh = pobenh
+     c                   eval      c1volu = povolu
+     c                   eval      c1venh = povenh
+     c                   eval      c1bvkt = pobvkt
+     c                   eval      c1nvkt = ponvkt
+     c                   eval      c1veen = poveen
+     c                   else
+     c                   eval      c1paid = *blanks
+     c                   eval      c1stat = *blanks
+     c                   eval      c1sbes = *blanks
+     c                   eval      c1sscc = 0
+     c                   eval      c1ksnr = *blanks
+     c                   eval      c1kotb = *blanks
+     c                   eval      c1hoyd = 0
+     c                   eval      c1henh = *blanks
+     c                   eval      c1leng = 0
+     c                   eval      c1lenh = *blanks
+     c                   eval      c1bred = 0
+     c                   eval      c1benh = *blanks
+     c                   eval      c1volu = 0
+     c                   eval      c1venh = *blanks
+     c                   eval      c1bvkt = 0
+     c                   eval      c1nvkt = 0
+     c                   eval      c1veen = *blanks
+     c                   endif
+      *
+     c     c5taga        tag
+      *
+     c                   exfmt     c5bld
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_c5bld
+     c                   endif
+      *
+      * Spørring
+      *
+     c                   if        *inkd
+     c                   goto      c5taga
+     c                   endif
+      *
+     c     end_c5bld     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av filter-bildet (H1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xh1win        begsr
+      *
+     c                   if        h1sldo = *zero
+     c                   eval      h1lnav = *blank
+     c                   endif
+     c                   if        h1innk = *zero
+     c                   eval      h1inav = *blank
+     c                   endif
+      *
+     c                   if        h1lage = *zero
+     c                   endif
+      *
+     c                   if        h2lage = *zero
+     c                   endif
+      *
+     c                   if        h3lage = *zero
+     c                   endif
+      *
+     c                   if        h4lage = *zero
+     c                   endif
+      *
+     c                   if        h5lage = *zero
+     c                   endif
+      *
+     c                   if        h1fakr = *blank
+     c                   eval      h1fakr = '0'
+     c                   endif
+     c                   if        h1vmot = *blank
+     c                   eval      h1vmot = '0'
+     c                   endif
+      *
+     c     h1taga        tag
+     c                   exfmt     h1win
+      *
+     c                   if        h1fakr = '0'
+     c                   eval      h1fakr = *blank
+     c                   endif
+     c                   if        h1vmot = '0'
+     c                   eval      h1vmot = *blank
+     c                   endif
+      *
+     c                   eval      *in32 = *off
+     c                   eval      *in33 = *off
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_h1win
+     c                   endif
+      *
+     c                   if        *inkd
+     c                   if        w_afld = 'H1SLDO'
+     C                   call      'RL500R'
+     C                   parm                    w_firm
+     C                   parm                    h1sldo
+     C                   parm                    h1lnav
+     c                   endif
+      *
+     c                   if        w_afld = 'H1INNK'
+     c                   call      'RA509R'
+     c                   parm                    w_firm
+     c                   parm                    h1innk
+     c                   parm                    h1inav
+     c                   endif
+     c                   goto      h1taga
+     c                   endif
+      *
+     c                   if        h1snav <> *blank
+     c                   eval      h1snav = %trim(%xlate(lo:up:h1snav))
+     c                   endif
+      *
+     c                   if        h1smda <> 0
+     c     *dmy          test(d)                 h1smda                 31
+     c                   if        *in31  = *on
+     c                   goto      h1taga
+     c                   endif
+     c                   endif
+      *
+     c                   if        h1sfak <> *blank
+     c                   eval      h1sfak = %trim(%xlate(lo:up:h1sfak))
+     c                   endif
+      *
+     c                   if        h1sbes <> *blank
+     c                   eval      h1sbes = %trim(%xlate(lo:up:h1sbes))
+     c                   endif
+      *
+     c                   eval      w_fcrn = *zero
+      *
+     c     end_h1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å vise varelinjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb8bld        begsr
+      *
+     c                   eval      p_type = *blanks
+     c                   eval      p_mnum = b1mnum
+     c                   eval      p_aarr = b1aarr
+     c                   eval      p_paid = b2paid
+     c                   eval      p_pver = b1pver
+     c                   eval      p_fsni = b1fsni
+     c                   eval      p_fniv = b1fniv
+     c                   eval      p_sscc = b1sscc
+      *
+     c                   call      'LI202R'
+     c                   parm                    p_type
+     c                   parm                    p_mnum
+     c                   parm                    p_aarr
+     c                   parm                    p_paid
+     c                   parm                    p_pver
+     c                   parm                    p_fsni
+     c                   parm                    p_fniv
+     c                   parm                    p_sscc
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for overgang til bestillingssystem
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb10win       begsr
+      *
+     c                   eval      w_xrow = d_srow
+     c                   eval      w_xcol = d_scol
+      *
+     c                   eval      w_benr = *zero
+     c                   eval      w_lpro = *blank
+      *
+     c                   call      'LO500R'
+     c                   parm                    w_benr
+     c                   parm                    w_lpro
+      *
+     c     end_xb10win   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å vise statuskoder
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb13win       begsr
+      *
+     c                   eval      w_xrow = d_srow
+     c                   eval      w_xcol = d_scol
+      *
+     c                   exfmt     b13win
+      *
+     c     end_xb13win   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c     lpkoir_key    reade     lpkoir
+      *
+     c                   if        %eof
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c**                 if        postat > '89'
+     c**                 eval      *in15 = *on
+     c**                 iter
+     c**                 endif
+      *
+     c                   eval      b1valg = 0
+      *
+     c                   eval      b1mnum = pomnum
+     c                   eval      b1aarr = poaarr
+     c                   eval      b1pver = popver
+     c                   eval      b1sscc = posscc
+     c                   eval      b1fsni = pofsni
+     c                   eval      b1fniv = pofniv
+     c                   eval      b1kotb = *blanks
+      * Finn antall bestillingsnummer
+     c                   eval      b1bant = 0
+     c                   eval      x = 0
+     c                   eval      lbhoi3_hpid = popaid
+     c                   eval      lbhoi3_hpve = popver
+     c                   eval      lbhoi3_hssc = posscc
+     c     lbhoi3_key    setll     lbhoi3
+     c     lbhoi3_key    reade     lbhoi3
+     c                   dow       not %eof
+     c                   eval      x = x + 1
+     c     lbhoi3_key    reade     lbhoi3
+     c                   enddo
+     c                   eval      b1bant = x
+      *
+     c                   eval      w_koty = %trim(%xlate(lo:up:pokoty))
+      *
+     c                   if        %trim(pokoty) <> *blanks
+     c                   if        %trim(w_koty) = 'CN'
+     c                   eval      b1kotb = 'CONTAINER'
+     c                   elseif    %trim(w_koty) = 'CT'
+     c                   eval      b1kotb = 'KARTONG'
+     c                   elseif    %trim(w_koty) = 'PB'
+     c                   eval      b1kotb = 'PALL'
+     c                   elseif    %trim(w_koty) = 'PD'
+     c                   eval      b1kotb = 'PALL'
+     c                   elseif    %trim(w_koty) = 'PE'
+     c                   eval      b1kotb = 'PALL'
+     c                   elseif    %trim(w_koty) = 'PX'
+     c                   eval      b1kotb = 'PALL'
+     c                   elseif    %trim(w_koty) = 'RO'
+     c                   eval      b1kotb = 'RULL'
+     c                   else
+     c                   eval      b1kotb = %trim(w_koty)
+     c                   endif
+     c                   endif
+      *
+     c                   if        phpsdt <> *loval
+     c     *dmy          move      phpsdt        b1psdt
+     c                   endif
+      * Finn antall kolli
+     c                   eval      b1akol = popant
+      * Finn antall scannede kolli (usikker på hvordan)
+     c                   eval      b1skol = 0
+7.01 c                   if        postat >= '50'
+     c                   eval      b1skol = 1
+     c                   endif
+      *
+     c                   eval      b1volu = povolu
+     c                   eval      b1vekt = pobvkt
+     c                   eval      b1stat = postat
+      *
+     c                   eval      w_srrn = w_srrn + 1
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c     end_crt       tag
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c     lpkoir_key    readpe    lpkoir
+      *
+     c                   if        %eof
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     lpkoir_key    setll     lpkoir
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_bck       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutiner for kontroll av meldingsstatus
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c*     status_hode   begsr
+      **
+     c*                   select
+     c*                   when      listat = ' '
+     c*                   eval      b1tsta = 'Ok!            '
+     c*                   when      listat = '1'
+     c*                   eval      b1tsta = 'Feil i best.nr.'
+     c*                   when      listat = '2'
+     c*                   eval      b1tsta = 'Sjekk lever.   '
+     c*                   when      listat = '3'
+     c*                   eval      b1tsta = 'Avvik fra best.'
+     c*                   when      listat = '4'
+     c*                   eval      b1tsta = 'Feil ordretype.'
+     c*                   when      listat = '5'
+     c*                   eval      b1tsta = 'Avvik totalsum.'
+     c*                   when      listat = '7'
+     c*                   eval      b1tsta = 'Slettemarkert  '
+     c*                   when      listat = '8'
+     c*                   eval      b1tsta = 'Manuelt ok     '
+     c*                   when      listat = '9'
+     c*                   eval      b1tsta = 'Oppdatert      '
+     c*                   endsl
+      **
+     c*                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+     c     *entry        plist
+     c                   parm                    p_type
+     c                   parm                    p_mnum
+      *
+      *  Key for posisjonering av pakkseddelinfo
+      *
+     c     lphoir_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lphoir_type
+     c                   kfld                    lphoir_mnum
+      *
+      *  Key for posisjonering av pakkseddelinfo - kolli
+      *
+     c     lpkoir_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lpkoir_type
+     c                   kfld                    lpkoir_mnum
+      *
+      *  Key for posisjonering av pakkseddelinfo
+      *
+     c     lpkoi1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lpkoi1_type
+     c                   kfld                    lpkoi1_mnum
+     c                   kfld                    lpkoi1_aarr
+     c                   kfld                    lpkoi1_paid
+     c                   kfld                    lpkoi1_pver
+     c                   kfld                    lpkoi1_fsni
+     c                   kfld                    lpkoi1_fniv
+     c                   kfld                    lpkoi1_sscc
+      *
+      *  Key for posisjonering av pakkseddelinfo - partner
+      *
+     c     lppai1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lppai1_type
+     c                   kfld                    lppai1_mnum
+     c                   kfld                    lppai1_aarr
+     c                   kfld                    lppai1_paid
+     c                   kfld                    lppai1_pver
+     c                   kfld                    lppai1_paty
+      *
+      *  Key for behandling av loggfile
+      *
+     c     elogl3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    elogl3_faar
+     c                   kfld                    elogl3_type
+     c                   kfld                    elogl3_mnum
+      *
+      *  Key for posisjonering av kolli pr bestilling
+      *
+     c     lbhoi3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lbhoi3_hpid
+     c                   kfld                    lbhoi3_hpve
+     c                   kfld                    lbhoi3_hssc
+      *
+      * Henter firmanummer fra LDA
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      lpkoi1_type = p_type
+     c                   eval      lpkoi1_mnum = p_mnum
+     c                   eval      lpkoir_type = p_type
+     c                   eval      lpkoir_mnum = p_mnum
+      *
+     c                   eval      lphoir_type = p_type
+     c                   eval      lphoir_mnum = p_mnum
+     c     lphoir_key    setll     lphoir
+     c     lphoir_key    reade     lphoir
+      *
+     c                   eval      b2paid = phpaid
+      * Finn leverandørnavn
+     c                   eval      b2lnav = *blanks
+     c                   eval      lppai1_type = phtype
+     c                   eval      lppai1_mnum = phmnum
+     c                   eval      lppai1_aarr = phaarr
+     c                   eval      lppai1_paid = phpaid
+     c                   eval      lppai1_pver = phpver
+     c                   eval      lppai1_paty = 'SU'
+     c     lppai1_key    chain     lppai1
+     c                   if        %found
+     c                   eval      b2lnav = ppnavn
+     c                   endif
+      *
+     c                   endsr
+      *

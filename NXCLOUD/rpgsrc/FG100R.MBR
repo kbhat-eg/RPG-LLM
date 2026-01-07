@@ -1,0 +1,823 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FG100R
+      * Beskrivelse . . : Gebyr, vedlikehold
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+6.10  *       050110 bof  Lagt inn spørring på div. felter
+7.xx  * 7.00  110316 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+7.01  * 7.01  060819  nho  Ny gebyrtype/ 4= retur/reklamasjon
+7.02  * 7.00  170220 sst  Muligeht til gebyr også pr fakturatype
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffgebl1    if   e           k disk    rename(fgebpfr:fgebl1r)
+     ffgeblr    if   e           k disk    rename(fgebpfr:fgeblrr)
+     ffgeblu    uf a e           k disk    rename(fgebpfr:fgeblur)
+      *
+     ffg100d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d fgebl1_otyp     s                   like(fgotyp)
+     d fgeblr_otyp     s                   like(fgotyp)
+     d fgeblr_kkat     s                   like(fgkkat)
+7.02 d fgeblr_ftyp     s                   like(fgftyp)
+     d fgeblr_line     s                   like(fgline)
+     d fgeblu_otyp     s                   like(fgotyp)
+     d fgeblu_kkat     s                   like(fgkkat)
+7.02 d fgeblu_ftyp     s                   like(fgftyp)
+     d fgeblu_line     s                   like(fgline)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(fgfirm)
+6.10 d w_ktxt          s             30
+6.10 d w_ftxt          s                   like(fgtext)
+      *
+     d s_otyp          s                   like(fgotyp)
+     d s_kkat          s                   like(fgkkat)
+7.02 d s_ftyp          s                   like(fgftyp)
+     d s_line          s                   like(fgline)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meleingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2otyp <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   eval      fgebl1_otyp = b1otyp
+     c     fgebl1_key    setll     fgebl1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Ordretype
+      *
+     c                   if        b2otyp <> *blank
+     c                   eval      w_seqe = *blank
+     c                   eval      fgebl1_otyp = b2otyp
+     c     fgebl1_key    setll     fgebl1
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2otyp = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   eval      c1otyp = b1otyp
+     c                   eval      c1kkat = b1kkat
+7.02 c                   eval      c1ftyp = b1ftyp
+     c                   eval      c1line = b1line
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Kopier
+      *
+     c                   if        b1valg = 3
+     c                   eval      k1otyp = b1otyp
+     c                   eval      k1kkat = b1kkat
+7.02 c                   eval      k1ftyp = b1ftyp
+     c                   eval      k1line = b1line
+     c                   exsr      xk1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1otyp = b1otyp
+     c                   eval      d1kkat = b1kkat
+7.02 c                   eval      d1ftyp = b1ftyp
+     c                   eval      d1line = b1line
+     c                   exsr      xd1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1otyp = b1otyp
+     c                   eval      c1kkat = b1kkat
+7.02 c                   eval      c1ftyp = b1ftyp
+     c                   eval      c1line = b1line
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      b_oppr = *on
+     c                   eval      b_forn = *off
+      *
+     c                   eval      c1otyp = b2otyp
+     c                   eval      c1kkat = 0
+7.02 c                   eval      c1ftyp = 0
+     c                   eval      c1line = 0
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_c1bld
+6.10 c                   when      *inkd
+6.10 c                   exsr      spØrring
+6.10 c                   goto      c1taga
+     c                   endsl
+      *
+     c                   if        c1otyp = *blank and
+     c                             c1kkat = 0 and
+7.02 c                             c1ftyp = 0 and
+     c                             c1line = 0
+     c                   goto      end_c1bld
+     c                   endif
+      *
+      * Validering
+      *
+     c                   if        c1otyp = *blank
+     c                   eval      *in34 = *on
+     c                   goto      c1taga
+     c                   endif
+      *
+      * Sender opp informasjonsbilde dersom rad finnes fra før
+      *
+     c                   eval      fgeblr_otyp = c1otyp
+     c                   eval      fgeblr_kkat = c1kkat
+7.02 c                   eval      fgeblr_ftyp = c1ftyp
+     c                   eval      fgeblr_line = c1line
+     c     fgeblr_key    chain     fgeblr
+     c                   if        %found
+     c                   exsr      xc1msg
+     c                   if        b_anul = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   exsr      xc2bld
+      *
+     c                   eval      c1otyp = *blank
+     c                   eval      c1kkat = 0
+7.02 c                   eval      c1ftyp = 0
+     c                   eval      c1line = 0
+      *
+     c                   goto      c1taga
+      *
+     c     end_c1bld     tag
+      *
+     c                   eval      b_oppr = *off
+     c                   eval      b2otyp = *blank
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   goto      end_c1msg
+     c                   endif
+      *
+     c     end_c1msg     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+      *
+     c                   eval      fgeblr_otyp = c1otyp
+     c                   eval      fgeblr_kkat = c1kkat
+7.02 c                   eval      fgeblr_ftyp = c1ftyp
+     c                   eval      fgeblr_line = c1line
+     c     fgeblr_key    chain     fgeblr
+      *
+     c                   if        %found
+     c                   eval      c2text = fgtext
+     c                   eval      c2type = fgtype                                            .
+     c                   eval      c2ltyp = fgltyp                                            .
+     c                   eval      c2vare = fgvare                                            .
+     c                   eval      c2gren = fggren                                            .
+     c                   eval      c2belp = fgbelp                                            .
+     c                   eval      c2sats = fgsats                                            .
+     c                   else
+     c                   eval      c2text = *blank
+     c                   eval      c2type = 0                                                 .
+     c                   eval      c2ltyp = *blank                                            .
+     c                   eval      c2vare = *blank                                            .
+     c                   eval      c2gren = 0                                                 .
+     c                   eval      c2belp = 0                                                 .
+     c                   eval      c2sats = 0                                                 .
+     c                   endif
+      *
+     c                   if        b1valg = 3
+     c                   eval      c1otyp = k1otyp
+     c                   eval      c1kkat = k1kkat
+7.02 c                   eval      c1ftyp = k1ftyp
+     c                   eval      c1line = k1line
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30 = *on
+     c                   endif
+      *
+     c     c2taga        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      * Oppdatering
+      *
+     c                   clear                   fgeblur
+      *
+     c                   eval      fgeblu_otyp = c1otyp
+     c                   eval      fgeblu_kkat = c1kkat
+7.02 c                   eval      fgeblu_ftyp = c1ftyp
+     c                   eval      fgeblu_line = c1line
+     c     fgeblu_key    chain     fgeblur
+      *
+     c                   eval      fgtext = c2text
+     c                   eval      fgtype = c2type
+     c                   eval      fgltyp = c2ltyp
+     c                   eval      fgvare = c2vare
+     c                   eval      fggren = c2gren
+     c                   eval      fgbelp = c2belp
+     c                   eval      fgsats = c2sats
+      *
+     c                   if        %found
+     c                   update    fgeblur
+     c                   else
+     c                   eval      fgfirm = w_firm
+     c                   eval      fgotyp = c1otyp
+     c                   eval      fgkkat = c1kkat
+7.02 c                   eval      fgftyp = c1ftyp
+     c                   eval      fgline = c1line
+     c                   write     fgeblur
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c                   if        b1valg = 2
+     c                   eval      b1text = fgtext
+     c                   eval      b1belp = c2belp                                            .
+     c                   endif
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      fgeblr_otyp = d1otyp
+     c                   eval      fgeblr_kkat = d1kkat
+7.02 c                   eval      fgeblr_ftyp = d1ftyp
+     c                   eval      fgeblr_line = d1line
+     c     fgeblr_key    chain     fgeblr
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_d1win
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter rad
+      *
+     c                   eval      fgeblu_otyp = d1otyp
+     c                   eval      fgeblu_kkat = d1kkat
+7.02 c                   eval      fgeblu_ftyp = d1ftyp
+     c                   eval      fgeblu_line = d1line
+     c     fgeblu_key    chain     fgeblur
+      *
+     c                   delete    fgeblur
+      *
+     c     end_d1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle kopierings-bildet (K1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xk1win        begsr
+      *
+      * Tar vare på nøkkel til rad det skal kopieres fra
+      *
+     c                   eval      s_otyp = k1otyp
+     c                   eval      s_kkat = k1kkat
+7.02 c                   eval      s_ftyp = k1ftyp
+     c                   eval      s_line = k1line
+      *
+      * Fyller kopierings-bildet
+      *
+     c                   eval      fgeblr_otyp = k1otyp
+     c                   eval      fgeblr_kkat = k1kkat
+7.02 c                   eval      fgeblr_ftyp = k1ftyp
+     c                   eval      fgeblr_line = k1line
+     c     fgeblr_key    chain     fgeblr
+      *
+     c     k1taga        tag
+      *
+     c                   exfmt     k1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_k1win
+     c                   endif
+      *
+      * Sjekk om utfylt
+      *
+     c                   if        k1otyp = *blank and
+     c                             k1kkat = 0 and
+7.02 c                             k1ftyp = 0 and
+     c                             k1line = 0
+     c                   eval      *in31 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+     c                   if        k1otyp = *blank
+     c                   eval      *in34 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Sjekker om rad finnes fra før
+      *
+     c                   eval      fgeblr_otyp = k1otyp
+     c                   eval      fgeblr_kkat = k1kkat
+7.02 c                   eval      fgeblr_ftyp = k1ftyp
+     c                   eval      fgeblr_line = k1line
+     c     fgeblr_key    chain     fgeblr
+     c                   if        %found
+     c                   eval      *in32 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   eval      c1otyp = s_otyp
+     c                   eval      c1kkat = s_kkat
+7.02 c                   eval      c1ftyp = s_ftyp
+     c                   eval      c1line = s_line
+     c                   exsr      xc2bld
+      *
+     c     end_k1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      fgebl1
+      *
+     c                   if        %eof or
+     c                             fgfirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      fgebl1_otyp = fgotyp
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1otyp = fgotyp
+     c                   eval      b1kkat = fgkkat
+7.02 c                   eval      b1ftyp = fgftyp
+     c                   eval      b1line = fgline
+     c                   eval      b1text = fgtext
+     c                   eval      b1belp = fgbelp                                           .
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     fgebl1_key    setgt     fgebl1
+     c                   readp     fgebl1
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     fgebl1
+      *
+     c                   if        %eof or
+     c                             fgfirm <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      fgebl1_otyp = fgotyp
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     fgebl1_key    setll     fgebl1
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+6.10  *
+6.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.10  * Subrutine for behandling av spørring
+6.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.10  *
+6.10 c     spØrring      begsr
+6.10  *
+7.02 c                   if        w_afld = 'C1KKAT'
+6.10 c                   call      'RA511R'
+6.10 c                   parm                    w_firm
+6.10 c                   parm                    c1kkat
+6.10 c                   parm                    w_ktxt
+6.10 c                   leavesr
+6.10 c                   endif
+6.10  *
+6.10  * Spørring på ordretyper
+6.10  *
+6.10 c                   if        w_afld = 'C1OTYP'
+6.10 c                   call      'VA550R'
+6.10 c                   parm                    w_firm
+6.10 c                   parm                    c1otyp
+6.10 c                   leavesr
+6.10 c                   endif
+7.02  *
+7.02  * Spørring på fakturatype
+7.02  *
+7.02 c                   if        w_afld = 'C1FTYP'
+7.02 c                   call      'FM510R'
+7.02 c                   parm                    w_firm
+7.02 c                   parm                    c1ftyp
+7.02 c                   parm                    w_ftxt
+7.02 c                   leavesr
+7.02 c                   endif
+6.10  *
+6.10 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for posisjonering på ordretype
+      *
+     c     fgebl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fgebl1_otyp
+      *
+      * Key for les på gebyr
+      *
+     c     fgeblr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fgeblr_otyp
+     c                   kfld                    fgeblr_kkat
+7.02 c                   kfld                    fgeblr_ftyp
+     c                   kfld                    fgeblr_line
+      *
+      * Key for oppdatering av gebyr
+      *
+     c     fgeblu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fgeblu_otyp
+     c                   kfld                    fgeblu_kkat
+7.02 c                   kfld                    fgeblu_ftyp
+
+
+
+
+
+     c                   kfld                    fgeblu_line
+      *
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Initierer skjermbildet
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      fgebl1_otyp = *blank
+     c     fgebl1_key    setll     fgebl1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

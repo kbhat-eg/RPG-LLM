@@ -1,0 +1,1303 @@
+      /TITLE  ASOFAK: Utskrift/Utplukk fra ordre-register
+     h option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FO602R
+      * Beskrivelse . . : Utskrift/Utplukk fra ordre-register
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      * R3.31 160101 AMD  Lagt inn mulighet for valg også på pakkseddel-
+      *                   dato i tillegg til ordredato.
+      *                   Programmet er skrevet om til std. ILE
+3.32  * R3.32 050301 AMD  Bygget inn styringen fra info-register, dersom
+      *                   ordre skal stoppes før fakturering.
+3.33  * R3.32 070301 AMD  Begrensning på hvem som kan kjøre faktureringm
+3.34  * R3.34 080301 AMD  Lagt inn kontroll på plukking til gyldig ordretype
+3.35  * R3.35 150302 AMD  Lagt inn mulighet for valg på avdeling
+5.01  * R5.01 020502 AMD  Lagt inn nye utvalgsmuligheter i nytt skjermbilde
+5.02  * R5.02 150502 AMD  Lagt inn sperre for at pakkseddel kan skrives
+5.02  *                   ut på nytt igjen.
+5.31  * R5.31 230804 GRO  Alt. fakt.valg (korttrans.)
+5.41  * R5.41 180806 AMD  Alt. ekstern fil for automatisk fakturering
+      *
+      * 6.10  240609 BSA  Oppdatert med sporingsinformasjon
+6.nu  * 6.30  230614 bof  endret ihht. nummerutvidelse
+6.31  * 6.30  120914 BKV  Henter overstyrt info fra kundeprosjekt
+      *
+7.xx  * 7.00  160215 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+7.01  * 7.xx  210916 bsa  Sletter ordre som plukkes uten varelinjer
+7.02  * K000  200521 bsa  Takle 132 på skjermbredde.
+      *
+7.fb  * K000  220620 bsa  Hopper over ordre som ikke er betalt depositum.
+      *
+8.01  *K0000  200723 bsa  Endrer måten vi plukker til fakturering.
+8.02  *K0000  110424 bsa  Endrer logikk hvis samlet fakturering av debet/kredit.
+      *
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     ffo602d    cf   e             workstn
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+5.01 ffkprl1    if   e           k disk    rename(fkprpfr:fkprl1r)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     ffohelu    uf   e           k disk    rename(fohepfr:fohelur)
+     ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+     ffohelo    if   e           k disk    rename(fohepfr:fohelor)
+     ffplolu    uf a e           k disk    rename(fplopfr:fplolur)
+3.32 fvinfl1    if   e           k disk    rename(vinfpfr:vinfl1r)
+3.33 ffusrl1    if   e           k disk    rename(fusrpfr:fusrl1r)
+3.34 ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+5.31 ffntrl2    if   e           k disk    rename(fntrpfr:fntrl2r)
+5.31 ffntrl1    if   e           k disk    rename(fntrpfr:fntrl1r)
+5.41 ffscnl1    if   e           k disk    rename(fscnpfr:fscnl1r)
+7.01 ffodtlr    if   e           k disk    rename(fodtpfr:fodtlrr)
+7.fb fsdepl1    if   e           k disk    rename(sdeppfr:sdepl1r)
+8.01 fvot1l1    if   e           k disk    rename(vot1pfr:vot1l1r)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+8.01 d l_filg                931    933
+     d l_sfir                944    946  0
+      *
+      * Definering av data strukturer
+      *
+     d                 ds
+6.nu d d_kkey_til                    15
+     d  d_firm_til                    3  0 overlay(d_kkey_til)
+     d  d_otyp_til                    2    overlay(d_kkey_til:4)
+6.nu d  d_numm_til                    8  0 overlay(d_kkey_til:6)
+6.nu d  d_suff_til                    2  0 overlay(d_kkey_til:14)
+     d                 ds
+6.nu d d_kkey_les                    15
+     d  d_firm_les                    3  0 overlay(d_kkey_les  )
+     d  d_otyp_les                    2    overlay(d_kkey_les  :4)
+6.nu d  d_numm_les                    8  0 overlay(d_kkey_les  :6)
+6.nu d  d_suff_les                    2  0 overlay(d_kkey_les  :14)
+      *
+      * Definering av parametere
+      *
+     d p_firm          s                   like(fofirm)
+     d p_ftor          s                   like(w_alf1)
+7.01 d p_type          s              4
+7.01 d p_kom1          s             30
+7.01 d p_kom2          s             30
+7.01 d p_opdt          s              1
+      *
+7.01 d b_slet          s              1    inz(*off)
+      *
+      * Definering av variable i nøkler
+      *
+     d w_firm          s                   like(fofirm)
+     d rkunl1_kund     s                   like(rkkund)
+5.01 d fkprl1_kund     s                   like(flkund)
+5.01 d fkprl1_kpro     s                   like(flkpro)
+     d fohel1_numm     s                   like(fonumm)
+     d fohel1_suff     s                   like(fosuff)
+     d fohelo_numm     s                   like(fonumm)
+     d fohelo_otyp     s                   like(footyp)
+     d fohelo_suff     s                   like(fosuff)
+     d votyl1_otyp     s                   like(vaotyp)
+3.32 d vinfl1_ityp     s                   like(vaityp)
+3.33 d fusrl1_user     s                   like(fbuser)
+     d fplolu_numm     s                   like(fkponr)
+     d fplolu_suff     s                   like(fkpsuf)
+5.31 d fntrl2_kftp     s                   like(fnkftp)
+5.31 d fntrl1_numm     s                   like(fnnumm)
+5.31 d fntrl1_suff     s                   like(fnsuff)
+7.01 d fodtlr_numm     s                   like(fdnumm)
+7.01 d fodtlr_suff     s                   like(fdsuff)
+7.01 d fodtlr_line     s                   like(fdline)
+7.fb d sdepl1_kund     s                   like(skkund)
+7.fb d sdepl1_numm     s                   like(sknumm)
+7.fb d sdepl1_tell     s                   like(sktell)
+      *
+      * Definering av variable
+      *
+     d w_alf1          s              1
+     d w_bdat          s                   like(fobdat)
+     d w_ldat          s                   like(foldat)
+     d w_belo          s                   like(fotots)
+     d w_otyp          s                   like(footyp)
+     d w_palt          s                   like(fkpalt)
+3.34 d w_on01          s                   like(vaon01)
+3.34 d w_on02          s                   like(vaon02)
+3.34 d w_on03          s                   like(vaon03)
+3.34 d w_on04          s                   like(vaon04)
+3.34 d w_on05          s                   like(vaon05)
+3.34 d w_on06          s                   like(vaon06)
+3.34 d w_onxt          s                   like(vaonxt)
+5.01 d w_knav          s                   like(rknavn)
+5.01 d w_pnav          s                   like(flnavn)
+5.01 d w_itxt          s                   like(vaitxt)
+5.01 d w_atxt          s             20
+6.31 d w_sekv          s                   like(rksekv)
+8.01 d w_ftor          s              1
+8.02 d w_stat          s              1
+      *
+      * Eksternt program
+8.01   dcl-s co402_verdi1  char(1);
+8.01   dcl-s co402_verdi2  char(2048);
+8.01   DCL-PR CO402R EXTPGM('CO402R');
+8.01     p_filgrp            char(3)     const;
+8.01     p_firm              packed(3:0) const;
+8.01     p_lager             packed(2:0) const;
+8.01     p_nokkel            char(50)    const;
+8.01     p_verdi1            char(1);
+8.01     p_verdi2            char(2048);
+8.01   END-PR;
+8.01 d u_saml          s              1    inz(*off)
+      *
+7.fb d b_depo          s              1
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  D0 Behandler inntasting av ordretyper samt utvalgsmetode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.02  *
+8.01  *
+8.01  * Legg inn fakturainformasjon
+8.01  *
+8.02 c                   if        u_saml = *on
+8.02 c                   eval      w_stat = *blanks
+8.01 c                   call      'FO603R'
+8.01 c                   parm                    w_ftor
+8.01 c                   parm                    w_firm
+8.02 c                   parm                    w_stat
+8.02 c                   if        w_stat = *blanks
+8.01 c                   goto      xslutt
+8.02 c                   endif
+8.02 c                   endif
+      *
+     c     d0taga        tag
+      *
+      *  Send Alt
+      *
+     c                   write     d0bld
+      *
+      *  Bare data
+      *
+     c     d0tagb        tag
+     c                   exfmt     d0bld
+      *
+      *  F3=Avslutt program
+      *
+     c     *inkc         cabeq     *on           xslutt
+      *
+      *  Sjekk,  finnes ordretype(fra) i ORDRETYPE-REGISTER
+      *
+     c                   eval      w_otyp      = d0foty
+     c                   eval      votyl1_otyp = d0foty
+     c     votyl1_key    chain     votyl1r                            90
+     c                   if        *in90 = *on
+     c                   eval      *in31 = *on
+     c                   goto      d0tagb
+     c                   endif
+3.34  *
+3.34  *  Ta vare på verdier fra ordretype-register
+3.34  *
+3.34 c                   move      vaon01        w_on01
+3.34 c                   move      vaon02        w_on02
+3.34 c                   move      vaon03        w_on03
+3.34 c                   move      vaon04        w_on04
+3.34 c                   move      vaon05        w_on05
+3.34 c                   move      vaon06        w_on06
+3.34 c                   move      vaonxt        w_onxt
+      *
+      *  Sjekk,  finnes ordretype(til) i ORDRETYPE-REGISTER
+      *
+     c                   if        d0toty <> *blank
+     c                   eval      w_otyp      = d0toty
+     c                   eval      votyl1_otyp = d0toty
+     c     votyl1_key    chain     votyl1r                            90
+     c                   if        *in90 = *on
+     c                   eval      *in32 = *on
+     c                   goto      d0tagb
+     c                   endif
+     c                   endif
+3.34  *
+3.34  *  Sjekk,  Er oppgitt til-ordretype gyldig ?
+3.34  *
+3.34 c                   if        faanxt =  1
+3.34 c                   if        d0toty <> w_on01 and
+3.34 c                             d0toty <> w_on02 and
+3.34 c                             d0toty <> w_on03 and
+3.34 c                             d0toty <> w_on04 and
+3.34 c                             d0toty <> w_on05 and
+3.34 c                             d0toty <> w_on06 and
+3.34 c                             d0toty <> w_onxt
+3.34 c                   move      *on           *in33
+3.34 c                   goto      d0tagb
+3.34 c                   endif
+3.34 c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Behandler spesialhandtering av noen ordretyper, samt valg
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     d0tag5        tag
+      *
+      *  Ved akkumulator-kode 0 og 1 skal subrutine hentes
+      *  for å få tak i riktig valg (TILBUD har 0,1,2,3) (OBEK har 0,1)
+      *
+     c                   if        vaoakk = 0                                   TILBUD
+     c                   exsr      xe2win
+     c     *inkc         cabeq     *on           d0taga
+     c                   endif
+      *
+     c                   if        vaoakk = 1                                   OBEK/PLUKKLISTE
+     c                   exsr      xe3win
+     c     *inkc         cabeq     *on           d0taga
+     c                   endif
+      *
+      *  Finner utvalgsmetode og hopper til riktig subrutine
+      *
+     c     d0svar        cabeq     1             d1taga                         FRA/TIL
+     c     d0svar        cabeq     2             d2taga                         SEKVENS
+     c     d0svar        cabeq     3             d3taga                         TILFELDIG
+5.01 c     d0svar        cabeq     4             d4taga                         TILFELDIG
+5.31 c     d0svar        cabeq     5             d5taga                         TILFELDIG
+5.41 c     d0svar        cabeq     6             d6taga                         TILFELDIG
+      *
+     c                   goto      d0tagb                                       FEIL
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  D1 Behandler plukking av ordrenummer  fra/til
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     d1taga        tag
+      *
+      *  Send Alt
+      *
+     c                   write     d1bld
+      *
+      *  Bare data
+      *
+     c     d1tagb        tag
+     c                   exfmt     d1bld
+      *
+      *  F3=Avslutt program
+      *
+     c     *inkc         cabeq     *on           d0taga
+      *
+      *  Sjekk,  Ordrenummer fra må være utfylt
+      *
+     c                   if        d1fonr = *zero
+     c                   eval      *in33  = *on
+     c                   goto      d1tagb
+     c                   endif
+      *
+      *  Sjekk,  Ordrenummer til må være større enn ordrenummer fra
+      *          eller ordrenummer til må være blank
+      *
+     c                   if        d1tonr <> *zero
+     c                   if        d1tonr < d1fonr
+     c                   eval      *in34 = *on
+     c                   goto      d1tagb
+     c                   endif
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Behandler utplukk av ordre fra/til
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c                   eval      fohelo_otyp = d0foty
+     c                   eval      fohelo_numm = d1fonr
+     c                   eval      fohelo_suff = *zero
+     c     fohelo_key    setll     fohelo
+      *
+     c                   eval      d_otyp_til = d0foty
+     c                   eval      d_numm_til = d1fonr
+     c                   eval      d_suff_til = 99
+      *
+     c                   if        d1tonr <> *zero
+     c                   eval      d_numm_til = d1tonr
+     c                   endif
+      *
+      *  Starter utplukk av ordre
+      *
+     c     d1tag1        tag
+     c                   read      fohelo                                 90
+     c     *in90         cabeq     *on           xslutt
+      *
+     c                   eval      d_firm_les = fofirm
+     c                   eval      d_otyp_les = footyp
+     c                   eval      d_numm_les = fonumm
+     c                   eval      d_suff_les = fosuff
+     c     d_kkey_les    cabgt     d_kkey_til    xslutt
+      *
+     c                   exsr      oppord
+      *
+     c                   goto      d1tag1
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  D2 Behandler plukking av ordrenummer  utfra sekvens på kunde
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     d2taga        tag
+      *
+      *  Send Alt
+      *
+     c                   write     d2bld
+      *
+      *  Bare data
+      *
+     c     d2tagb        tag
+     c                   exfmt     d2bld
+      *
+      *  F3=Avslutt program
+      *
+     c     *inkc         cabeq     *on           d0taga
+      *
+      *  Er t.o.m. dato en gyldig dato (ordredato)
+      *
+     c                   if        d2bdat <> 0
+     c     *dmy          test(d)                 d2bdat                 32
+     c                   if        *in32 = *on
+     c                   goto      d2tagb
+     c                   endif
+      *
+      *  Snu dato før test
+      *
+     c     *dmy          move      d2bdat        w_bdat
+     c                   endif
+      *
+      *  Er t.o.m. dato en gyldig dato (pakkseddeldato)
+      *
+     c                   if        d2ldat <> 0
+     c     *dmy          test(d)                 d2ldat                 33
+     c                   if        *in33 = *on
+     c                   goto      d2tagb
+     c                   endif
+      *
+      *  Snu dato før test
+      *
+     c     *dmy          move      d2ldat        w_ldat
+     c                   endif
+      *
+      *  Kontroll om fra er større enn til dersom til er oppgitt
+      *
+     c                   if        d2tonr <> *zero
+     c                   if        d2fonr > d2tonr
+     c                   eval      *in34 = *on
+     c                   goto      d2tagb
+     c                   endif
+     c                   endif
+      *
+      *  Dersom til ikke er
+      *  oppgitt, legges fra
+      *  ut i til
+      *
+     c                   if        d2tonr = *zero
+     c                   eval      d2tonr = d2fonr
+     c                   endif
+      *
+      *  Minst en sekvenskode
+      *  må være oppgitt
+      *
+     c                   if        d2sek1 = *zero
+     c                   if        d2sek2 = *zero
+     c                   if        d2sek3 = *zero
+     c                   if        d2sek4 = *zero
+     c                   eval      *in31  = *on
+     c                   goto      d2tagb
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Behandler plukking av ordrenummer utfra sekvens på kunde
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c                   eval      fohelo_otyp = d0foty
+     c                   eval      fohelo_numm = *zero
+     c                   eval      fohelo_suff = *zero
+     c     fohelo_key    setll     fohelo
+      *
+      *  Starter utplukk av ordre
+      *
+     c     d2tag1        tag
+     c                   read      fohelo                                 90
+     c     *in90         cabeq     *on           xslutt
+     c     footyp        cabne     fohelo_otyp   xslutt
+3.35  *
+3.35  *  Valg på avdeling
+3.35  *
+3.35 c                   if        d2avde <> 0 and
+3.35 c                             foavde <> 0 and
+3.35 c                             d2avde <> foavde
+3.35 c                   goto      d2tag1
+3.35 c                   endif
+3.35  *
+3.35  *  Ta med avdeling 0 ?
+3.35  *
+3.35 c                   if        d2avde <> 0 and
+3.35 c                             foavde =  0 and
+3.35 c                             d2avd0 =  0
+3.35 c                   goto      d2tag1
+3.35 c                   endif
+3.35  *
+3.35 c                   if        d2avde =  0 and
+3.35 c                             foavde <> 0 and
+3.35 c                             d2avd0 =  1
+3.35 c                   goto      d2tag1
+3.35 c                   endif
+      *
+      *  Sjekk på dato dersom oppgitt (Ordredato)
+      *
+     c                   if        w_bdat <> *loval
+     c                   if        fobdat > w_bdat
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+      *  Sjekk på dato dersom oppgitt (Pakkseddeldato)
+      *
+     c                   if        w_ldat <> *loval
+     c                   if        foldat =  *loval
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+     c                   if        w_ldat <> *loval
+     c                   if        foldat > w_ldat
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+      *  Sjekk på beløpsgrense dersom oppgitt
+      *
+     c                   if        d2belg > *zero
+     c                   eval      w_belo = fotots - fototr
+      *
+     c                   if        d2belk <> 'U'
+     c                   if        w_belo < d2belg
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+     c                   if        d2belk = 'U'
+     c                   if        w_belo > d2belg
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+      *  Sjekk på ordre fra-til dersom oppgitt
+      *
+     c                   if        d2fonr > *zero
+     c                   if        fonumm < d2fonr
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+     c                   if        d2fonr > *zero
+     c                   if        fonumm > d2tonr
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+      *  Sjekke sekvensnummer
+      *
+     c                   eval      rkunl1_kund = fokund
+     c     rkunl1_key    chain     rkunl1r                            92
+      *
+     c                   if        *in92 = *off
+      *
+6.31 c                   eval      w_sekv = rksekv
+6.31  *
+6.31  * Er kundeprosjekt oppgitt
+6.31  *
+6.31 c                   if        fokpro <> 0
+6.31 c                   eval      fkprl1_kund = fokund
+6.31 c                   eval      fkprl1_kpro = fokpro
+6.31 c     fkprl1_key    chain     fkprl1r
+6.31 c                   if        %found(fkprl1)
+6.31 c                   eval      w_sekv = flsekv
+6.31 c                   endif
+6.31 c                   endif
+      *
+     c                   if        d2sek1 <> *zero
+6.31 c                   if        w_sekv = d2sek1
+     c                   exsr      oppord
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+     c                   if        d2sek2 <> *zero
+6.31 c                   if        w_sekv = d2sek2
+     c                   exsr      oppord
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+     c                   if        d2sek3 <> *zero
+6.31 c                   if        w_sekv = d2sek3
+     c                   exsr      oppord
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+     c                   if        d2sek4 <> *zero
+6.31 c                   if        w_sekv = d2sek4
+     c                   exsr      oppord
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+      * Ta med sekvenskode 00 ?
+      *
+     c                   if        d2sek0 = 1
+6.31 c                   if        w_sekv = *zero
+     c                   exsr      oppord
+     c                   goto      d2tag1
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   goto      d2tag1
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  D3 Behandler plukking av ordrenummer  tilfeldige
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c     d3taga        tag
+      *
+     c                   eval      d3uonr = *zero
+     c                   eval      d3usuf = *zero
+     c                   eval      d3ionr = *zero
+     c                   eval      d3isuf = *zero
+      *
+      *  Send Alt
+      *
+     c                   write     d3bld
+      *
+      *  Bare data
+      *
+     c     d3tagb        tag
+     c                   exfmt     d3bld
+      *
+      *  F3=Avslutt program
+      *
+     c     *inkc         cabeq     *on           d0taga
+      *
+      *  Ingen ordrenummer er tastet, avslutt tilfeldig registrering
+      *
+     c                   if        d3ionr = *zero
+     c                   if        d3isuf = *zero
+     c                   goto      xslutt
+     c                   endif
+     c                   endif
+      *
+      *  Sjekk, Finnes ordrenummer i ORDRE-HODE-REGISTER
+      *
+     c                   eval      fohel1_numm = d3ionr
+     c                   eval      fohel1_suff = d3isuf
+     c     fohel1_key    chain     fohel1r                            90
+     c                   if        *in90 = *on
+     c                   eval      *in31 = *on
+     c                   goto      d3tagb
+     c                   endif
+      *
+      *  Sjekk, Er ordretype på ordre lik med
+      *        med ordretype fra i parameter
+      *
+     c                   if        footyp <> d0foty
+     c                   eval      *in32 = *on
+     c                   goto      d3tagb
+     c                   endif
+      *
+      *  Behandler utplukk
+      *
+     c                   exsr      oppord
+      *
+      *  Legger inn for å vise siste utplukkede ordrenummer
+      *
+     c                   eval      d3uonr = fohel1_numm
+     c                   eval      d3usuf = fohel1_suff
+      *
+      *  Blanker felter for å registrere nytt ordrenummer
+      *
+     c                   eval      d3ionr = *zero
+     c                   eval      d3isuf = *zero
+      *
+     c                   goto      d3tagb
+5.01  *
+5.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.01  * D4 Behandler plukking av ordrenummer andre valg
+5.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.01  *
+5.01 c     d4taga        tag
+5.01  *
+5.01  * Send Alt
+5.01  *
+5.01 c                   write     d4bld
+5.01  *
+5.01  * Bare data
+5.01  *
+5.01 c     d4tagb        tag
+5.01 c                   exfmt     d4bld
+5.01  *
+5.01  * F3=Avslutt program
+5.01  *
+5.01 c                   if        *inkc  = *on
+5.01 c                   goto      d0taga
+5.01 c                   endif
+5.01  *
+5.01  * F4=Spørring
+5.01  *
+5.01 c                   if        *inkd  = *on
+5.01 c                   exsr      spØrring
+5.01 c                   goto      d4tagb
+5.01 c                   endif
+5.01  *
+5.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.01  * Behandler plukking av ordrenummer utfra andre valg
+5.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.01  *
+5.01 c                   eval      fohelo_otyp = d0foty
+5.01 c                   eval      fohelo_numm = *zero
+5.01 c                   eval      fohelo_suff = *zero
+5.01 c     fohelo_key    setll     fohelo
+5.01  *
+5.01  * Starter utplukk av ordre
+5.01  *
+5.01 c     d4tag1        tag
+5.01 c                   read      fohelo                                 90
+5.01 c     *in90         cabeq     *on           xslutt
+5.01 c     footyp        cabne     fohelo_otyp   xslutt
+5.01  *
+5.01  * Valg på avdeling
+5.01  *
+5.01 c                   if        d4avde <> 0 and
+5.01 c                             foavde <> 0 and
+5.01 c                             d4avde <> foavde
+5.01 c                   goto      d4tag1
+5.01 c                   endif
+5.01  *
+5.01  * Ta med avdeling 0 ?
+5.01  *
+5.01 c                   if        d4avde <> 0 and
+5.01 c                             foavde =  0 and
+5.01 c                             d4avd0 =  0
+5.01 c                   goto      d4tag1
+5.01 c                   endif
+5.01  *
+5.01 c                   if        d4avde =  0 and
+5.01 c                             foavde <> 0 and
+5.01 c                             d4avd0 =  1
+5.01 c                   goto      d4tag1
+5.01 c                   endif
+5.01  *
+5.01  * Er kundenummer oppgitt
+5.01  *
+5.01 c                   if        d4kund <> 0
+5.01 c                   eval      rkunl1_kund = d4kund
+5.01 c     rkunl1_key    chain     rkunl1r                            92
+5.01  *
+5.01  * Kunde ikke funnet
+5.01  *
+5.01 c                   if        *in92 = *on
+5.01 c                   goto      d4tag1
+5.01 c                   endif
+5.01  *
+5.01  * Uaktuell kunde
+5.01  *
+5.01 c                   if        d4kund <> fokund
+5.01 c                   goto      d4tag1
+5.01 c                   endif
+5.01 c                   endif
+5.01  *
+5.01  * Er kundeprosjekt oppgitt
+5.01  *
+5.01 c                   if        d4kpro <> 0
+5.01 c                   eval      fkprl1_kund = d4kund
+5.01 c                   eval      fkprl1_kpro = d4kpro
+5.01 c     fkprl1_key    chain     fkprl1r                            93
+5.01  *
+5.01  * Kundeprosjekt ikke funnet
+5.01  *
+5.01 c                   if        *in93 = *on
+5.01 c                   goto      d4tag1
+5.01 c                   endif
+5.01  *
+5.01  * Uaktuelt kundeprosjekt
+5.01  *
+5.01 c                   if        d4kpro <> fokpro
+5.01 c                   goto      d4tag1
+5.01 c                   endif
+5.01 c                   endif
+5.01  *
+5.01  * Er infokode oppgitt
+5.01  *
+5.01 c                   if        d4ityp <> *blank
+5.01  *
+5.01  * Uaktuell infokode
+5.01  *
+5.01 c                   if        d4ityp <> foityp
+5.01 c                   goto      d4tag1
+5.01 c                   endif
+5.01 c                   endif
+5.01  *
+5.01  * Ingen valg er foretatt
+5.01  *
+5.01 c                   if        d4avde = 0 and
+5.01 c                             d4kund = 0 and
+5.01 c                             d4kpro = 0 and
+5.01 c                             d4ityp = *blank
+5.01 c                   goto      d4tag1
+5.01 c                   endif
+5.01  *
+5.01  * Aktuell post funnet,
+5.01  * oppdater:
+5.01  *
+5.01 c                   exsr      oppord
+5.01  *
+5.01 c                   goto      d4tag1
+5.01  *
+5.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.31  * D5 Behandler plukking av alt.fakturering (korttrans. m.m.)
+5.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.31  *
+5.31 c     d5taga        tag
+5.31  *
+5.31 c                   exsr      d5init
+5.31 c                   eval      d5alt1 = 'Kortfakt./Purchasing     '
+5.31 c                   eval      d5alt2 = '                         '
+5.31 c                   eval      d5alt3 = '                         '
+5.31 c                   eval      d5alt4 = '                         '
+5.31 c                   eval      d5alt5 = '                         '
+5.31 c                   eval      d5alt6 = '                         '
+5.31 c                   eval      d5alt7 = '                         '
+5.31 c                   eval      d5alt8 = '                         '
+5.31  *
+5.31 c                   exfmt     d5bld
+5.31  *
+5.31 c                   if        *inkc  = *on
+5.31 c                   goto      d0taga
+5.31 c                   endif
+5.31  *
+5.31 c                   if        d5val1 <> '1'
+5.31 c                   goto      d0taga
+5.31 c                   endif
+5.31  *
+5.31  *  Kortfakt./Purchasing valgt
+5.31  *
+5.31 c                   eval      fntrl2_kftp = *zero
+5.31 c     fntrl2_key    setll     fntrl2
+5.31 c                   read      fntrl2
+5.31  *
+5.31 c                   dow       not %eof
+5.31  *
+5.31  * VISA Purchasing - trans.type 01
+5.31  * Europay Purchasing - trans.type 02
+5.31  *
+5.31 c                   if        fnkftp <> 1 and
+5.31 c                             fnkftp <> 2
+5.31 c                   goto      neste_tr
+5.31 c                   endif
+5.31  *
+5.31  * Sjekk om kjørt tidligere
+5.31  *
+5.31 c                   if        fnjour <> *zero or
+5.31 c                             fnkdat <> *loval
+5.31 c                   goto      neste_tr
+5.31 c                   endif
+5.31  *
+5.31  *  Sjekk ordrenummer i ORDRE-HODE-REGISTER og riktig ordretype
+5.31  *
+5.31 c                   eval      fohel1_numm = fnnumm
+5.31 c                   eval      fohel1_suff = fnsuff
+5.31 c     fohel1_key    chain     fohel1r
+5.31 c                   if        %found
+5.31 c                   if        footyp = d0foty
+5.31 c                   exsr      oppord
+5.31 c                   endif
+5.31 c                   endif
+5.31  *
+5.31 c     neste_tr      tag
+5.31  *
+5.31 c                   read      fntrl2
+5.31 c                   enddo
+5.41  *
+5.41  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.41  *  D6 Behandler automatisk fakturering fra ekstern fil
+5.41  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.41  *
+5.41 c     d6taga        tag
+5.41  *
+5.41 c                   eval      d6strt = 0
+5.41 c                   eval      d6vise = 0
+5.41  *
+5.41  *  Send Alt
+5.41  *
+5.41 c                   write     d6bld
+5.41  *
+5.41  *  Bare data
+5.41  *
+5.41 c     d6tagb        tag
+5.41 c                   exfmt     d6bld
+5.41  *
+5.41  *  F3=Avslutt program
+5.41  *
+5.41 c     *inkc         cabeq     *on           d0taga
+5.41  *
+5.41  *  Ingen valg er foretatt, send bildet på nytt
+5.41  *
+5.41 c                   if        d6strt = 0
+5.41 c                   if        d6vise = 0
+5.41 c                   goto      d6tagb
+5.41 c                   endif
+5.41 c                   endif
+5.41  *
+5.41  *  Behandler ekstern fil
+5.41  *
+5.41 c                   if        d6strt = 1
+5.41 c***>               call      et eller annet
+5.41 c                   endif
+5.41  *
+5.41  *  Viser innhold i ekstern fil
+5.41  *
+5.41 c                   if        d6vise = 1
+5.41 c***>               call      et eller annet
+5.41 c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xslutt        tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * E2BLD Behandle bilde for TILBUD
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c     xe2win        begsr
+      *
+     c                   eval      e2palt = *zero
+      *
+     c                   write     e2bld
+     c                   exfmt     e2bld
+      *
+     c     *inkc         cabeq     *on           xe2slt
+      *
+     c                   eval      w_palt = e2palt
+      *
+     c     xe2slt        endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * E3BLD Behandle bilde for OBEK/PLUKKLISTE
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c     xe3win        begsr
+      *
+     c                   eval      e3palt = *zero
+      *
+     c                   write     e3bld
+     c                   exfmt     e3bld
+      *
+     c     *inkc         cabeq     *on           xe3slt
+      *
+     c                   eval      w_palt = e3palt
+      *
+     c     xe3slt        endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Behandler oppdatering av registre etter kontroll-utvalg
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c     oppord        begsr
+      *
+      *  Sjekk, er denne ordren allerede under behandling
+      *
+     c     fokode        cabne     *zero         oppend
+      *
+      *  Sjekk, har denne ordren en ordretype som er valgt (fra)
+      *
+     c     footyp        cabne     d0foty        oppend
+7.01  *
+7.01  * Sjekk om ordren har ordrelinjer - hvis ikke skal den slettes
+7.01  *
+7.01 c                   eval      b_slet = *on
+7.01 c                   eval      fodtlr_numm = fonumm
+7.01 c                   eval      fodtlr_suff = fosuff
+7.01 c                   eval      fodtlr_line = 0
+7.01 c     fodtlr_key    setll     fodtlr
+7.01 c     fodtlr_key2   reade     fodtlr
+7.01 c                   dow       not %eof
+7.01 c                   eval      b_slet = *off
+7.01 c     fodtlr_key2   reade     fodtlr
+7.01 c                   enddo
+7.01  * Hvis ingen linjer, slettes ordre.
+7.01 c                   if        b_slet = *on
+7.01  *
+7.01 c                   eval      p_type = '*AUT'
+7.01  *
+7.01 c                   eval      p_kom1 = 'MANGLER VARELINJER'
+7.01 c                   eval      p_kom2 = *blanks
+7.01  *
+7.01 c                   call      'FO410R'
+7.01 c                   parm                    w_firm
+7.01 c                   parm                    fonumm
+7.01 c                   parm                    fosuff
+7.01 c                   parm                    p_type
+7.01 c                   parm                    p_kom1
+7.01 c                   parm                    p_kom2
+7.01 c                   parm                    p_opdt
+7.01  *
+7.01 c                   goto      oppend
+7.01  *
+7.01 c                   endif
+3.32  *
+3.32  * Hent inn ordre-info-kode i inforegister
+3.32  *
+3.32 c                   eval      vinfl1_ityp = foityp
+3.32 c     vinfl1_key    chain     vinfl1r                            98
+3.32 c                   if        *in98  = *on
+3.32 c                   eval      vaifak = *blank
+3.32 c                   endif
+      *
+      *  Dersom ordre har en infokode, og dette er fakturering,
+3.32  *  sjekkes det om fakturering skal stoppes.
+      *
+     c                   if        foityp <> *blank
+     c                   if        vaoakk =  3
+3.32 c                   if        vaifak = '1'
+     c                   goto      oppend
+     c                   endif
+     c                   endif
+3.32 c                   endif
+3.33  *
+3.33  *  Kontroll om bruker har lov til å sette igang fakturering.
+3.33  *
+3.33 c                   if        fbko08 <> 1
+3.33 c                   if        vaoakk =  3
+3.33 c                   goto      oppend
+3.33 c                   endif
+3.33 c                   endif
+5.02  *
+5.02  *  Dersom dette er en pakkseddel, sjekk om den
+5.02  *  allerede skulle være skrevet ut.
+5.02  *
+5.02 c                   if        fopaks = 1
+5.02 c                   if        vaoakk = 2
+5.02 c                   goto      oppend
+5.02 c                   endif
+5.02 c                   endif
+3.33  *
+3.33  *  Kontroll om korttrans./alt.fakt. og annet utvalg enn type 5
+3.33  *
+     c                   if        d0svar <> 5
+     c                   eval      fntrl1_numm = fonumm
+5.31 c                   eval      fntrl1_suff = fosuff
+     c     fntrl1_key    chain     fntrl1r
+     c                   if        %found
+     c                   goto      oppend
+     c                   endif
+     c                   endif
+7.fb  *
+7.fb  * sjekke depositum
+7.fb  *
+7.fb c                   exsr      sjekk_depo
+7.fb c                   if        b_depo = *on
+7.fb c                   goto      oppend
+7.fb c                   endif
+      *
+      *  Oppdaterer ORDRE-HODE-REGISTER med merke, ordren er til behandl.
+      *
+     c                   call      'FO709R'
+     c                   parm                    fonumm
+     c                   parm                    fosuff
+      *
+     c                   eval      fohel1_numm = fonumm
+     c                   eval      fohel1_suff = fosuff
+     c     fohel1_key    chain     fohelur                            94
+     c                   if        *in94  = *off
+     c                   if        d0toty = *blank
+     c                   eval      fokode = 2
+     c                   else
+     c                   eval      fokode = 3
+     c                   endif
+6.10 c                   time                    foedat
+6.10 c                   time                    foetim
+6.10 c                   eval      foeusr = l_user
+     c                   update    fohelur
+     c                   endif
+      *
+      *  Oppdater UTPLUKK-PARAM-REGISTER med ny ordre
+      *
+     c                   eval      fplolu_numm = fonumm
+     c                   eval      fplolu_suff = fosuff
+     c     fplolu_key    chain     fplolur                            96
+     c                   if        *in96  = *on
+     c                   eval      fkpfir = w_firm
+     c                   eval      fkponr = fplolu_numm
+     c                   eval      fkpsuf = fplolu_suff
+     c                   eval      fkpoty = w_otyp
+     c                   eval      fkpwsd = l_wsid
+     c                   eval      fkpusr = l_user
+     c                   eval      fkpalt = w_palt
+     c                   eval      fkpdir = *zero
+     c                   eval      fkpres = *zero
+     c                   eval      fkptxt = d0ptxt
+     c                   eval      fkpkol = *zero
+     c                   eval      fkpnet = *zero
+     c                   eval      fkpbru = *zero
+     c                   eval      fkplmt = *blank
+     c                   eval      fkpfpr = *zero
+     c                   eval      fkpfte = *blank
+     c                   eval      fkpepr = *zero
+     c                   eval      fkpete = *blank
+     c                   eval      fkplag = folage
+     c                   write     fplolur
+     c                   endif
+      *
+     c     oppend        endsr
+5.01  *
+5.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.01  * Subrutine for behandling av spørring
+5.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.01  *
+5.01 c     spØrring      begsr
+5.01  *
+5.01  * Avdeling
+5.01  *
+5.01 c                   if        w_afld = 'D4AVDE'
+5.01 c                   call      'RA107R'
+5.01 c                   parm                    w_firm
+5.01 c                   parm                    d4avde
+5.01 c                   parm                    w_atxt
+5.01 c                   goto      end_spØrr
+5.01 c                   endif
+5.01  *
+5.01  * Kunde
+5.01  *
+5.01 c                   if        w_afld = 'D4KUND'
+5.01 c                   call      'RK500R'
+5.01 c                   parm                    w_firm
+5.01 c                   parm                    d4kund
+5.01 c                   parm                    w_knav
+5.01 c                   goto      end_spØrr
+5.01 c                   endif
+5.01  *
+5.01  * Kundeprosjekt
+5.01  *
+5.01 c                   if        w_afld = 'D4KPRO'
+5.01 c                   call      'FL500R'
+5.01 c                   parm                    w_firm
+5.01 c                   parm                    d4kund
+5.01 c                   parm                    d4kpro
+5.01 c                   parm                    w_knav
+5.01 c                   parm                    w_pnav
+5.01 c                   goto      end_spØrr
+5.01 c                   endif
+5.01  *
+5.01  * Spørring på ordre-info-type
+5.01  *
+5.01 c                   if        w_afld = 'D4ITYP'
+5.01 c                   call      'VA540R'
+5.01 c                   parm                    w_firm
+5.01 c                   parm                    d4ityp
+5.01 c                   parm                    w_itxt
+5.01 c                   goto      end_spØrr
+5.01 c                   endif
+5.01  *
+5.01 c     end_spØrr     endsr
+5.31  *
+5.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.31  * Subrutine for å init. av alt.fakt. bilde
+5.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.31  *
+5.31 c     d5init        begsr
+5.31  *
+5.31 c                   eval      d5alt1 = *blank
+5.31 c                   eval      d5alt2 = *blank
+5.31 c                   eval      d5alt3 = *blank
+5.31 c                   eval      d5alt4 = *blank
+5.31 c                   eval      d5alt5 = *blank
+5.31 c                   eval      d5alt6 = *blank
+5.31 c                   eval      d5alt7 = *blank
+5.31 c                   eval      d5alt8 = *blank
+5.31 c                   eval      d5val1 = *blank
+5.31 c                   eval      d5val2 = *blank
+5.31 c                   eval      d5val3 = *blank
+5.31 c                   eval      d5val4 = *blank
+5.31 c                   eval      d5val5 = *blank
+5.31 c                   eval      d5val6 = *blank
+5.31 c                   eval      d5val7 = *blank
+5.31 c                   eval      d5val8 = *blank
+5.31  *
+5.31 c     end_d5i       endsr
+      *
+7.fb  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.fb  * Subrutine for å sjekke om linje har ubetalt depositumskrav
+7.fb  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.fb  *
+7.fb c     sjekk_depo    begsr
+7.fb  *
+7.fb c                   eval      b_depo = *off
+7.fb c                   eval      sdepl1_numm = fonumm
+7.fb c                   eval      sdepl1_kund = fokund
+7.fb c                   eval      sdepl1_tell = 0
+7.fb c     sdepl1_key    chain     sdepl1r
+7.fb c                   if        %found(sdepl1) and
+7.fb c                             skdepb < skdepo
+7.fb c                   eval      b_depo = *on
+7.fb c                   endif
+7.fb  *
+7.fb c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Key for file : KUNDE-REGISTER
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+5.01  *
+5.01  *  Key for file : KUNDE-PROSJEKT
+5.01  *
+5.01 c     fkprl1_key    klist
+5.01 c                   kfld                    w_firm
+5.01 c                   kfld                    fkprl1_kund
+5.01 c                   kfld                    fkprl1_kpro
+      *
+      * Key for file : ORDRE-TYPE-REGISTER
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      * Key for file : ORDRE-HODE-REGISTER
+      *
+     c     fohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohel1_numm
+     c                   kfld                    fohel1_suff
+      *
+      *  Key for file : ORDRE-HODE-ORDRETYPE-REGISTER
+      *
+     c     fohelo_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohelo_otyp
+     c                   kfld                    fohelo_numm
+     c                   kfld                    fohelo_suff
+      *
+      * Key for file : UTPLUKK-PARAM-REGISTER
+      *
+     c     fplolu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fplolu_numm
+     c                   kfld                    fplolu_suff
+3.32  *
+3.32  * Key for oppslag på ordre-info-type
+3.32  *
+3.32 c     vinfl1_key    klist
+3.32 c                   kfld                    w_firm
+3.32 c                   kfld                    vinfl1_ityp
+3.33  *
+3.33  * Key for brukerregister
+3.33  *
+3.33 c     fusrl1_key    klist
+3.33 c                   kfld                    w_firm
+3.33 c                   kfld                    fusrl1_user
+3.34  *
+3.34  * Key for ofak kode-register
+3.34  *
+3.34 c     fstsl1_key    klist
+3.34 c                   kfld                    w_firm
+5.31  *
+5.31  * Key for kort/fakt trans - type
+5.31  *
+5.31 c     fntrl2_key    klist
+5.31 c                   kfld                    w_firm
+5.31 c                   kfld                    fntrl2_kftp
+5.31  *
+5.31  * Key for kort/fakt trans/numm
+5.31  *
+5.31 c     fntrl1_key    klist
+5.31 c                   kfld                    w_firm
+5.31 c                   kfld                    fntrl1_numm
+5.31 c                   kfld                    fntrl1_suff
+7.01  *
+7.01  *  Key for file : ORDRE-LINJE-REGISTER
+7.01  *
+7.01 c     fodtlr_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    fodtlr_numm
+7.01 c                   kfld                    fodtlr_suff
+7.01 c                   kfld                    fodtlr_line
+7.01  *
+7.01  *  Key for file : ORDRE-LINJE-REGISTER
+7.01  *
+7.01 c     fodtlr_key2   klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    fodtlr_numm
+7.01 c                   kfld                    fodtlr_suff
+7.fb  *
+7.fb  * Key for oppslag på depositum-fil
+7.fb  *
+7.fb c     sdepl1_key    klist
+7.fb c                   kfld                    w_firm
+7.fb c                   kfld                    sdepl1_numm
+7.fb c                   kfld                    sdepl1_kund
+7.fb c                   kfld                    sdepl1_tell
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Tar inn parameter fra forrige program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *entry        plist
+     c                   parm                    p_ftor
+     c                   parm                    p_firm
+      *
+      *  Legger inn firmanummer i nøkklene
+      *
+     c                   eval      w_firm     = p_firm
+     c                   eval      d_firm_til = p_firm
+3.33  *
+3.33  * Hente inn brukerregister
+3.33  *
+3.33 c                   eval      fusrl1_user = l_user
+3.33 c     fusrl1_key    chain     fusrl1r                            90
+3.34  *
+3.34  * Hente inn ofak kode-register
+3.34  *
+3.34 c     fstsl1_key    chain     fstsl1r                            90
+      *
+8.01  *
+8.01  * Endring 8.01 - Mulighet for samlefakturering, fakt/kred samtidig.
+8.01  *
+8.01   CallP CO402R(l_filg:w_firm:0:'SAMLEFAKTURERE_DEBET_KREDIT':
+8.01                    co402_verdi1:co402_verdi2);
+8.01   if co402_verdi1 = '1';
+8.01     u_saml = *on;
+8.01     *in34 = *on;
+8.01   endif;
+     c                   endsr

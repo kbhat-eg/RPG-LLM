@@ -1,0 +1,435 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : NN830R
+      * Beskrivelse . . : Nettbutikk, hent reskontrostatistikk
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       091002 ASK  Nytt program
+5.53  * R5.53 210307 AMD  Lagt på mva på memosaldo for å få riktigere
+      *                   beregning av kredittgrense
+6.20  * R6.20 140611 bsa  Memosaldo ligger på eget register
+7.01  * MGR   151216 sst  Beregner ny memosaldo Mestergruppen pr x dager
+7.01  *       170117 sst  Hente parameter meosaldo fra AFPSPF
+8.01  * K000  231122 sst  Flyttet ant memo-dager og utv.kreditgrense til  UTVIDET_MEMOSALDO (nx)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frktrl2    if   e           k disk    rename(rktrpfr:rktrl2r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+6.20 frkmel1    if   e           k disk    rename(rkmepfr:rkmel1r)
+     fraa3l1    if   e           k disk    rename(raa3pfr:raa3l1r)
+8.01 f*afpslr    if   e           k disk    rename(afpspfr:afpslrr)
+      *
+      * Definering av parametre
+      *
+     d p_uniq          s             15
+     d p_dtqi          s             10
+     d p_dtqo          s             10
+     d p_bibl          s             10
+     d p_feil          s              1
+     d p_firm          s              3  0
+     d p_lage          s              2
+     d p_inpl          s              5p 0
+     d p_outl          s              5p 0
+     d p_wait          s              5p 0
+     d p_keyo          s              2
+     d p_keyl          s              3p 0
+     d p_sndl          s              3p 0
+     d p_sndi          s             36
+      *
+      * Definering av datastrukturer
+      *
+      * Datakø - inn
+      *
+     d                 ds
+     d d_inpu                         6
+     d  d_kund                        6  0 overlay(d_inpu: 1)
+      *
+      * Datakø - ut
+      *
+     d                 ds
+     d d_outp                       163
+     d  d_kjar                       13    overlay(d_outp:  1)
+     d  d_kjfj                       13    overlay(d_outp: 14)
+     d  d_saar                       13    overlay(d_outp: 27)
+     d  d_safj                       13    overlay(d_outp: 40)
+     d  d_ordv                       13    overlay(d_outp: 53)
+     d  d_ifor                       13    overlay(d_outp: 66)
+     d  d_isal                       13    overlay(d_outp: 79)
+     d  d_dag1                        2    overlay(d_outp: 92)
+     d  d_dag2                        2    overlay(d_outp: 94)
+     d  d_dag3                        2    overlay(d_outp: 96)
+     d  d_sal1                       13    overlay(d_outp: 98)
+     d  d_sal2                       13    overlay(d_outp:111)
+     d  d_sal3                       13    overlay(d_outp:124)
+     d  d_salo                       13    overlay(d_outp:137)
+     d  d_tsum                       13    overlay(d_outp:150)
+      *
+      * Definering av variabler i nøkler
+      *
+     d rktrl2_kund     s                   like(rnkund)
+     d rkunl1_kund     s                   like(rnkund)
+8.01 d*afpslr_ufil     s                   like(afufil)
+8.01 d*afpslr_uide     s                   like(afuide)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(rnfirm)
+     d w_bel0          s                   like(rnbelØ)
+     d w_bel1          s                   like(rnbelØ)
+     d w_bel2          s                   like(rnbelØ)
+     d w_bel3          s                   like(rnbelØ)
+     d w_bel4          s                   like(rnbelØ)
+     d w_beln          s                   like(rnbelØ)
+     d w_dato          s                   like(rnbdat)
+     d w_fodg          s              5  0
+     d w_belp          s             11  2
+     d w_belp_alf      s             13
+     d w_dag1          s              2  0
+     d w_dag2          s              2  0
+     d w_dag3          s              2  0
+7.01  *w_utvgrns = utvidelse av memosaldo(Mestergruppen)
+7.01 d w_utvgrns       s              2  0
+7.01  *w_memodagr = antall dager ordre skal med i memosaldo
+7.01 d w_memodagr      s              3  0
+7.01 d w_3x            s              3
+7.01 d p_fir           s              3
+7.01 d p_kun           s              6
+5.53  *
+5.53  * Parametre til RS205R - hent mva %
+5.53  *
+5.53 d w_stat          s              1
+5.53 d w_mvak          s              1
+5.53 d w_mvtx          s             30
+5.53 d w_mvas          s              6  2
+5.53 d w_mvat          s              5  4
+5.53 d w_mvaf          s             10  9
+5.53 d w_bpro          s              5  2
+5.53 d w_date          s               d   datfmt(*iso)
+      *
+     d b_negs          s              1    inz(*off)
+      *
+7.01 d                uds
+7.01 d  l_filg               931    933
+7.01  *
+      * Eksternt program
+7.00   dcl-s co402_verdi1  char(1);
+7.00   dcl-s co402_verdi2  char(2048);
+7.00   DCL-PR CO402R EXTPGM('CO402R');
+7.00     p_filgrp            char(3)     const;
+7.00     p_firm              packed(3:0) const;
+7.00     p_lager             packed(2:0) const;
+7.00     p_nokkel            char(50)    const;
+7.00     p_verdi1            char(1);
+7.00     p_verdi2            char(2048);
+7.00   END-PR;
+8.01 d u_kmem          s              1    inz(*off)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Leser og behandler datakø (input)
+      *
+     c                   dou       d_inpu = *blank
+      *
+     c                   eval      d_inpu = *blank
+      *
+     c                   call      'QRCVDTAQ'
+     c                   parm                    p_dtqi
+     c                   parm                    p_bibl
+     c                   parm                    p_inpl
+     c                   parm                    d_inpu
+     c                   parm                    p_wait
+     c                   parm                    p_keyo
+     c                   parm                    p_keyl
+     c                   parm                    p_uniq
+     c                   parm                    p_sndl
+     c                   parm                    p_sndi
+      *
+     c                   if        d_inpu <> *blank
+     c                   exsr      behandling
+     c                   endif
+      *
+     c                   enddo
+      *
+      * Avslutt
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av prisforespørsel
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandling    begsr
+      *
+      * Initierer output datakø
+      *
+     c                   eval      d_outp = *blank
+      *
+     c                   eval      d_kjar = ' 000000000,00'
+     c                   eval      d_kjfj = ' 000000000,00'
+     c                   eval      d_saar = ' 000000000,00'
+     c                   eval      d_safj = ' 000000000,00'
+     c                   eval      d_ordv = ' 000000000,00'
+     c                   eval      d_ifor = ' 000000000,00'
+     c                   eval      d_isal = ' 000000000,00'
+     c                   eval      d_sal1 = ' 000000000,00'
+     c                   eval      d_sal2 = ' 000000000,00'
+     c                   eval      d_sal3 = ' 000000000,00'
+     c                   eval      d_salo = ' 000000000,00'
+     c                   eval      d_tsum = ' 000000000,00'
+      *
+     c                   exsr      hent_kunde
+     c                   exsr      hent_saldo
+      *
+     c     '.':','       xlate     d_outp        d_outp
+      *
+      * Skriver til output-datakø
+      *
+     c                   call      'QSNDDTAQ'
+     c                   parm                    p_dtqo
+     c                   parm                    p_bibl
+     c                   parm                    p_outl
+     c                   parm                    d_outp
+     c                   parm                    p_keyl
+     c                   parm                    p_uniq
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for henting av kundeinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_kunde    begsr
+      *
+     c                   eval      rkunl1_kund = d_kund
+     c     rkunl1_key    chain     rkunl1
+     c                   if        not %found
+     c                   eval      p_feil = *on
+     c                   goto      end_kunde
+     c                   endif
+7.01  * Beregne memosaldo pr dato
+7.01 c                   if        w_memodagr > 0
+7.01 c                   move      w_firm        p_fir
+7.01 c                   move      rkunl1_kund   p_kun
+7.01 c                   call      'FO763R'
+7.01 c                   parm                    p_fir
+7.01 c                   parm                    p_kun
+7.01 c                   endif
+6.20  * Hent inn informasjon om memosaldo
+6.20 c     rkunl1_key    chain     rkmel1
+      *
+      * Rediger statistikkverdier fra kunde til alfa-felter
+      *
+     c                   eval      d_kjar = %editc(rkkjØp : 'P')
+     c                   eval      d_kjfj = %editc(rkkjØf : 'P')
+     c                   eval      d_saar = %editc(rksald : 'P')
+     c                   eval      d_safj = %editc(rksaif : 'P')
+5.53 c                   eval      d_ordv = %editc((rkmems * w_mvat) : 'P')
+     c                   eval      d_tsum = %editc(rksald : 'P')
+      *
+     c     end_kunde     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å finne aldersfordeling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_saldo    begsr
+      *
+      * Redigerer grenser for aldersfordeling
+      *
+     c                   move      w_dag1        d_dag1
+     c                   move      w_dag2        d_dag2
+     c                   move      w_dag3        d_dag3
+      *
+      * Leser rekontroposter og aldersfordeler
+      *
+     c                   eval      rktrl2_kund = d_kund
+     c     rktrl2_key    setll     rktrl2
+     c     rktrl2_key    reade     rktrl2
+      *
+     c                   dow       not %eof
+      *
+      * Beregn antall dager fra forfallsdato
+      *
+     C     w_dato        subdur    rnfdat        w_fodg : *d
+      *
+      *  Restbeløp = 0
+      *
+     c                   if        rnrest = 0
+     c                   goto      les_neste
+     c                   endif
+      *
+      * Bestem aldersfordeling ut fra grenser i koderegister
+      *
+     c                   if        rnrest < 0
+     c                   eval      w_beln = w_beln + rnrest
+     c                   else
+     c                   select
+     c                   when      w_fodg < 0
+     c                   eval      w_bel0 = w_bel0 + rnrest
+     c                   when      w_fodg <= w_dag1
+     c                   eval      w_bel1 = w_bel1 + rnrest
+     c                   when      w_fodg <= w_dag2
+     c                   eval      w_bel2 = w_bel2 + rnrest
+     c                   when      w_fodg <= w_dag3
+     c                   eval      w_bel3 = w_bel3 + rnrest
+     c                   other
+     c                   eval      w_bel4 = w_bel4 + rnrest
+     c                   endsl
+      *
+     c                   endif
+      *
+     c     les_neste     tag
+      *
+     c     rktrl2_key    reade     rktrl2
+     c                   enddo
+      *
+      * Rediger aldersfordelte beløp til alfafelter
+      *
+     c                   eval      d_ifor = %editc(w_bel0 : 'P')
+     c                   eval      d_sal1 = %editc(w_bel1 : 'P')
+     c                   eval      d_sal2 = %editc(w_bel2 : 'P')
+     c                   eval      d_sal3 = %editc(w_bel3 : 'P')
+     c                   eval      d_salo = %editc(w_bel4 : 'P')
+     c                   eval      d_isal = %editc(w_beln : 'P')
+      *
+     c     end_saldo     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+     c                   eval      p_feil = *on
+     c                   goto      avslutt
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_uniq
+     c                   parm                    p_dtqi
+     c                   parm                    p_dtqo
+     c                   parm                    p_bibl
+     c                   parm                    p_feil
+     c                   parm                    p_firm
+     c                   parm                    p_lage
+     c                   parm                    p_inpl
+     c                   parm                    p_outl
+     c                   parm                    p_wait
+     c                   parm                    p_keyo
+     c                   parm                    p_keyl
+     c                   parm                    p_sndl
+     c                   parm                    p_sndi
+      *
+      * Key for transaksjoner på kunde
+      *
+     c     rktrl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rktrl2_kund
+      *
+      * Key for les av kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for statuskode 3
+      *
+     c     raa3l1_key    klist
+     c                   kfld                    w_firm
+7.01  *
+7.01  * Key for propertiesfil
+7.01  *
+8.01 c*    afpslr_key    klist
+8.01 c*                  kfld                    afpslr_ufil
+8.01 c*                  kfld                    afpslr_uide
+      *
+      * Henter statusinformasjon
+      *
+     c                   eval      w_firm = p_firm
+     c                   move      *date         w_dato
+      *
+     c     raa3l1_key    chain     raa3l1
+      *
+     c                   if        %found
+     c                   eval      w_dag1 = ra3ka1
+     c                   eval      w_dag2 = ra3ka2
+     c                   eval      w_dag3 = ra3ka3
+     c                   else
+     c                   eval      w_dag1 = 30
+     c                   eval      w_dag2 = 60
+     c                   eval      w_dag3 = 90
+     c                   endif
+5.53  *
+5.53  * Hent mva % for beregning av memosaldo inkl. mva
+5.53  *
+5.53 c                   eval      w_stat = *blank
+5.53 c                   eval      w_mvak = '3'
+5.53 c                   time                    w_date
+5.53  *
+5.53 c                   call      'RS205R'
+5.53 c                   parm                    w_stat
+5.53 c                   parm                    w_mvak
+5.53 c                   parm                    w_mvtx
+5.53 c                   parm                    w_date
+5.53 c                   parm                    w_mvas
+5.53 c                   parm                    w_mvat
+5.53 c                   parm                    w_mvaf
+5.53 c                   parm                    w_bpro
+7.01  *
+7.01  *   Hent inn % utvidelse av kreditgrense
+8.01 c*                  eval      afpslr_ufil = l_filg
+8.01 c*                  eval      afpslr_uide = 'KRGRNSUTV'
+8.01 c*    afpslr_key    chain     afpslrr
+8.01 c*                  if        %found(afpslr)
+8.01 c*                  movel     afudss        w_utvgrns
+8.01 c*                  endif
+7.01  *
+7.01  *   Hent inn ant dager fram ordre skal med i memosaldo
+8.01 c*                  eval      afpslr_uide = 'MEMODAGER'
+8.01 c*    afpslr_key    chain     afpslrr
+8.01 c*                  if        %found(afpslr)
+8.01 c*                  movel     afudss        w_3x
+8.01 c*                  move      w_3x          w_memodagr
+8.01 c*                  endif
+8.01  *
+8.01  * Utvidet memosaldo
+8.01  *   Hent inn ant dager fram ordre skal med i memosaldo
+8.01  *   Hent inn % utvidelse av kreditgrense
+8.01  *
+8.01 c                   eval      w_memodagr = 999
+8.01 c                   eval      w_utvgrns  = 0
+8.01  *
+8.01   CallP CO402R(l_filg:w_firm:0:'UTVIDET_MEMOSALDO':
+8.01                    co402_verdi1:co402_verdi2);
+8.01   if co402_verdi1 = '1';
+8.01     u_kmem = *on;
+8.01     if  %subst(co402_verdi2:1:3) <> *blank;
+8.01       w_memodagr = %dec(%subst(co402_verdi2:1:3):3:0);
+8.01     endif;
+8.01     if  %subst(co402_verdi2:133:2) <> *blank;
+8.01       w_utvgrns = %dec(%subst(co402_verdi2:133:2):2:0);
+8.01     endif;
+8.01   endif;
+7.01  *
+      *
+     c                   endsr

@@ -1,0 +1,406 @@
+      /title  ASOFAK Kundeprosjekt, vise kunde/kundeprosjekt
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FL510R
+      * Beskrivelse . . : Kundeprosjekt, vise kunde/kundeprosjekt
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       280499 HKO  Nytt program
+      *       270300 HKO  Utvidet E-mail til 50 posisjoner
+      *       040400 HKO  Lagt inn funksjonstast for vising av spesialpriser
+5.31  * R5.31 261004 AMD  Lagt inn kundens eksterne prosjektnummer
+      *       261005 HKO  Lagt inn funksjonstast for vising av bonusavtale
+6.10  * R6.10 010709 AMD  Lagt inn tilgang til notatarket
+6.21  * R6.20 191212 AMD  Fikk ikke tilgang til notatarket pga feil i
+6.21  *                   parameter som ble sendt til RF020R  Prosjekt
+6.21  *                   nummer fikk 0-er i stedet for blank
+6.30  * R6.30 260514 bsa  JIT GUI pga endringer i feltlengder i skjermbildet
+6.31  * R6.30 030914 bkv  Lagt til memo, kredittgr og kort
+6.32  * R6.30 280217 nho  Lagt mva på 'aktive ordrer' på vis av
+6.32  *                   kunde/kundeprosjekt
+6.33  * R6.30 201017 nho  Saldo skal også legges til 'aktive ordre'
+7.01  *       151216 sst  Ber flytende Memosaldo m/ordre pr ant. dager
+7.01  *       170117 sst  Hente parameter meosaldo fra AFPSPF
+8.01  * K000  231122 sst  Flyttet ant memo-dager og utv.kreditgrense til  UTVIDET_MEMOSALDO (nx)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     ffkprl1    if   e           k disk    rename(fkprpfr:fkprl1r)
+6.31 frukrl1    if   e           k disk    rename(rukrpfr:rukrl1r)
+6.31 frkmel1    if   e           k disk    rename(rkmepfr:rkmel1r)
+6.31 fruksl1    if   e           k disk    rename(rukspfr:ruksl1r)
+     fapospf    if   e           k disk    rename(apospfr:apospfr)
+8.01 f*afpslr    if   e           k disk    rename(afpspfr:afpslrr)
+      *
+     ffl510d    cf   e             workstn
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(flfirm)
+     d p_kund          s                   like(flkund)
+     d p_kpro          s                   like(flkpro)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+7.01 d  l_filg               931    933
+     d l_fnav                951    980
+      *
+      * Definering av variabler i nøkler
+      *
+     d rkunl1_kund     s                   like(rkkund)
+     d fkprl1_kund     s                   like(flkund)
+     d fkprl1_kpro     s                   like(flkpro)
+6.31 d rukrl1_kund     s                   like(rukkun)
+6.31 d ruksl1_skty     s                   like(ruskty)
+6.31 d ruksl1_slag     s                   like(ruslag)
+     d apospf_ponr     s                   like(apponr)
+8.01 d*afpslr_ufil     s                   like(l_filg)
+8.01 d*afpslr_uide     s                   like(afuide)
+6.10  *
+6.10 i/COPY QCPYLESRC,RF020PAR
+6.10  *
+6.10 d rxupar          s                   like(rxulda)
+6.10  *
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(flfirm)
+6.32  * Parametre til RS205R - hent mva %
+6.32 d w_stat          s              1
+6.32  *
+6.32 d w_mvak          s              1
+6.32 d w_mvtx          s             30
+6.32 d w_mvas          s              6  2
+6.32 d w_mvat          s              5  4
+6.32 d w_mvaf          s             10  9
+6.32 d w_bpro          s              5  2
+6.32 d w_date          s               d   datfmt(*iso)
+      *
+6.32 d w_kmva          s             12  2
+7.01  *w_utvgrns = utvidelse av memosaldo(Mestergruppen)
+7.01 d w_utvgrns       s              2  0
+7.01  *w_memodagr = antall dager ordre skal med i memosaldo
+7.01 d w_memodagr      s              3  0
+7.01 d w_3x            s              3
+7.01 d p_fir           s              3
+7.01 d p_kun           s              6
+      *
+7.01 d u_s701          s              1    inz(*off)
+7.01   dcl-s co402_verdi1  char(1);
+7.01   dcl-s co402_verdi2  char(2048);
+7.01   DCL-PR CO402R EXTPGM('CO402R');
+7.01     p_filgrp            char(3)     const;
+7.01     p_firm              packed(3:0) const;
+7.01     p_lager             packed(2:0) const;
+7.01     p_nokkel            char(50)    const;
+7.01     p_verdi1            char(1);
+7.01     p_verdi2            char(2048);
+7.01   END-PR;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B1 Behandle bildet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Initierer skjermbildet
+      *
+      * Kunde
+      *
+     c                   eval      rkunl1_kund = p_kund
+     c     rkunl1_key    chain     rkunl1                             90
+     c                   if        *in90 = *on
+     c                   goto      b1taga
+     c                   endif
+      *
+     c                   eval      b1knav = rknavn
+     c                   eval      b1kad1 = rkgate
+     c                   eval      b1kad2 = rkadr2
+     c                   eval      b1kste = rksted
+     c                   eval      b1kema = rkemal
+     c                   eval      b1kmob = rkmobn
+     c                   eval      b1ktlf = rktlfn
+     c                   eval      b1ksel = rkslgr
+     c                   eval      b1katg = rkkatg
+     c                   eval      b1krka = rkrabk
+     c                   eval      b1betb = rkbetb
+     c                   eval      b1sald = rksald
+     c                   eval      b1kjØp = rkkjØp
+     c                   eval      b1kjØf = rkkjØf
+6.31 c                   eval      b1grns = rkgrns*1000
+6.31  *
+6.31  * Kort
+6.31  *
+6.31 c                   eval      b1kort = ''
+6.31 c                   eval      rukrl1_kund = p_kund
+6.31 c     rukrl1_key    setll     rukrl1
+6.31 c                   read      rukrl1r
+6.31  *
+6.31 c                   dow       not %eof         and
+6.31 c                             rukkun = p_kund
+6.31  * Slå opp på register for å finne kortnavn
+6.31 c                   eval      ruksl1_skty = ruktyp
+6.31 c     ruksl1_key    chain     ruksl1
+6.31 c                   if        %found(ruksl1)
+6.31 c                   if        b1kort <> ''
+6.31 c                   eval      b1kort = %trim(b1kort) +','+ rusbes
+6.31 c                   else
+6.31 c                   eval      b1kort = rusbes
+6.31 c                   endif
+6.31 c                   endif
+6.31 c                   read      rukrl1r
+6.31 c                   enddo
+7.01  * Beregne memosaldo pr dato, Mestergruppen
+7.01 c                   if        u_s701 = *on
+7.01 c                   if        w_memodagr > 0
+7.01 c                   move      w_firm        p_fir
+7.01 c                   move      rkunl1_kund   p_kun
+7.01 c                   call      'FO763R'
+7.01 c                   parm                    p_fir
+7.01 c                   parm                    p_kun
+7.01 c                   endif
+7.01 c                   endif
+6.33  *
+6.32  * Hent mva % for beregning av memosaldo inkl. mva
+6.32  *
+6.32 c                   eval      w_stat = *blank
+6.32 c                   eval      w_mvak = '3'
+6.32 c                   time                    w_date
+6.32  *
+6.32 c                   call      'RS205R'
+6.32 c                   parm                    w_stat
+6.32 c                   parm                    w_mvak
+6.32 c                   parm                    w_mvtx
+6.32 c                   parm                    w_date
+6.32 c                   parm                    w_mvas
+6.32 c                   parm                    w_mvat
+6.32 c                   parm                    w_mvaf
+6.32 c                   parm                    w_bpro
+6.31  *
+6.31  * Henter inn informasjon om memosaldo
+6.31  *
+6.31 c     rkunl1_key    chain     rkmel1
+6.32 c                   eval      w_kmva = rkmems * w_mvas/100
+6.31 c** 6.32            eval      b1memo = rkmems
+6.32 c** 6.33            eval      b1memo = rkmems + w_kmva
+6.33 c                   eval      b1memo = rkmems + w_kmva + rksald
+      *
+      * Kundeprosjekt
+      *
+     c                   eval      fkprl1_kund = p_kund
+     c                   eval      fkprl1_kpro = p_kpro
+     c     fkprl1_key    chain     fkprl1                             90
+     c                   if        *in90 = *on
+     c                   goto      b1taga
+     c                   endif
+      *
+     c                   eval      b1selg = flselg
+     c                   eval      b1fdat = 0
+     c                   eval      b1tdat = 0
+     c                   eval      b1navn = flnavn
+     c                   eval      b1adr1 = fladr1
+     c                   eval      b1adr2 = fladr2
+     c                   eval      b1ponr = flponr
+     c                   eval      b1kprs = flkprs
+5.31 c                   eval      b1epro = flepro
+     c                   eval      b1tlfa = fltlfa
+     c                   eval      b1tlfp = fltlfp
+     c                   eval      b1tlfm = fltlfm
+     c                   eval      b1mail = flmail
+     c                   eval      b1orka = florka
+     c                   eval      b1okun = flokun
+     c                   eval      b1okpr = flokpr
+     c                   eval      b1opda = 0
+     c                   eval      b1priv = flpriv
+      *
+     c                   if        flfdat <> *loval
+     c     *dmy          move      flfdat        b1fdat
+     c                   endif
+      *
+     c                   if        fltdat <> *loval
+     c     *dmy          move      fltdat        b1tdat
+     c                   endif
+      *
+     c                   if        flopda <> *loval
+     c     *dmy          move      flopda        b1opda
+     c                   endif
+      *
+      * Henter poststed
+      *
+     c                   if        b1ponr <> 0
+     c                   eval      apospf_ponr = b1ponr
+     c     apospf_key    chain     apospf                             91
+     c                   if        *in91 = *off
+     c                   eval      b1sted = apsted
+     c                   endif
+     c                   endif
+      *
+      * Viser bildet
+      *
+     c     b1taga        tag
+     c                   exfmt     b1bld
+      *
+      * Behandling av standard funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   endsl
+6.10  *
+6.10  * F2=Oppkall av notatark.
+6.10  *
+6.10 c                   if        *inkb = *on
+6.10 c                   move      w_firm        rxfirm
+6.10 c                   move      'K'           rxsyst
+6.21 c                   move      *blank        rxpros
+6.10 c                   move      *blank        rxakti
+6.10 c                   move      p_kund        rxkont
+6.10 c                   move      *zero         rxspes
+6.10 c                   move      *zero         rxavde
+6.10 c                   eval      rxlinj = *zeros
+6.10 c                   eval      rxtext = *blank
+6.10 c                   move      *blank        rxvalg
+6.10 c                   move      *loval        rxtist
+6.10 c                   eval      rxbiln = *zero
+6.10 c                   eval      rxrper = *zero
+6.10 c                   eval      rxraar = *zero
+6.10 c                   eval      rxonr  = *zero
+6.10 c                   move      rxulda        rxupar
+6.10 c                   call      'RF020R'
+6.10 c                   parm                    rxupar
+6.10 c                   move      rxupar        rxulda
+6.10 c                   goto      b1taga
+6.10 c                   endif
+      *
+      * F13=Vis rabattmatrise for kunde/kundeprosjekt
+      *
+     c                   if        *inkm = *on
+     c                   call      'FR510R'
+     c                   parm                    w_firm
+     c                   parm                    p_kund
+     c                   parm                    p_kpro
+     c                   goto      b1taga
+     c                   endif
+      *
+      * F14=Vis spesialpriser for kunde/kundeprosjekt
+      *
+     c                   if        *inkn = *on
+     c                   call      'FP510R'
+     c                   parm                    w_firm
+     c                   parm                    p_kund
+     c                   parm                    p_kpro
+     c                   goto      b1taga
+     c                   endif
+      *
+      * F15=Vis bonusavtale for kunde
+      *
+     c                   if        *inkp = *on
+     c                   call      'EK501R'
+     c                   parm                    w_firm
+     c                   parm                    p_kund
+     c                   goto      b1taga
+     c                   endif
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_kund
+     c                   parm                    p_kpro
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for oppslag på kundeprosjekt-register
+      *
+     c     fkprl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fkprl1_kund
+     c                   kfld                    fkprl1_kpro
+6.31  *
+6.31  * Key for posisjonering på kunde
+6.31  *
+6.31 c     rukrl1_key    klist
+6.31 c                   kfld                    w_firm
+6.31 c                   kfld                    rukrl1_kund
+6.31  *
+6.31  * Key for oppslag i kortregister
+6.31  *
+6.31 c     ruksl1_key    klist
+6.31 c                   kfld                    w_firm
+6.31 c                   kfld                    ruksl1_skty
+      *
+      * Key for oppslag på poststed-register
+      *
+     c     apospf_key    klist
+     c                   kfld                    apospf_ponr
+7.01  *
+7.01  * Key for propertiesfil
+7.01  *
+8.01 c*    afpslr_key    klist
+8.01 c*                  kfld                    afpslr_ufil
+8.01 c*                  kfld                    afpslr_uide
+      *
+      *
+      * Henter firma parameter
+      *
+     c                   eval      w_firm = p_firm
+7.01  *
+7.01  * Endring 7.01
+8.01  *   Hent inn % utvidelse av kreditgrense
+8.01  *   Hent inn ant dager fram ordre skal med i memosaldo
+7.13  *
+8.01 c                   eval      w_memodagr = 999
+8.01 c                   eval      w_utvgrns  = 0
+7.01  *
+7.01   CallP CO402R(l_filg:w_firm:0:'UTVIDET_MEMOSALDO':
+7.01                    co402_verdi1:co402_verdi2);
+7.01   if co402_verdi1 = '1';
+7.01     u_s701 = *on;
+8.01     if  %subst(co402_verdi2:1:3) <> *blank;
+8.01       w_memodagr = %dec(%subst(co402_verdi2:1:3):3:0);
+8.01     endif;
+8.01     if  %subst(co402_verdi2:133:2) <> *blank;
+8.01       w_utvgrns = %dec(%subst(co402_verdi2:133:2):2:0);
+8.01     endif;
+7.01   endif;
+      *
+7.01  *
+7.01  *   Hent inn % utvidelse av kreditgrense
+8.01 c*                  eval      afpslr_ufil = l_filg
+8.01 c*                  eval      afpslr_uide = 'KRGRNSUTV'
+8.01 c*    afpslr_key    chain     afpslrr
+8.01 c*                  if        %found(afpslr)
+8.01 c*                  movel     afudss        w_utvgrns
+8.01 c*                  endif
+7.01  *
+7.01  *   Hent inn ant dager fram ordre skal med i memosaldo
+8.01 c*                  eval      afpslr_uide = 'MEMODAGER'
+8.01 c*    afpslr_key    chain     afpslrr
+8.01 c*                  if        %found(afpslr)
+8.01 c*                  movel     afudss        w_3x
+8.01 c*                  move      w_3x          w_memodagr
+8.01 c*                  endif
+7.01  *
+     c                   endsr

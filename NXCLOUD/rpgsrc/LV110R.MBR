@@ -1,0 +1,588 @@
+      /TITLE  ASLAGR Lagertelling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : LV110R
+      * Beskrivelse . . : Registrering av tellebunt med subliste
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       280900 ASK  Nytt program
+      * 6.10  170609 BSA  Oppdatert med sporingsinformasjon
+6.21  *       211010 bof  lagt verdi i time-stamp
+6.22  * 6.20  250311 BSA  Timestamp må få sluttidspunkt for batch som
+6.22  *                   verdi ved opprettelse. Dette reverserer 6.21.
+6.nu  * 6.30 040614  bof  Sjekket mtp. nummerutvidelse
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = avslutt
+      *       10 = Roll
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       16 = Readc 16 on, no more records
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     flbchl1    if   e           k disk    rename(lbchpfr:lbchl1r)
+     fltell1    if   e           k disk    rename(ltelpfr:ltell1r)
+     flbhel1    if   e           k disk    rename(lbhepfr:lbhel1r)
+     flbhelu    uf a e           k disk    rename(lbhepfr:lbhelur)
+     flbdtl1    if   e           k disk    rename(lbdtpfr:lbdtl1r)
+     flbdtlu    uf a e           k disk    rename(lbdtpfr:lbdtlur)
+     flv110d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Parameter-rec
+      *
+     d                 ds
+6.nu d p_prec                        22
+     d  p_firm                        3  0 overlay(p_prec)
+     d  p_batc                       10    overlay(p_prec:4)
+6.nu d  p_numm                        8  0 overlay(p_prec:14)
+6.nu d  p_kode                        1    overlay(p_prec:22)
+6.22 d                 ds
+6.22 d d_stmp                        26
+6.22 d  d_dato                       10d   overlay(d_stmp)
+6.22 d  d_ski1                        1    overlay(d_stmp:11) inz('-')
+6.22 d  d_time                        8t   overlay(d_stmp:12)
+6.22 d  d_ski2                        1    overlay(d_stmp:20) inz('.')
+6.22 d  d_zero                        6    overlay(d_stmp:21) inz('000000')
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av variabler i nøkler
+      *
+     d vvarl1_vare     s                   like(vvvare)
+     d lbchl1_batc     s                   like(lcbatc)
+     d ltell1_batc     s                   like(lebatc)
+     d ltell1_numm     s                   like(lenumm)
+     d ltell1_suff     s                   like(lesuff)
+     d ltell1_line     s                   like(leline)
+     d lbhel1_batc     s                   like(lubatc)
+     d lbhel1_numm     s                   like(lunumm)
+     d lbhelu_batc     s                   like(lubatc)
+     d lbhelu_numm     s                   like(lunumm)
+     d lbdtl1_batc     s                   like(lvbatc)
+     d lbdtl1_numm     s                   like(lvnumm)
+     d lbdtl1_line     s                   like(lvline)
+     d lbdtlu_batc     s                   like(lvbatc)
+     d lbdtlu_numm     s                   like(lvnumm)
+     d lbdtlu_line     s                   like(lvline)
+      *
+      * Definering av variable
+      *
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+     d w_srrn_w        s              4  0
+      *
+     d w_seqe          s              1
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+     d b_hent          s              1    inz(*off)
+      *
+     d w_firm          s                   like(lvfirm)
+6.nu d w_prec          s             22
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_srrn - Relativt recordnummer i subfile
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * w_virn - Vis den side som inneholder denne record.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * A1WIN  - A1 Vindu for å velge subfile
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  A1 Behandler inntasting av telle-liste + sub-liste
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   if        lutnum <> 0
+     c                   eval      a1suff = lutnum
+     c                   eval      ltell1_suff = a1suff
+     c                   goto      b2taga
+     c                   endif
+      *
+     c                   eval      a1numm = lunumm
+     c                   eval      a1lagb = lulage
+      *
+      *  Send vindu
+      *
+     c     a1tagb        tag
+     c                   exfmt     a1win
+      *
+      *  F3=Avslutt program
+      *
+     c                   if        *inkc = *on
+     c     lbhelu_key    chain     lbhelur                            90
+     c                   eval      lutnum = a1suff
+      *
+     c                   if        *in90 = *off
+     c                   delete    lbhelur
+     c                   end
+     c                   goto      end_pgm
+     c                   endif
+      *
+      * Sjekk gyldig valg av subliste
+      *
+     c                   exsr      sjekk_lager
+     c                   if        b_feil = *on
+     c                   eval      *in31 = *on
+     c                   goto      a1tagb
+     c                   endif
+      *
+      * Oppdater bunthode med valgt subliste
+      *
+     c     lbhelu_key    chain     lbhelur                            90
+     c                   eval      lutnum = a1suff
+      *
+     c                   if        *in90 = *off
+6.10 c                   time                    luedat
+6.10 c                   time                    luetim
+6.10 c                   eval      lueusr = l_user
+     c                   update    lbhelur
+     c                   end
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c     ltell1_key    setll     ltell1
+     c                   exsr      crt_subfile
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   exsr      subfile
+     c                   goto      end_pgm
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkj
+     c                   eval      b_hent = *on
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2line <> 0
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2tagb
+      *
+      * Avslutt program
+      *
+     c     end_pgm       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c     ltell1_key    setll     ltell1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjoner startverdi på forslagsnummer
+      *
+     c                   if        b2line <> 0
+     c                   eval      w_seqe = ' '
+     c                   eval      ltell1_line = b2line
+     c     ltell1_key    setll     ltell1
+     c                   endif
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2line = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+      * Beholder eksisterende posisjonering i subfilen
+      *
+     c                   if        w_curn > 0
+     c                   eval      w_virn = w_curn
+     c                   endif
+      *
+      * Leser og behandler subfile
+      *
+     c                   eval      w_srrn_w = 0
+      *
+     c                   do        w_ssrn
+      *
+     c                   eval      w_srrn_w = w_srrn_w + 1
+     c     w_srrn_w      chain     b1sfl                              16
+      *
+     c                   if        *in16
+     c                   leave
+     c                   endif
+      *
+     c                   exsr      reg_linje
+      *
+     c                   enddo
+      *
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å registrere opptalt antall på linje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     reg_linje     begsr
+      *
+     c                   eval      lbdtlu_line = b1line
+     c     lbdtlu_key    chain     lbdtlur                            96
+      *
+      *  Hverken antall eller kode er tastet, hopp ut, Slett evnt. record
+      *
+     c                   if        b1talt = 0
+     c                   if        *in96 = *off
+     c                   delete    lbdtlur
+     c                   goto      end_reg
+     c                   endif
+     c                   endif
+      *
+     c                   if        b1enh1 = *blank
+     c                   goto      end_reg
+     c                   endif
+      *
+     c                   eval      lvenh1 = b1enh1
+     c                   movel     b1vare        lvvare
+     c                   eval      lvantt = b1talt
+6.21 c**6.22             time                    lvtims
+      *
+     c                   if        *in96 = *off
+6.10 c                   time                    lvedat
+6.10 c                   time                    lvetim
+6.10 c                   eval      lveusr = l_user
+     c                   update    lbdtlur
+     c                   else
+      *
+     c                   eval      lvtlin = 0
+     c                   eval      lvhgrp = 0
+     c                   eval      lvugrp = 0
+     c                   eval      lvlage = 0
+     c                   eval      lvplas = *blank
+     c                   eval      lvtek1 = *blank
+     c                   eval      lvspny = 0
+     c                   eval      lvkpny = 0
+      *
+     c                   eval      lvfirm = w_firm
+     c                   eval      lvbatc = lbdtlu_batc
+     c                   eval      lvnumm = lbdtlu_numm
+     c                   eval      lvline = lbdtlu_line
+6.22  * Vi legger ut sluttidspunkt for batchen, hvis ikke kan timestamp
+6.22  * bli feil relatert til tidspunktet for telling.
+6.22 c                   eval      d_dato = lcedat
+6.22 c                   eval      d_time = lcetim
+6.22 c                   eval      lvtims = %timestamp(d_stmp)
+6.22  *
+6.10 c                   time                    lvodat
+6.10 c                   time                    lvotim
+6.10 c                   eval      lvousr = l_user
+6.10 c                   time                    lvedat
+6.10 c                   time                    lvetim
+6.10 c                   eval      lveusr = l_user
+     c                   write     lbdtlur
+     c                   endif
+      *
+     c     end_reg       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å sjekke lager på bunt mot subliste
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_lager   begsr
+      *
+     c                   eval      b_feil = *off
+     c                   eval      ltell1_suff = a1suff
+     c                   eval      ltell1_line = 0
+     c     ltell1_key    setll     ltell1
+      *
+     c                   read      ltell1                                 91
+     c                   if        *in91 = *on or
+     c                             lebatc <> lubatc or
+     c                             lenumm <> lcnumm or
+     c                             lesuff <> a1suff or
+     c                             lelage <> lulage
+     c                   eval      b_feil = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      ltell1                                 15
+      *
+     c                   if        *in15
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   if        lefirm <> w_firm or
+     c                             lebatc <> lubatc or
+     c                             lenumm <> lcnumm or
+     c                             lesuff <> a1suff
+     c                   eval      *in15 = *on
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1line = leline
+     c                   movel     levare        b1vare
+     c                   eval      b1lage = lelage
+     c                   eval      b1tek1 = letek1
+     c                   eval      b1enh1 = leenh1
+      *
+      * Finn evt. tidligere registrert antall eller lagersaldo hvis valgt
+      *
+     c                   eval      lbdtl1_line = leline
+     c     lbdtl1_key    chain     lbdtl1                             97
+     c                   if        *in97 = *off
+     c                   eval      b1talt = lvantt
+     c                   else
+     c                   if        b_hent = *on
+     c                   eval      b1talt = leantl
+     c                   else
+     c                   eval      b1talt = 0
+     c                   endif
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c     end_crt       tag
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Key for les av VARE
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      *  Key for les av BATCH
+      *
+     c     lbchl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lbchl1_batc
+      *
+      *  Key for les av TELLE
+      *
+     c     ltell1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ltell1_batc
+     c                   kfld                    ltell1_numm
+     c                   kfld                    ltell1_suff
+     c                   kfld                    ltell1_line
+      *
+      *  Key for les av TELLEBUNT-HODE
+      *
+     c     lbhel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lbhel1_batc
+     c                   kfld                    lbhel1_numm
+      *
+      *  Key for oppdatering av LAGERTELLEBUNT-HODE
+      *
+     c     lbhelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lbhelu_batc
+     c                   kfld                    lbhelu_numm
+      *
+      *  Key for les av TELLEBUNT-LINJE
+      *
+     c     lbdtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lbdtl1_batc
+     c                   kfld                    lbdtl1_numm
+     c                   kfld                    lbdtl1_line
+      *
+      *  Key for oppdatering TELLEBUNT-LINJE
+      *
+     c     lbdtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lbdtlu_batc
+     c                   kfld                    lbdtlu_numm
+     c                   kfld                    lbdtlu_line
+      *
+      *  Tar inn parameter fra forrige program
+      *
+     c     *entry        plist
+     c                   parm                    w_prec
+     c                   eval      p_prec = w_prec
+      *
+      * Legger inn startverdier
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   eval      lbchl1_batc = p_batc
+     c                   eval      ltell1_batc = p_batc
+     c                   eval      lbhel1_batc = p_batc
+     c                   eval      lbhelu_batc = p_batc
+     c                   eval      lbdtl1_batc = p_batc
+     c                   eval      lbdtlu_batc = p_batc
+      *
+     c                   eval      lbhel1_numm = p_numm
+     c                   eval      lbhelu_numm = p_numm
+     c                   eval      lbdtl1_numm = p_numm
+     c                   eval      lbdtlu_numm = p_numm
+     c                   eval      ltell1_suff = 0
+     c                   eval      ltell1_line = 0
+     c                   eval      lbdtl1_line = 0
+     c                   eval      lbdtlu_line = 0
+      *
+      *  Hent opplysninger fra BATCH-REGISTER
+      *
+     c     lbchl1_key    chain     lbchl1                             90
+     c                   eval      ltell1_numm = lcnumm
+      *
+      *  Hent opplysninger fra BUNT-HODE
+      *
+     c     lbhel1_key    chain     lbhel1r                            90
+      *
+     c                   endsr
+      *

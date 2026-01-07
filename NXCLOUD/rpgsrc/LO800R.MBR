@@ -1,0 +1,527 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASLAGR
+      * Program . . . . : LO800R
+      * Beskrivelse . . : Varemottak, valg av bestilling med søkemuligheter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       120302 ASK  Nytt program
+6.11  * 6.10  140709 bof  Utvidet eannr til 14 og brukt std. oppslag
+6.12  * 6.10  151110 bof  justerer eann slik at det blir på rette formen i sjekk
+6.nu  * 6.30  120614 bof  Gjennomgått mtp. nummerutvidelse
+6.31  * 6.30  101018 bof  Utvidet med trelast sortiment
+7.xx  * 7.00  090316 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+7.01  * 7.00  240919 bsa  Sjekker om bestillingen finnes mottat som elekktronisk
+7.01  *                   pakkseddel.
+7.01  *                   NB F tast er * ut, så den ikke vises i bildet.
+7.02  * 6.20  250814 BKV  Ta med lager i oppslag
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flohelr    if   e           k disk    rename(lohepfr:lohelrr)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvarl3    if   e           k disk    rename(vvarpfr:vvarl3r)
+     fvvarl4    if   e           k disk    rename(vvarpfr:vvarl4r)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+7.01 flbhoi4    if   e           k disk    rename(lbhost:lbhoi4r)
+      *
+     flo800d    cf   e             workstn
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+7.02 d l_filg                931    933
+     d l_firm                944    946  0
+     d l_fnav                951    980
+7.02 d l_lage               1001   1002  0
+      *
+      * Definering av variabler i nøkler
+      *
+     d lohelr_numm     s                   like(lonumm)
+     d lohelr_suff     s                   like(losuff)
+     d vvarl1_vare     s                   like(vvvare)
+     d vvarl3_nobb     s                   like(vvnobb)
+     d vvarl4_lvar     s                   like(vvlvar)
+     d rlevl1_levr     s                   like(rllevr)
+     d votyl1_otyp     s                   like(vaotyp)
+7.01 d lbhoi4_hnum     s                   like(pbhnum)
+7.01 d lbhoi4_hsuf     s                   like(pbhsuf)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(lofirm)
+     d w_numm          s                   like(lonumm)
+     d w_suff          s                   like(losuff)
+     d w_ldor          s                   like(loldor)
+6.11 d w_eann          s             14  0
+6.11 d w_eava          s                   like(vvvare)
+6.11 d w_eaen          s                   like(vvenhe)
+6.11 d w_east          s              1
+6.12 d w_eanx          s             14
+6.12 d w_leng          s              2  0
+     d b_feil          s              1    inz(*off)
+6.31 d w_lv_vare       s                   like(vvvare)
+6.31 d w_nobb          s                   like(vvnobb)
+      *
+7.01 d p_type          s              4
+      *
+6.12 d c_null          c                   '0000000000000'
+      *
+7.02 d u_702           s              1    inz(*off)
+      *
+7.02   dcl-s co402_verdi1  char(1);
+7.02   dcl-s co402_verdi2  char(2048);
+7.02   DCL-PR CO402R EXTPGM('CO402R');
+7.02     p_filgrp            char(3)     const;
+7.02     p_firm              packed(3:0) const;
+7.02     p_lager             packed(2:0) const;
+7.02     p_nokkel            char(50)    const;
+7.02     p_verdi1            char(1);
+7.02     p_verdi2            char(2048);
+7.02   END-PR;
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1BLD  - B1 Skjermbilde for søking på bestilling
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Hovedprogram: Velge bestilling og evt. søke på vare el. leverandør
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.3q C/Exec SQL
+6.3q C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR
+6.3q C/End-Exec
+      *
+      *  Nullstiller/Blanker felter som skal benyttes
+      *
+     c     start_pgm     tag
+      *
+     c                   eval      b1numm = 0
+     c                   eval      w_numm = 0
+     c                   eval      b1vare = *blank
+     c                   eval      b1ldor = 0
+     c                   eval      b1ltek = *blank
+     c                   eval      b1vtek = *blank
+      *
+     c     bilde_ut      tag
+     c                   exfmt     b1bld
+      *
+      *  F3=Avslutt program
+      *
+     c                   if        *inkc = *on
+     c                   goto      end_pgm
+     c                   endif
+      *
+      *  F4=Spørring
+      *
+     c                   if        *inkd = *on
+     c                   exsr      sp_input
+     c                   goto      bilde_ut
+     c                   endif
+7.01  *
+7.01  *  F7=Overgang til elektronisk pakkseddel
+7.01  *
+7.01 c                   if        *inkg = *on
+7.01 c                   exsr      xb7bld
+7.01 c                   goto      bilde_ut
+7.01 c                   endif
+      *
+      *  Sjekk, er gyldig bestilling angitt
+      *
+     c                   if        b1numm <> 0
+     c                   exsr      sjekk_best
+     c                   if        b_feil = *on
+     c                   goto      bilde_ut
+     c                   endif
+     c                   eval      w_numm = b1numm
+     c                   eval      w_suff = b1suff
+     c                   goto      behandling
+     c                   endif
+      *
+      *  Sjekk, er søking på vare valgt
+      *
+     c                   if        b1vare <> *blank
+     c                   exsr      sjekk_vare
+     c                   if        b_feil = *on
+     c                   goto      bilde_ut
+     c                   endif
+      *
+     c                   exsr      best_vare
+     c                   if        b1numm = 0
+     c                   goto      start_pgm
+     c                   endif
+     c                   exsr      sjekk_best
+     c                   if        b_feil = *on
+     c                   goto      bilde_ut
+     c                   endif
+      *
+     c                   if        w_numm <> 0
+     c                   goto      behandling
+     c                   endif
+      *
+     c                   goto      bilde_ut
+     c                   endif
+      *
+      *  Sjekk, er søking på leverandør valgt
+      *
+     c                   if        b1ldor <> 0
+     c                   exsr      sjekk_ldor
+     c                   if        b_feil = *on
+     c                   goto      bilde_ut
+     c                   endif
+      *
+     c                   exsr      best_ldor
+     c                   if        b1numm = 0
+     c                   goto      start_pgm
+     c                   endif
+     c                   exsr      sjekk_best
+     c                   if        b_feil = *on
+     c                   goto      bilde_ut
+     c                   endif
+      *
+     c                   if        w_numm <> 0
+     c                   goto      behandling
+     c                   endif
+      *
+     c                   goto      bilde_ut
+     c                   endif
+      *
+      *  Kaller opp program for å utføre varemottak
+      *
+     c     behandling    tag
+      *
+     c                   call      'LO801R'
+     c                   parm                    w_firm
+     c                   parm                    w_numm
+     c                   parm                    w_suff
+      *
+     c                   goto      start_pgm
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     end_pgm       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å kontrollere bestilling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_best    begsr
+7.02  *
+7.02  *  Sjekk lager angitt
+7.02  *
+7.02 c                   if        u_702 = *on
+7.02 c                   if        b1lage = 0
+7.02 c                   eval      *in36 = *on
+7.02 c                   eval      b_feil = *on
+7.02 c                   goto      end_best
+7.02 c                   endif
+7.02 c                   endif
+      *
+     c                   eval      b_feil = *off
+     c                   eval      lohelr_numm = b1numm
+     c                   eval      lohelr_suff = b1suff
+     c     lohelr_key    chain     lohelr
+     c                   if        not %found
+     c                   eval      *in31 = *on
+     c                   eval      b_feil = *on
+     c                   goto      end_best
+     c                   endif
+7.02  *
+7.02  *  Sjekk rett lager
+7.02  *
+7.02 c                   if        b1lage <> 0 and
+7.02 c                             b1lage <> lolage
+7.02 c                   eval      *in35 = *on
+7.02 c                   eval      b_feil = *on
+7.02 c                   goto      end_best
+7.02 c                   endif
+      *
+      *  Sjekk gyldig ordretype
+      *
+     c                   eval      votyl1_otyp = lootyp
+     c     votyl1_key    chain     votyl1r
+     c                   if        not %found
+     c                   eval      *in34 = *on
+     c                   eval      b_feil = *on
+     c                   goto      end_best
+     c                   endif
+      *
+     c                   if        vaosys <> 1 or
+     c                             vaoakk <> 1
+     c                   eval      *in34 = *on
+     c                   eval      b_feil = *on
+     c                   goto      end_best
+     c                   endif
+      *
+7.01 c                   eval      lbhoi4_hnum = b1numm
+7.01 c                   eval      lbhoi4_hsuf = b1suff
+7.01 c     lbhoi4_key    chain     lbhoi4
+7.01 c                   if        %found
+7.01 c                   eval      *in35 = *on
+7.01 c                   eval      b_feil = *on
+7.01 c                   goto      end_best
+7.01 c                   endif
+      *
+     c     end_best      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å finne og kontrollere varenummer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_vare    begsr
+      *
+      * EANnr
+      *
+     c                   eval      b_feil = *off
+6.12 c*                  movel     b1vare        w_eann
+6.12 c                   eval      w_leng = %len(%trim(b1vare))
+6.12 c                   eval      w_eanx = %subst(c_null:1:14-w_leng) +
+6.12 c                                      b1vare
+6.12 c                   movel     w_eanx        w_eann
+6.11 c                   call      'VE710R  '
+6.11 c                   parm                    w_firm
+6.11 c                   parm                    w_eann
+6.11 c                   parm                    w_eava
+6.11 c                   parm                    w_eaen
+6.11 c                   parm                    w_east
+6.11 c                   if        w_east = '1'
+6.11 c                   eval      vvarl1_vare = w_eava
+     c                   goto      les_vare
+     c                   endif
+      *
+      * Lev vnr
+      *
+6.31  * sjekker om logistikk-vare
+6.31 c                   eval      w_lv_vare = *blank
+6.31 c/exec sql
+6.31 c+ select vvlvnr
+6.31 c+ into   :w_lv_vare
+6.31 c+ from   vvlepf
+6.31 c+ where  vvllva = :b1vare
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+6.31 c                   if        w_lv_vare <> *blank
+6.31 c                   eval      vvarl1_vare = w_lv_vare
+6.31 c                   goto      les_vare
+6.31 c                   endif
+      *
+     c                   movel     b1vare        vvarl4_lvar
+     c     vvarl4_key    chain     vvarl4r
+     c                   if        %found
+     c                   eval      vvarl1_vare = vvvare
+     c                   goto      les_vare
+     c                   endif
+6.31  * sjekker om logistikk-vare
+6.31 c                   eval      w_lv_vare = *blank
+6.31 c                   move      b1vare        w_nobb
+6.31 c/exec sql
+6.31 c+ select jvqvnr
+6.31 c+ into   :w_lv_vare
+6.31 c+ from   jvklpf
+6.31 c+ where  jvquno = :w_nobb and jvqfir = :w_firm
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+6.31 c                   if        w_lv_vare <> *blank
+6.31 c                   eval      vvarl1_vare = w_lv_vare
+6.31 c                   goto      les_vare
+6.31 c                   endif
+      *
+      * Nobb nr
+      *
+     c                   movel     b1vare        vvarl3_nobb
+     c     vvarl3_key    chain     vvarl3r
+     c                   if        %found
+     c                   eval      vvarl1_vare = vvvare
+     c                   goto      les_vare
+     c                   endif
+      *
+      * Eget vnr
+      *
+     c                   movel     b1vare        vvarl1_vare
+      *
+     c     les_vare      tag
+      *
+     c     vvarl1_key    chain     vvarl1r
+     c                   if        not %found
+     c                   eval      *in32 = *on
+     c                   eval      b_feil = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å kontrollere leverandør
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_ldor    begsr
+      *
+     c                   eval      b_feil = *off
+     c                   eval      rlevl1_levr = b1ldor
+     c     rlevl1_key    chain     rlevl1
+     c                   if        not %found
+     c                   eval      *in33 = *on
+     c                   eval      b_feil = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for oppslag via varenummer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     best_vare     begsr
+      *
+     c                   call      'LO550R'
+     c                   parm                    w_firm
+     c                   parm                    vvvare
+     c                   parm                    b1numm
+     c                   parm                    b1suff
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for oppslag via leverandørnummer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     best_ldor     begsr
+      *
+     c                   eval      w_ldor = b1ldor
+      *
+     c                   call      'LO560R'
+     c                   parm                    w_firm
+     c                   parm                    w_ldor
+     c                   parm                    b1numm
+     c                   parm                    b1suff
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for spørring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sp_input      begsr
+      *
+      *  Spørring på vare
+      *
+     c                   if        w_afld = 'B1VARE'
+     c                   call      'VV500R'
+     c                   parm                    w_firm
+     c                   parm                    b1vare
+     c                   parm                    b1vtek
+     c                   goto      end_sp
+     c                   endif
+      *
+      *  Spørring på leverandør
+      *
+     c                   if        w_afld = 'B1LDOR'
+     c                   call      'RL500R'
+     c                   parm                    w_firm
+     c                   parm                    b1ldor
+     c                   parm                    b1ltek
+     c                   goto      end_sp
+     c                   endif
+      *
+     c     end_sp        endsr
+      *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *  Subrutine for overgang til elektroniske pakksedler
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01 c     xb7bld        begsr
+7.01  *
+7.01 c                   eval      p_type = *blanks
+7.01  *
+7.01 c                   call      'LI200R'
+7.01 c                   parm                    p_type
+7.01  *
+7.01 c                   endsr
+7.01  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Key for les av BESTILLING
+      *
+     c     lohelr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lohelr_numm
+     c                   kfld                    lohelr_suff
+      *
+      *  Key for les av VARE
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      *  Key for les på nobb nummer
+      *
+     c     vvarl3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl3_nobb
+      *
+      *  Key for les på leverandørens varenummer
+      *
+     c     vvarl4_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl4_lvar
+      *
+      * Key for oppslag på leverandør
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+      *
+      * Key for oppslag på ordre-type
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+7.01  *
+7.01  *  Key for les av BESTILLING
+7.01  *
+7.01 c     lbhoi4_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    lbhoi4_hnum
+7.01 c                   kfld                    lbhoi4_hsuf
+      *
+      *  Legger inn startverdier
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      lohelr_suff = 0
+7.02  *
+7.02  * Endring 7.02 Sjekk om lager er utfylt
+7.02  *
+7.02   CallP CO402R(l_filg:w_firm:0:'LO800R_702':
+7.02                    co402_verdi1:co402_verdi2);
+7.02   if co402_verdi1 = '1';
+7.02     u_702 = *on;
+7.02   endif;
+      *
+     c                   endsr

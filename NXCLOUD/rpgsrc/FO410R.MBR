@@ -1,0 +1,671 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FO410R
+      * Beskrivelse . . : Sletting av ordre (hele)
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      * R3.11 220300 AMD  Leveringstype er tatt med i datastruktur hlrec
+      *                   I tillegg legges det ut referanse på 10 posisjoner
+      * R4.00 100102 AMD  Skrevet om til ny standard
+5.01  * R5.01 241002 AMD  Lagt om rutiner for oppdatering av lager
+5.31  * R5.31 100104 ASK  Lagt inn endringer for lager på linjenivå.
+5.32  *       070604 GRO  Lagt til sletting av lengdespesifikasjon
+      *       080904 HKO  Fjernet p_retu som parameter. Var ikke i bruk
+      *       260705 HKO  Sletter direkte på fodtlu og fotxlu istedenfor å
+      *                   først leste l1-indeksen.
+5.41  *       031106 AMD  Lagt inn ubetinget logging til sletteregister
+      *                   for å sikre at ikke poster blir fjernet fra
+      *                   ordresystemet uten å bli med i sletteregister
+5.60  * R5.60 091107 AMD  Lagt inn løsning for kontroll av grense for
+      *                   almenningsrabatter
+5.63  * R5.63 150208 AMD  Lagt inn logging av slettede ordrelinjer
+      * 6.10  220609 BSA  Oppdatert med sporingsinformasjon
+      * 6.10  220909 ASK  Nye parametre til VL001R
+6.11  * 6.10  110610 bof  Justert i utvidelse av parm VL001R
+6.21  * R6.20 250511 AMD  Nye felter i FDELPF Slik at denne får med alt
+      *                   fra FOHEPF
+6.NU  * R6.30 260514 bsa  Programmet gjennomgått mtp nummerutvidelser.
+6.30  * 6.30  040615 bkv  Ordre økt fra 6 til 8
+6.31  * 6.30  191018 bsa  Sletter også info om Santander trekk
+      *
+7.00  * 7.00  080519 bkv  Sletter også info om Nobb frakt
+7.01  * 7.00  260919 bkv  Sletter sidetabell ordrelinje
+7.02  * 6.30  161018 bsa  Fjerne linjer fra skyggetabell
+      *
+8.01  * K000  150223 bsa  Ikke lukk loggeprogram før hele ordren er
+8.01  * K000              slettet. NB innfører nytt pogram, så slipper
+8.01  * K000              vi endre alle steder hvor FS710 kalles.
+8.03  * K000  310523 bsa  Sletter depositumsfil hvis den finnes.
+      *       131023 ask  Midlertidig fjernet pga. låsesituasjon
+8.04  *PRG2   210622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+8.05  *K0000  100424 bsa  Sletter evnt oppføringer rundt transportoppdrag
+      *
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+     ffohelu    uf   e           k disk    rename(fohepfr:fohelur)
+     ffodtlu    uf   e           k disk    rename(fodtpfr:fodtlur)
+     ffotxlu    uf   e           k disk    rename(fotxpfr:fotxlur)
+     ffdellu    uf a e           k disk    rename(fdelpfr:fdellur)
+6.31 frksjlu    uf   e           k disk    rename(rksjpfr:rksjlur)
+5.32 ffvlsl1    if   e           k disk    rename(fvlspfr:fvlsl1r)
+5.32 ffvlslu    uf a e           k disk    rename(fvlspfr:fvlslur)
+7.00 ffoh2lu    uf a e           k disk    rename(foh2pfr:foh2lur)
+7.01 ffod2lu    uf a e           k disk    rename(fod2pfr:fod2lur)
+8.05 fftrpi2    uf   e           k disk    rename(ftrpst:ftrpi2r)
+7.02 ffodmiu    uf   e           k disk    rename(fodmst:fodmiur)
+7.02 f                                     prefix(xd:2)
+8.03  *fsdeplu    uf a e           k disk    rename(sdeppfr:sdeplur)
+      *
+      * Definering av parametere
+      *
+     d p_firm          s                   like(fofirm)
+6.NU d p_numm          s                   like(fonumm)
+     d p_suff          s                   like(fosuff)
+     d p_type          s                   like(fytype)
+     d p_kom1          s                   like(fykom1)
+     d p_kom2          s                   like(fykom2)
+5.01 d p_opdt          s              1
+      *
+      * Definering av local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+     d l_firm                944    946  0
+      *
+      * Definering av Datastruktur
+      *
+     d                 ds
+6.nu d hlrec                        128
+     d  hlvare                       15    overlay(hlrec)
+     d  hllage                        2  0 overlay(hlrec:16)
+     d  hldato                         d   overlay(hlrec:18) datfmt(*iso)
+     d  hltime                         t   overlay(hlrec:28) timfmt(*iso)
+     d  hlotyp                        2    overlay(hlrec:36)
+     d  hlltyp                        2    overlay(hlrec:38)
+     d  hlanta                       11  3 overlay(hlrec:40)
+     d  hlkopr                        9  2 overlay(hlrec:51)
+     d  hlrefr                       20    overlay(hlrec:60)
+     d  hlsyst                        1    overlay(hlrec:80)
+     d  hlaltk                        2    overlay(hlrec:81)
+     d  hlrest                        1    overlay(hlrec:83)
+     d  hltype                        1    overlay(hlrec:84)
+     d  hlenhe                        3    overlay(hlrec:85)
+     d  hlinlr                        1    overlay(hlrec:88)
+     d  hllety                        1    overlay(hlrec:89)
+6.nu d  hlonum                        8  0 overlay(hlrec:90)
+6.nu d  hlolin                        4  0 overlay(hlrec:98)
+      *
+      * Definering av variable i nøkler
+      *
+     d w_firm          s                   like(fofirm)
+     d fohelu_numm     s                   like(fonumm)
+     d fohelu_suff     s                   like(fosuff)
+     d fodtlu_numm     s                   like(fdnumm)
+     d fodtlu_suff     s                   like(fdsuff)
+     d fotxlu_numm     s                   like(ftnumm)
+     d fotxlu_suff     s                   like(ftsuff)
+     d fdellu_aarr     s                   like(fyaarr)
+     d fdellu_numm     s                   like(fynumm)
+     d fdellu_suff     s                   like(fysuff)
+5.32 d fvlsl1_numm     s                   like(fvnumm)
+5.32 d fvlsl1_suff     s                   like(fvsuff)
+5.32 d fvlslu_numm     s                   like(fvnumm)
+5.32 d fvlslu_suff     s                   like(fvsuff)
+5.32 d fvlslu_line     s                   like(fvline)
+5.32 d fvlslu_lpnr     s                   like(fvlpnr)
+6.31 d rksjlu_jnum     s                   like(rsjnum)
+6.31 d rksjlu_jsuf     s                   like(rsjsuf)
+7.02 d fodmiu_numm     s                   like(fdnumm)
+7.02 d fodmiu_suff     s                   like(fdsuff)
+7.02 d fodmiu_line     s                   like(fdline)
+8.05 d ftrpi2_rnum     s                   like(ftrnum)
+8.05 d ftrpi2_rsuf     s                   like(ftrsuf)
+8.03  * d sdeplu_numm     s                   like(sknumm)
+8.03  *d sdeplu_kund     s                   like(skkund)
+8.03  *d sdeplu_tell     s                   like(sktell)
+      *
+      * Definering av variable
+      *
+6.nu d w_lrec          s            128
+     d w_sald          s             11  2
+5.60 d w_sal2          s             11  2
+     d w_aarr          s              4  0
+     d w_v001          s              1
+5.01 d w_oakk          s              1  0
+5.63 d w_spgm          s             10
+6.30 d w_numa          s              8
+5.02 d w_lina          s              4
+8.01 d w_inlr          s              1
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sletting av ordre   ORDRE-HODE-REGISTER
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     fohelu_key    chain     fohelur                            92
+     c                   if        *in92 = *off
+     c                   unlock    fohelu
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sletting av ordre   ORDRE-TEKST-REGISTER
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     fotxlu_key    setll     fotxlu
+     c     fotxlu_key    reade     fotxlur                                90
+     c                   dow       *in90 = *off
+      *
+     c                   delete    fotxlur
+      *
+     c     fotxlu_key    reade     fotxlur                                90
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sletting av ordre   ORDRE-LINJE-REGISTER
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     fodtlu_key    setll     fodtlu
+     c     fodtlu_key    reade     fodtlur                                90
+     c                   dow       *in90 = *off
+5.63  *
+5.63  * Logg ordrelinje før den blir slettet
+5.63  *
+5.63 c                   eval      w_spgm      = 'FO410R'
+8.01 c                   eval      w_inlr = *off
+8.01 c*                  call      'FS710R'
+8.01 c                   call      'FS711R'
+5.63 c                   parm                    w_firm
+5.63 c                   parm                    fdnumm
+5.63 c                   parm                    fdsuff
+5.63 c                   parm                    fdline
+5.63 c                   parm                    w_spgm
+8.01 c                   parm                    w_inlr
+      *
+     c                   delete    fodtlur
+7.02  *
+7.02  * Sletter evnt fra skyggetabell
+7.02  *
+7.02 c**                 if        p_type = '*STD'
+7.02 c                   eval      fodmiu_numm = fdnumm
+7.02 c                   eval      fodmiu_suff = fdsuff
+7.02 c                   eval      fodmiu_line = fdline
+7.02 c     fodmiu_key    chain     fodmiu
+7.02 c                   if        %found
+7.02 c                   delete    fodmiur
+7.02 c                   endif
+7.02 c**                 endif
+      *
+      * Kaller opp subrutine for oppdatering av lager
+      *
+     c                   if        faalag <> *zero
+     c                   eval      fdanta = fdanta * -1
+     c                   exsr      opplag
+     c                   endif
+      *
+     c     fodtlu_key    reade     fodtlur                                90
+     c                   enddo
+      *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  * Sletting av ordre   ORDRE-LINJE-REGISTER SIDEREGISTER
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01 c     fod2lu_key    setll     fod2lu
+7.01 c     fod2lu_key    reade     fod2lur                                90
+7.01 c                   dow       *in90 = *off
+7.01  *
+7.01 c                   delete    fod2lur
+7.01  *
+7.01 c     fod2lu_key    reade     fod2lur                                90
+7.01 c                   enddo
+5.32  *
+5.32  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.32  * Sletting av ordre   Lengdespesif. register
+5.32  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.32  *
+5.32 c     fvlsl1_key    setll     fvlsl1r
+5.32 c     fvlsl1_key    reade     fvlsl1r
+5.32 c                   dow       not %eof(fvlsl1)
+5.32  *
+5.32 c                   eval      fvlslu_line = fvline
+5.32 c                   eval      fvlslu_lpnr = fvlpnr
+5.32 c     fvlslu_key    chain     fvlslur
+5.32 c                   if        %found
+5.32 c                   delete    fvlslur
+5.32 c                   endif
+5.32  *
+5.32 c     fvlsl1_key    reade     fvlsl1r
+5.32 c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sletting av ordre   ORDRE-HODE-REGISTER
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     fohelu_key    chain     fohelur                            92
+     c                   if        *in92 = *off
+     c                   delete    fohelur
+     c                   endif
+6.31  * Slett hvis det er betalt med Santander kort
+6.31 c     rksjlu_key    chain     rksjlur
+6.31 c                   if        %found
+6.31 c                   delete    rksjlur
+6.31 c                   endif
+7.00  * Slett hvis nobb frakt
+7.00 c     fohelu_key    chain     foh2lur
+7.00 c                   if        %found
+7.00 c                   delete    foh2lur
+7.00 c                   endif
+8.03  * Slett depositumsinformasjon
+8.03  *c                   eval      sdeplu_numm = fonumm
+8.03  *c                   eval      sdeplu_kund = fokund
+8.03  *c                   eval      sdeplu_tell = 0
+8.03  *c     sdeplu_key    chain     sdeplur
+8.03  *c                   if        %found
+8.03  *c                   delete    sdeplur
+8.03  *c                   endif
+8.05  * Slett trasnportloggingasjon
+8.05 c     ftrpi2_key    chain     ftrpi2r
+8.05 c                   if        %found
+8.05 c                   delete    ftrpi2r
+8.05 c                   endif
+      *
+      * Oppdaterer ORDRE-SLETTET-REGISTER med ny ordre
+      * Opplysninger fra slettet ordre blir lagt over
+      *
+5.41 c***>               if        p_type <> *blank
+     c     fdellu_key    chain     fdellur                            90
+     c                   if        *in90 = *on
+      *
+     c                   eval      fyotyp = footyp
+6.21 c                   eval      fylety = folety
+6.21 c                   eval      fylage = folage
+6.21 c                   eval      fybinr = fobinr
+6.21 c                   eval      fykref = fokref
+     c                   eval      fybdat = fobdat
+6.21 c                   eval      fyldat = foldat
+6.21 c                   eval      fypdat = fopdat
+6.21 c                   eval      fypada = fopada
+6.21 c                   eval      fyfkda = fofkda
+6.21 c                   eval      fyffda = foffda
+6.21 c                   eval      fybetb = fobetb
+     c                   eval      fyselg = foselg
+6.21 c                   eval      fydist = fodist
+6.21 c                   eval      fylmat = folmat
+6.21 c                   eval      fylbet = folbet
+     c                   eval      fyvalk = fovalk
+6.21 c                   eval      fyrkat = forkat
+6.21 c                   eval      fysped = fosped
+6.21 c                   eval      fykjor = fokjor
+6.21 c                   eval      fykjnr = fokjnr
+6.21 c                   eval      fylass = folass
+6.21 c                   eval      fymkod = fomkod
+     c                   eval      fylkun = folkun
+     c                   eval      fykund = fokund
+6.21 c                   eval      fyldor = foldor
+     c                   eval      fykuna = fokuna
+     c                   eval      fynavn = fonavn
+     c                   eval      fyadr1 = foadr1
+     c                   eval      fyadr2 = foadr2
+     c                   eval      fysted = fosted
+6.21 c                   eval      fyavde = foavde
+6.21 c                   eval      fykont = fokont
+6.21 c                   eval      fyspes = fospes
+6.21 c                   eval      fyproj = foproj
+6.21 c                   eval      fyakti = foakti
+6.21 c                   eval      fykobk = fokobk
+6.21 c                   eval      fykgfa = fokgfa
+6.21 c                   eval      fykgek = fokgek
+6.21 c                   eval      fykgfr = fokgfr
+6.21 c                   eval      fyksob = foksob
+6.21 c                   eval      fyktxt = foktxt
+6.21 c                   eval      fykfak = fokfak
+6.21 c                   eval      fyneto = foneto
+6.21 c                   eval      fykspr = fokspr
+     c                   eval      fyvref = fovref
+     c                   eval      fydref = fodref
+     c                   eval      fyrekv = forekv
+6.21 c                   eval      fylmtx = folmtx
+6.21 c                   eval      fylbtx = folbtx
+6.21 c                   eval      fyrabp = forabp
+6.21 c                   eval      fypasl = fopasl
+6.21 c                   eval      fypask = fopask
+6.21 c                   eval      fypord = fopord
+6.21 c                   eval      fypsuf = fopsuf
+6.21 c                   eval      fykoli = fokoli
+6.21 c                   eval      fykonr = fokonr
+6.21 c                   eval      fytotx = fototx
+     c                   eval      fytots = fotots
+     c                   eval      fytotr = fototr
+     c                   eval      fytotk = fototk
+6.21 c                   eval      fybrra = fobrra
+6.21 c                   eval      fyuskr = fouskr
+6.21 c                   eval      fykode = fokode
+6.21 c                   eval      fyutsk = foutsk
+6.21 c                   eval      fypaks = fopaks
+6.21 c                   eval      fyityp = foityp
+6.21 c                   eval      fykows = fokows
+6.21 c                   eval      fykous = fokous
+6.21 c                   eval      fykoda = fokoda
+6.21 c                   eval      fykoti = fokoti
+6.21 c                   eval      fybind = fobind
+6.21 c                   eval      fytdat = fotdat
+6.21 c                   eval      fyddat = foddat
+6.21 c                   eval      fyrest = forest
+6.21 c                   eval      fyadat = foadat
+6.21 c                   eval      fyedih = foedih
+6.21 c                   eval      fykpro = fokpro
+6.21 c                   eval      fybkun = fobkun
+6.21 c                   eval      fykkun = fokkun
+6.21 c                   eval      fyolag = foolag
+6.21 c                   eval      fynref = fonref
+6.21 c                   eval      fyfsys = fofsys
+6.21 c                   eval      fybenr = fobenr
+6.21 c                   eval      fybsuf = fobsuf
+6.21 c                   eval      fymobi = fomobi
+6.21 c                   eval      fykbnr = fokbnr
+6.21 c                   eval      fydepo = fodepo
+6.21 c                   eval      fydepb = fodepb
+6.21 c                   eval      fydept = fodept
+6.21 c                   eval      fyfaty = fofaty
+6.21 c                   eval      fybong = fobong
+6.21 c                   eval      fyplse = foplse
+6.21 c                   eval      fyinf1 = foinf1
+6.21 c                   eval      fyinf2 = foinf2
+6.21 c                   eval      fymerk = fomerk
+6.21 c                   eval      fylaok = folaok
+6.21 c                   eval      fystim = fostim
+6.21 c                   eval      fyupro = foupro
+     c                   eval      fywsid = l_wsid
+     c                   eval      fyuser = l_user
+      *
+      * Legger inn dagens dato
+      *
+     c                   time                    fydate
+     c                   time                    fytime
+      *
+     c                   eval      fytype = p_type
+     c                   eval      fykom1 = p_kom1
+     c                   eval      fykom2 = p_kom2
+      *
+     c                   eval      fyfirm = w_firm
+     c                   eval      fyaarr = fdellu_aarr
+     c                   eval      fynumm = fdellu_numm
+     c                   eval      fysuff = fdellu_suff
+6.21 c                   eval      fyline = foline
+6.10 c                   time                    fyodat
+6.10 c                   time                    fyotim
+6.10 c                   eval      fyousr = l_user
+6.10 c                   time                    fyedat
+6.10 c                   time                    fyetim
+6.10 c                   eval      fyeusr = l_user
+     c                   write     fdellur
+     c                   endif
+5.41 c***>               endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppdatering av memosaldo i kunde-register
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      w_sald = fototr - fotots
+5.60 c                   eval      w_sal2 = fobrra * -1
+      *
+     c                   call      'FA922R'
+     c                   parm                    w_firm
+     c                   parm                    footyp
+     c                   parm                    fokund
+     c                   parm                    w_sald
+5.60 c                   parm                    w_sal2
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xslutt        tag
+8.01  *
+8.01  * Lukk program for sletting av ordrelinjer
+8.01  *
+8.01 c                   eval      w_inlr = *on
+8.01 c                   call      'FS711R'
+8.01 c                   parm                    w_firm
+8.01 c                   parm                    fdnumm
+8.01 c                   parm                    fdsuff
+8.01 c                   parm                    fdline
+8.01 c                   parm                    w_spgm
+8.01 c                   parm                    w_inlr
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppdatering av Lager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     opplag        begsr
+5.01  *
+5.01  * Dersom behandlingskode 2 eller 3,
+5.01  * og linje ikke er oppdatert, skal
+5.01  * heller ingen oppdatering skje her.
+5.01  *
+5.01 c                   call      'VA750R'
+5.01 c                   parm                    w_firm
+5.01 c                   parm                    footyp
+5.01 c                   parm                    w_oakk
+5.01  *
+5.01 c                   if        w_oakk = 2 or
+5.01 c                             w_oakk = 3
+5.01 c                   if        foolag = 0
+5.01 c                   goto      end_oppl
+5.01 c                   endif
+5.01 c                   endif
+      *
+      * Legger over verdier i overførings-felter
+      *
+     c                   eval      hlvare = fdvare
+5.31 c                   eval      hllage = fdlage
+     c                   eval      hlenhe = fdenh1
+     c                   eval      hldato = *loval
+     c                   eval      hltime = *loval
+     c                   eval      hlotyp = footyp
+     c                   eval      hlltyp = fdltyp
+      *
+     c                   eval      hlanta = fdanta
+     c                   eval      hlkopr = fdkopr
+     c                   eval      hlonum = fdnumm
+     c                   eval      hlolin = fdline
+     c                   move      'F'           hlsyst
+     c                   eval      hlaltk = *blank
+     c                   eval      hlrest = *blank
+     c                   move      fdnumm        w_numa
+     c                   move      fdline        w_lina
+     c                   eval      hlrefr = 'O:' + w_numa +
+     c                                      ' L:' + w_lina
+3.11 c                   move      fdlety        hllety
+      *
+      * Kaller opp lageroppdaterings-program
+      *
+     c                   eval      w_lrec = hlrec
+      *
+     c                   call      'VL001R'
+     c                   parm                    w_v001
+     c                   parm                    w_lrec
+      *
+5.01 c     end_oppl      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Nullstilling av felter som ikke kan redefineres
+      *
+     c                   eval      w_sald = *zero
+5.60 c                   eval      w_sal2 = *zero
+     c                   eval      w_aarr = *zero
+      *
+      * Key for file : OFAK-KODE-REGISTER
+      *
+     c     fstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for file : ORDRE-HODE-REGISTER
+      *
+     c     fohelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohelu_numm
+     c                   kfld                    fohelu_suff
+      *
+      * Key for file : ORDRE-LINJE-REGISTER UPDATE
+      *
+     c     fodtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtlu_numm
+     c                   kfld                    fodtlu_suff
+      *
+      * Key for file : ORDRE-TEKST-REGISTER UPDATE
+      *
+     c     fotxlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fotxlu_numm
+     c                   kfld                    fotxlu_suff
+      *
+      * Key for file : ORDRE-SLETTET-REGISTER
+      *
+     c     fdellu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fdellu_aarr
+     c                   kfld                    fdellu_numm
+     c                   kfld                    fdellu_suff
+5.32  *
+5.32  * Key for file : Lengdespesif. register les
+5.32  *
+5.32 c     fvlsl1_key    klist
+5.32 c                   kfld                    w_firm
+5.32 c                   kfld                    fvlsl1_numm
+5.32 c                   kfld                    fvlsl1_suff
+5.32  *
+5.32  * Key for file : Lengdespesif. register update
+5.32  *
+5.32 c     fvlslu_key    klist
+5.32 c                   kfld                    w_firm
+5.32 c                   kfld                    fvlslu_numm
+5.32 c                   kfld                    fvlslu_suff
+5.32 c                   kfld                    fvlslu_line
+5.32 c                   kfld                    fvlslu_lpnr
+6.31  *
+6.31  * Key for file : statusrecord for Santanderbetaling
+6.31  *
+6.31 c     rksjlu_key    klist
+6.31 c                   kfld                    w_firm
+6.31 c                   kfld                    rksjlu_jnum
+6.31 c                   kfld                    rksjlu_jsuf
+7.00  *
+7.00  * Key for oppdatering av ordre-hode SIDETABELL
+7.00  *
+7.00 c     foh2lu_key    klist
+7.00 c                   kfld                    w_firm
+7.00 c                   kfld                    fohelu_numm
+7.00 c                   kfld                    fohelu_suff
+7.01  *
+7.01  * Key for file : ORDRE-LINJE-REGISTER SIDETABELL
+7.01  *
+7.01 c     fod2lu_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    fodtlu_numm
+7.01 c                   kfld                    fodtlu_suff
+7.02  *
+7.02  * Key for file : ORDRE-LINJE-REGISTER skyggetabell
+7.02  *
+7.02 c     fodmiu_key    klist
+7.02 c                   kfld                    w_firm
+7.02 c                   kfld                    fodmiu_numm
+7.02 c                   kfld                    fodmiu_suff
+7.02 c                   kfld                    fodmiu_line
+8.03  *
+8.03  * Key for file : Depositum-REGISTER
+8.03  *
+8.03  *c     sdeplu_key    klist
+8.03  *c                   kfld                    w_firm
+8.03  *c                   kfld                    sdeplu_numm
+8.03  *c                   kfld                    sdeplu_kund
+8.03  *c                   kfld                    sdeplu_tell
+8.05  *
+8.05  * Key for file : Transport logging
+8.05  *
+8.05 c     ftrpi2_key    klist
+8.05 c                   kfld                    w_firm
+8.05 c                   kfld                    ftrpi2_rnum
+8.05 c                   kfld                    ftrpi2_rsuf
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Tar inn parameter fra forrige program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+6.NU c                   parm                    p_numm
+     c                   parm                    p_suff
+     c                   parm                    p_type
+     c                   parm                    p_kom1
+     c                   parm                    p_kom2
+5.01 c                   parm                    p_opdt
+      *
+      *
+      * Legger inn type for oppdatering av lager  R=Registrering
+      *
+5.01 c                   eval      hltype = p_opdt
+      *
+      * Beregner riktig Hundreår
+      *
+     c                   eval      w_aarr = uyear
+     c                   eval      w_aarr = w_aarr + 1900
+      *
+     c                   if        w_aarr < 1980
+     c                   eval      w_aarr = w_aarr + 100
+     c                   endif
+      *
+      * Legger inn firmanummer i nøkkler
+      *
+     c                   eval      w_firm = p_firm
+      *
+      * Legger inn ordrenummer og suffix inn i nøkklene
+      *
+     c                   eval      fohelu_numm = p_numm
+     c                   eval      fohelu_suff = p_suff
+      *
+     c                   eval      fodtlu_numm = p_numm
+     c                   eval      fodtlu_suff = p_suff
+      *
+     c                   eval      fotxlu_numm = p_numm
+     c                   eval      fotxlu_suff = p_suff
+      *
+     c                   eval      fdellu_aarr = w_aarr
+     c                   eval      fdellu_numm = p_numm
+     c                   eval      fdellu_suff = p_suff
+5.32  *
+5.32 c                   eval      fvlsl1_numm = p_numm
+5.32 c                   eval      fvlsl1_suff = p_suff
+5.32  *
+5.32 c                   eval      fvlslu_numm = p_numm
+5.32 c                   eval      fvlslu_suff = p_suff
+      *
+6.31 c                   eval      rksjlu_jnum = p_numm
+6.31 c                   eval      rksjlu_jsuf = p_suff
+      *
+8.05 c                   eval      ftrpi2_rnum = p_numm
+8.05 c                   eval      ftrpi2_rsuf = p_suff
+      *
+      * Hent opplysninger fra OFAK-KODE-REGISTER
+      *
+     c     fstsl1_key    chain     fstsl1r                            90
+      *
+     c                   endsr

@@ -1,0 +1,276 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASLAGR
+      * Program . . . . : LH708R
+      * Beskrivelse . . : Finne bestillingssaldo pr. vare og dato
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       291100 ASK  Nytt program
+      *       110806 bof  Lagt inn test på Lev.type = 1
+      *       110806 bof  Tar hensyn til fortegn på linjetype/ordretype
+6.nu  *       100614 bof  Gjennomgått mtp. nummerutvidelse
+7.01  *       050521 bsa  Kan ikke "snu" hele antallet, kun den linja det gjelder
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flodtlv    if   e           k disk    rename(lodtpfr:lodtlvr)
+     flohelr    if   e           k disk    rename(lohepfr:lohelrr)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     fvltyl1    if   e           k disk    rename(vltypfr:vltyl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvenl1    if   e           k disk    rename(vvenpfr:vvenl1r)
+      *
+      * Parameter-inn
+      *
+     d                 ds
+     d d_prec                        30
+     d  d_vare                        8  0 overlay(d_prec)
+     d  d_tdat                        6  0 overlay(d_prec:9)
+     d  d_lage                        2  0 overlay(d_prec:15)
+     d  d_anta                       11  3 overlay(d_prec:17)
+      *
+      * Local Data Area
+      *
+     d                uds
+      *
+     d l_firm                944    946  0
+      *
+      * Definering av variable i nøkler
+      *
+     d lodtlv_vare     s                   like(ldvare)
+     d lohelr_numm     s                   like(lonumm)
+     d lohelr_suff     s                   like(losuff)
+     d votyl1_otyp     s                   like(vaotyp)
+     d vltyl1_ltyp     s                   like(valtyp)
+     d vvarl1_vare     s                   like(vvvare)
+     d vvenl1_vare     s                   like(vevare)
+      *
+      * Definering av variable
+      *
+     d w_tdat          s               d   datfmt(*iso)
+     d w_bdat          s               d   datfmt(*iso)
+     d w_firm          s                   like(lofirm)
+     d w_anta          s                   like(ldanta)
+     d w_bant          s                   like(ldanta)
+     d w_omrl          s                   like(veomre)
+     d w_omrs          s                   like(veomre)
+     d w_parm          s             30
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Hovedprogram - leser poster fra bestillingslinjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     lodtlv_key    reade     lodtlvr                                90
+      *
+     c                   dow       *in90 = *off
+      *
+      * Sjekk linjetype
+      *
+     c                   eval      vltyl1_ltyp = ldltyp
+     c     vltyl1_key    chain     vltyl1                             91
+     c                   if        vallag = 1
+     c                   exsr      behandling
+     c                   endif
+      *
+     c     lodtlv_key    reade     lodtlvr                                90
+     c                   enddo
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Slutt- oppgaver
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      d_anta = w_anta
+     c                   eval      w_parm = d_prec
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Behandler bestillingslinjer - sjekker mot bestillingshode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandling    begsr
+      *
+      *  Hent bestillingshode informasjon
+      *
+     c                   eval      lohelr_numm = ldnumm
+     c                   eval      lohelr_suff = ldsuff
+     c     lohelr_key    chain     lohelr                             92
+     c                   if        *in92 = *on
+     c                   goto      end_behand
+     c                   endif
+      *
+      * Sjekk riktig ordretype og lageroppdateringskode
+      *
+     c                   eval      votyl1_otyp = lootyp
+     c     votyl1_key    chain     votyl1                             93
+     c                   if        vaosys <> 1 or
+     c                             vaoakk <> 1 or
+     c                             vaolag <> 1
+     c                   goto      end_behand
+     c                   endif
+      *
+      * Sjekk riktig lager
+      *
+     c                   if        lolage <> d_lage
+     c                   goto      end_behand
+     c                   endif
+      *
+      * Sjekk hvilken leveringsdato som er registrert
+      *
+     c                   select
+     c                   when      ldldat <> *loval
+     c                   eval      w_bdat = ldldat
+     c                   when      lomoda <> *loval
+     c                   eval      w_bdat = lomoda
+     c                   when      loldat <> *loval
+     c                   eval      w_bdat = loldat
+     c                   when      lobdat <> *loval
+     c                   eval      w_bdat = lobdat
+     c                   other
+     c                   goto      end_behand
+     c                   endsl
+      *
+      * Er bestilling innenfor grensen?
+      *
+     c                   if        w_bdat > w_tdat
+     c                   goto      end_behand
+     c                   endif
+      *
+      * Er leveringstype =1 - skal ikke behandles
+      *
+     c                   if        ldlety = 1
+     c                   goto      end_behand
+     c                   endif
+      *
+      *
+      * Beregn bestilling i lagerenhet
+      *
+     c                   eval      vvarl1_vare = ldvare
+     c     vvarl1_key    chain     vvarl1r
+      *
+     c                   if        ldenh1 = vvenhl
+7.01 c**                 eval      w_anta = w_anta + ldanta
+7.01 c                   eval      w_bant = ldanta
+     c                   goto      tst_linjet
+     c                   endif
+      *
+      * Finner omregningsfaktor volum for lagerenhet og for bestilt enhet
+      * Antall regnes om etter forholdet mellom disse
+      *
+     c                   eval      vvenl1_vare = ldvare
+     c     vvenl1_key    setll     vvenl1
+     c     vvenl1_key    reade     vvenl1
+     c                   dow       not %eof
+     c                   if        ldenh1 = veenhe
+     c                   eval      w_omrl = veomre
+     c                   endif
+     c                   if        vvenhl = veenhe
+     c                   eval      w_omrs = veomre
+     c                   endif
+     c     vvenl1_key    reade     vvenl1
+     c                   enddo
+      *
+     c                   if        w_omrs = 0
+     c                   eval      w_omrs = 1
+     c                   endif
+      *
+     c                   if        w_omrl <> 0
+     c                   eval      w_bant = ldanta * w_omrl / w_omrs
+     c                   else
+     c                   eval      w_bant = 0
+     c                   endif
+7.01 c**                 eval      w_anta = w_anta + w_bant
+      *
+     c     tst_linjet    tag
+     c                   if        vaokre = '-'
+7.01 c**                 eval      w_anta = w_anta * -1
+7.01 c                   eval      w_bant = w_bant * -1
+     c                   endif
+      *
+     c                   if        valkre = '-'
+7.01 c**                 eval      w_anta = w_anta * -1
+7.01 c                   eval      w_bant = w_bant * -1
+     c                   endif
+      *
+7.01 c                   eval      w_anta = w_anta + w_bant
+      *
+     c     end_behand    endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Key for les av BESTILLINGS-LINJE
+      *
+     c     lodtlv_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lodtlv_vare
+      *
+      *  Key les av BESTILLINGS-HODE
+      *
+     c     lohelr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lohelr_numm
+     c                   kfld                    lohelr_suff
+      *
+      * Key for les av ordre-type
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      *  Key for les av LINJETYPE
+      *
+     c     vltyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltyl1_ltyp
+      *
+      *  Key for les av VARE
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for les av vare-enhet
+      *
+     c     vvenl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl1_vare
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Tar inn parameter fra forrige program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *entry        plist
+     c                   parm                    w_parm
+     c                   eval      d_prec = w_parm
+      *
+      *  Setter startverdier
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      w_anta = 0
+      *
+      *  Behandler parameterdato
+      *
+     c     *dmy          move      d_tdat        w_tdat
+      *
+      *  Legger inn startverdi for lesingen
+      *
+     c                   movel     d_vare        lodtlv_vare
+      *
+     c     lodtlv_key    setll     lodtlv
+      *
+     c                   endsr

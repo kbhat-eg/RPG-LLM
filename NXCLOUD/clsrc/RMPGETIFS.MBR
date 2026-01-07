@@ -1,0 +1,99 @@
+      PGM        parm(&fgr)
+      dcl        var(&dir)   type(*CHAR) len(60) value('\asp\xxx\MalProff\XLB*')
+      dcl        var(&valg)  type(*char) len(1)  value(' ')
+      dcl        var(&in03)  type(*char) len(1)
+      dcl        var(&fil)   type(*char) len(10) value('MPINPUT')
+      dcl        var(&lib)   type(*char) len(10) value('ADBxxx')
+      dcl        var(&fgr)   type(*CHAR) len(3)
+      dcl        var(&d)     type(*CHAR) len(30)
+      dcl        var(&tid)   type(*CHAR) len(6)
+      dcl        var(&MLD1)  type(*CHAR) len(30)
+      dcl        var(&MLD2)  type(*CHAR) len(30)
+      dcl        var(&POSX)  type(*DEC) len(2 0) VALUE(5)
+      dcl        var(&POSY)  type(*DEC) len(2 0) VALUE(5)
+
+      dcl        var(&c_comm) type(*char) len(1)   value('1')
+      dcl        var(&c_stat) type(*char) len(8)   value(' ')
+      dcl        var(&c_errt) type(*char) len(120) value(' ')
+
+      dcl        var(&prog)    type(*char) len(10)  value('RMPGETIFS')
+      dcl        var(&sekv)    type(*char) len(03)  value('001')
+      dcl        var(&text)    type(*char) len(200)
+      dcl        var(&jobb)    type(*char) len(10)  value('RMPGETIFS')
+
+/*  Bygg ev directories og tildel autorisasjon                       */
+      chgvar     var(%sst(&lib 4 3)) value(&fgr)
+      chgvar     var(%sst(&dir 6 3)) value(&fgr)
+
+/*  Etterfølgende linjer er flyttet til oppstartsrutine         */
+/*    chgvar     var(&d)  value(%sst(&dir 1 4))                 */
+/*    crtdir     dir(&d)  dtaaut(*RWX) objaut(*none)            */
+/*    monmsg     msgid(cpf0000)                                 */
+/*    chgvar     var(&d)  value(%sst(&dir 1 8))                 */
+/*    crtdir     dir(&d)  dtaaut(*RWX) objaut(*none)            */
+/*    monmsg     msgid(cpf0000)                                 */
+/*    chgvar     var(&d)  value(%sst(&dir 1 17))                */
+/*    crtdir     dir(&d)  dtaaut(*RWX) objaut(*none)            */
+/*    monmsg     msgid(cpf0000)                                 */
+/*    chgvar     var(&d)  value(%sst(&dir 1 17) *cat '\Backup') */
+/*    crtdir     dir(&d)  dtaaut(*RWX) objaut(*none)            */
+/*    monmsg     msgid(cpf0000)                                 */
+
+/*    Sjekk om det finnes noe filer og hente                         */
+loop:
+
+dsp:  dsplnk     obj(&dir) output(*print)
+logok:
+      cpysplf    file(qsysprt) tofile(*curlib/HentIfsW) +
+                   splnbr(*last) jobsysname(*only)
+      monmsg     msgid(cpf9812) exec(do)
+        crtpf    file(*curlib/HentIfsw) rcdlen(132)
+        goto     cmdlbl(logok)
+      enddo
+      monmsg     msgid(cpf9845) exec(do)
+        chgvar   var(&mld1) value('En annen kjører rutina/sperrer')
+        chgvar   var(&mld2) value('Tast: wrkobjlck hentifsw *file')
+        call     pgm(aa006c) parm(&posx &posy &mld1 &mld2)
+        dlyjob   dly(5)
+        chgvar   var(&in03)   value('1')
+        goto     cmdlbl(end)
+      enddo
+
+      dltsplf    file(qsysprt) splnbr(*last)
+
+/*    Start commitment control                                       */
+
+     /* strcmtctl  lcklvl(*cs)  cmtscope(*job)    */
+
+/*     Tømme inputfil                                                   */
+        clrpfm     file(&lib/&fil)
+        monmsg     msgid(cpf3142) exec(do)
+          crtpf    file(&lib/&fil) rcdlen(256) text('Innlesning +
+                          fra MalProff')
+          strjrnpf file(&lib/&fil) jrn(&lib/BUTIJRN) +
+                       omtjrne(*opnclo)
+          monmsg     msgid(cpf9801) exec(goto endcmt) /* BUTIJRN finnes +
+                       ikke */
+          monmsg     msgid(cpf7030) /*  already being journaled  */
+        enddo
+
+ /*   Henter inn tidligere avviste transe                           */
+
+        call       pgm(rmp030r)
+
+/*     Kaller RMPGETIFS2 som leser HentIfsW og behandler filene    */
+
+        chgvar     var(&text)   value('Call av RMPGETIFS2')
+   /*   call      pgm(RMP97C)   parm(&jobb &prog &sekv &text)   */
+
+       call       pgm(rmpgetifs2)  parm(&fgr)
+
+endcmt: /* EndCmtCtl */
+             rtvsysval  Sysval(Qtime) rtnvar(&tid)
+             if         cond(&tid < '210000') then(do)
+               dlyjob   dly(300)                 /*  5 min  */
+     /*        dlyjob   dly(120)        */       /*  2 min  */
+               goto     cmdlbl(loop)
+             enddo
+
+end:  ENDPGM

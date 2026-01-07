@@ -1,0 +1,87 @@
+             PGM        PARM(&USER)
+
+/* Initiering av parametre.                                          */
+
+             DCL        VAR(&USER) TYPE(*CHAR) LEN(10)
+
+             DCL        VAR(&NAVN) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&JOBN) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&LOGN) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&JAVA) TYPE(*CHAR) LEN(1000)
+             DCL        VAR(&STATUS) TYPE(*CHAR) LEN(1) VALUE(' ')
+             DCL        VAR(&MAILSERV) TYPE(*CHAR) LEN(35)
+             DCL        VAR(&MAILADR)  TYPE(*CHAR) LEN(50)
+             DCL        VAR(&SUBJ) TYPE(*CHAR) LEN(250) VALUE('Ny +
+                          nettbutikk ordre')
+             DCL        VAR(&INIF) TYPE(*CHAR) LEN(50) +
+                          VALUE('/java/asp/mail/ini/netordmsg.ini')
+
+             RTVJOBA    JOB(&JOBN)
+
+/* Henter mailadresse på selgeren                                         */
+
+             CALL       PGM(FB710R) PARM(&USER &NAVN &MAILADR)
+             IF         COND('X' *TCAT &MAILADR *EQ 'X') THEN(DO)
+             GOTO       CMDLBL(GENERROR)
+             ENDDO
+
+/* Henter ut mailserver                                              */
+
+             CALL       PGM(AM705C) PARM(&MAILSERV &STATUS)
+             IF         COND(&STATUS *NE ' ') THEN(DO)
+             GOTO       CMDLBL(GENERROR)
+             ENDDO
+
+/* Setter opp loggfil                                                */
+/*                                                                    */
+/*           CHKOBJ     OBJ(ADB/ALOGPF) OBJTYPE(*FILE)                */
+/*           MONMSG     MSGID(CPF0000) EXEC(CRTPF FILE(ADB/ALOGPF) +  */
+/*                        RCDLEN(200) TEXT('Java logger og +          */
+/*                        OK-membere') MAXMBRS(*NOMAX) SIZE(*NOMAX))  */
+
+/* Sletter evt. gammelt OK-member                                    */
+/*                                                                    */
+/*           RMVM       FILE(ADB/ALOGPF) MBR(&JOBN)                   */
+/*           MONMSG     MSGID(CPF0000)                                */
+
+/* Setter opp loggmember i loggfil                                   */
+/*                                                                    */
+/*           CHGVAR     VAR(&LOGN) VALUE('M' *TCAT &JOBN)             */
+/*           ADDPFM     FILE(ADB/ALOGPF) MBR(&LOGN) TEXT('Java +      */
+/*                        loggfil. Sending av mail ved nettordre')    */
+/*           MONMSG     MSGID(CPF0000) EXEC(CLRPFM FILE(ADB/ALOGPF) + */
+/*                        MBR(&LOGN))                                 */
+
+/* Setter sammen Java kommandoen                                           */
+
+             CHGVAR     VAR(&JAVA) VALUE('java asp.mail.SendMail2 +
+                          -server' *TCAT &MAILSERV *BCAT '-to' +
+                          *TCAT &MAILADR *BCAT '-from' *TCAT +
+                          &MAILADR *BCAT '"-subject' *TCAT &SUBJ +
+                          *TCAT '" -setupFile' *TCAT &INIF)
+
+/* Kjører Java kall for mailsending                                        */
+
+/*           OVRDBF     FILE(STDOUT) TOFILE(ADB/ALOGPF) MBR(&LOGN)         */
+             SBMJOB     CMD(QSH CMD(&JAVA)) JOB(SNDMAIL) JOBPTY(7) +
+                          OUTPTY(7)
+/*           DLTOVR     FILE(STDOUT)                                       */
+
+/* Sjekker om Java gikk bra. Sender også standard melding hvis ikke        */
+
+/*           RMVM       FILE(ADB/ALOGPF) MBR(&JOBN)                        */
+/*           MONMSG     MSGID(CPF0000) EXEC(DO)                            */
+/*           GOTO       CMDLBL(GENERROR)                                   */
+/*           ENDDO                                                         */
+
+/* Sletter java loggfilen hvis alt gikk bra                                */
+
+/*           RMVM       FILE(ADB/ALOGPF) MBR(&LOGN)                        */
+
+ END:        RETURN
+
+ GENERROR:
+             SNDMSG     MSG('Nettbutikk ordre klar for import') +
+                          TOUSR(&USER)
+             MONMSG     MSGID(CPF0000)
+             ENDPGM

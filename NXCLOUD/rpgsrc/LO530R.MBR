@@ -1,0 +1,599 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : LO530R
+      * Beskrivelse . . : Spørring på bestilling (ikke bekr./pr. bruker)
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       251005 GRO  Nytt program
+      *       071105 HKO  Utvidet subfile-størrelse
+      *                   Lagt inn fornying av subfile etter overgang til
+      *                   bestilling
+5.60  *       010208 bof  Tester at det bare kommer B (beh.kode=1)
+6.10  *       090810 bof  Lagt inn valg på lager og leverandør
+6.nu  *       250514 bof  Utvidet mtp. nummerutvidelse
+7.xx  * 7.00  020216 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = avslutt
+      *       10 = Roll
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       16 = Readc 16 on, no more records
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flohel1    if   e           k disk    rename(lohepfr:lohel1r)
+     floheld    if   e           k disk    rename(lohepfr:loheldr)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+5.60 fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+      *
+     flo530d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av LDA
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+6.10 d l_lage               1001   1002  0
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d lohel1_numm     s                   like(lonumm)
+     d lohel1_suff     s                   like(losuff)
+     d rlevl1_levr     s                   like(rllevr)
+     d loheld_bdat     s                   like(lobdat)
+5.60 d votyl1_otyp     s                   like(vaotyp)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d b_forn          s              1    inz(*off)
+      *
+     d w_firm          s                   like(lofirm)
+     d w_user          s                   like(louser)
+     d w_bdat          s                   like(lobdat)
+     d w_benr          s                   like(lonumm)
+     d w_suff          s                   like(losuff)
+     d w_lpro          s              1
+6.10 d w_stat          s              1
+6.10 d w_jkod          s                   like(lolage)
+6.10 d w_jtxt          s             30
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(16)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_srrn - Relativt recordnummer i subfile
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * w_virn - Vis den side som inneholder denne record.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * A1BLD  - A1 Valg av bruker/best.dato
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * A1BLD Sjekk om meldingstype er fast eller skal velges
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     c                   eval      a1user = l_user
+     c     *dmy          move      w_bdat        a1bdat
+      *
+6.10 c                   exsr      xa1win
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      loheld_bdat = *loval
+     c     loheld_key    setll     loheld
+      *
+     c                   exsr      crt_subfile
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+6.10 c                   when      *inka
+6.10 c                   exsr      xa1win
+6.10 c                   exsr      forny
+6.10 c                   goto      b2taga
+     c                   when      *inkc or *inkl
+     c                   goto      end_pgm
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   endsl
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     end_pgm       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+6.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.10  * Subrutine for filter bildet
+6.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.10  *
+6 10 c     xa1win        begsr
+6.10  *
+6.10 c     a1tagb        tag
+6.10 c                   exfmt     a1bld
+6.10  *
+6.10  * Behandling av funksjonstaster
+6.10  *
+6.10 c                   select
+6.10 c                   when      *inkc or *inkl
+6.10 c                   goto      end_pgm
+6.10 c                   when      *inkd
+6.10 c                   exsr      spØrring
+6.10 c                   goto      a1tagb
+6.10 c                   endsl
+6.10  *
+6.10 c                   if        a1bdat <> 0
+6.10 c     *dmy          test(d)                 a1bdat                 31
+6.10 c                   if        *in31  = *on
+6.10 c                   goto      a1tagb
+6.10 c                   endif
+6.10 c                   endif
+6.10  *
+6.10  * validering lager
+6.10 c                   if        a1lage <> 0
+6.10 c                   eval      w_jkod = a1lage
+6.10 c                   call      'RS710R  '
+6.10 c                   parm                    w_stat
+6.10 c                   parm                    w_jkod
+6.10 c                   parm                    w_jtxt
+6.10 c                   if        w_stat <> *blank
+6.10 c                   eval      *in32  = *on
+6.10 c                   goto      a1tagb
+6.10 c                   endif
+6.10 c                   endif
+6.10  * validering leverandør
+6.10 c                   if        a1ldor <> 0
+6.10 c                   eval      rlevl1_levr = a1ldor
+6.10 c     rlevl1_key    chain     rlevl1r
+6.10 c                   if        not %found
+6.10 c                   eval      *in33  = *on
+6.10 c                   goto      a1tagb
+6.10 c                   endif
+6.10 c                   endif
+6.10  *
+6.10 c                   eval      w_user = a1user
+6.10  *
+6.10 c                   if        a1bdat <> *zero
+6.10 c     *dmy          move      a1bdat        w_bdat
+6.10 c                   else
+6.10 c                   eval      w_bdat = *loval
+6.10 c                   endif
+6.10  *
+6.10 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   eval      loheld_bdat = b1bdat
+     c                   else
+     c                   eval      loheld_bdat = *loval
+     c                   endif
+      *
+     c     loheld_key    setll     loheld
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+     c                   eval      b_forn = *off
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+      * Beholder eksisterende posisjonering i subfilen
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_virn = w_srrn
+      *
+      * Se på detaljer i bestilling
+      *
+     c                   if        b1valg = 5
+     c                   exsr      vis_best
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Gå til endring/best.
+      *
+     c                   if        b1valg = 2
+     c                   exsr      ovg_best
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for overgang til bestillingssystem (endr.)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     ovg_best      begsr
+      *
+     c                   eval      w_benr = b1numm
+     c                   eval      w_lpro = *blank
+      *
+     c                   call      'LO500R'
+     c                   parm                    w_benr
+     c                   parm                    w_lpro
+      *
+     c                   eval      b_forn = *on
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for overgang til bestillingsvisning (direkte)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     vis_best      begsr
+      *
+     c                   eval      w_benr = b1numm
+     c                   eval      w_suff = b1suff
+      *
+     c                   call      'LO505R'
+     c                   parm                    w_firm
+     c                   parm                    w_benr
+     c                   parm                    w_suff
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      loheld
+      *
+     c                   if        %eof or
+     c                             lofirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   if        w_bdat <> *loval
+     c                   if        lobdat > w_bdat
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+     c                   endif
+      *
+     c                   if        w_user <> *blank and
+     c                             louser <> w_user
+     c                   iter
+     c                   endif
+      *
+6.10  * sjekk på lager
+6.10  *
+6.10 c                   if        a1lage <> 0  and
+6.10 c                             lolage <> a1lage
+6.10 c                   iter
+6.10 c                   endif
+6.10  *
+6.10  * sjekk på leverandør
+6.10  *
+6.10 c                   if        a1ldor <> 0  and
+6.10 c                             loldor <> a1ldor
+6.10 c                   iter
+6.10 c                   endif
+      *
+      * Sjekk på bekreftet leveringsdato
+      *
+     c                   if        lomoda <> *loval
+     c                   iter
+     c                   endif
+5.60  *
+5.60  * Sjekk på det er beh.kode 1 på ordretype
+5.60  *
+5.60  *
+5.60 c                   eval      votyl1_otyp = lootyp
+5.60 c     votyl1_key    chain     votyl1
+5.60 c                   if        vaoakk <> 1
+5.60 c                   iter
+5.60 c                   endif
+      *
+     c                   eval      b1valg = 0
+      *
+     c                   if        lobdat <> *loval
+     c     *dmy          move      lobdat        b1beda
+     c                   endif
+      *
+     c                   eval      *in30 = *off
+     c                   eval      b1numm = lonumm
+     c                   eval      b1suff = losuff
+     c                   eval      b1otyp = lootyp
+      *
+     c                   eval      rlevl1_levr = loldor
+     c     rlevl1_key    chain     rlevl1r
+     c                   if        %found
+     c                   eval      b1levr = rlnavn
+     c                   else
+     c                   eval      b1levr = *blank
+     c                   endif
+      *
+     c                   eval      b1ladr = lonavn
+     c                   eval      b1salg = lototi - lototr
+      *
+     c                   eval      w_srrn = w_srrn + 1
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c     end_crt       tag
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     loheld_key    setgt     loheld
+     c                   readp     loheld
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     loheld
+      *
+     c                   if        %eof or
+     c                             lofirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   if        w_bdat <> *loval
+     c                   if        lobdat > w_bdat
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+     c                   endif
+      *
+     c                   if        w_user <> *blank and
+     c                             louser <> w_user
+     c                   iter
+     c                   endif
+      *
+      * Sjekk på bekreftet leveringsdato
+      *
+     c                   if        lomoda <> *loval
+     c                   iter
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      loheld_bdat = lobdat
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     loheld_key    setll     loheld
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_bck       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+6.10  *
+6.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.10  * Subrutine for å spørring på leverrandr
+6.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.10  *
+6.10 c     spØrring      begsr
+6.10  *
+6.10  * leverandør
+6.10  *
+6.10 c                   if        w_actf = 'A1LDOR'
+6.10 c                   call      'RL500R'
+6.10 c                   parm                    w_firm
+6.10 c                   parm                    a1LDOR
+6.10 c                   parm                    w_jtxt
+6.10 c                   leavesr
+6.10 c                   endif
+6.10  *
+6.10 c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Key for les av BESTILLING-HODE
+      *
+     c     lohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lohel1_numm
+     c                   kfld                    lohel1_suff
+      *
+      *  Key for les av BESTILLING-HODE (best.dato)
+      *
+     c     loheld_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    loheld_bdat
+      *
+      * Key for leverandørgister
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+5.60  *
+5.60  * Key for oppslag på ordretype
+5.60  *
+5.60 c     votyl1_key    klist
+5.60 c                   kfld                    w_firm
+5.60 c                   kfld                    votyl1_otyp
+      *
+      * Henter firmanummer/bruker fra LDA
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      w_user = l_user
+6.10 c                   eval      a1lage = l_lage
+6.10 c                   eval      a1ldor = 0
+      *
+      * Setter initiell best.dato (d.d. minus 2 dgr)
+      *
+     c                   time                    w_bdat
+     c                   subdur    2:*d          w_bdat
+      *
+     c                   endsr
+      *

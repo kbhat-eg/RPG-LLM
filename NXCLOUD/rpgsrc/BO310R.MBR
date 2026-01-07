@@ -1,0 +1,504 @@
+      /TITLE  ASSHOP Vise bong/butikkfaktura
+     h decedit('0,')
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASSHOP
+      * Program . . . . : BO310R
+      * Beskrivelse . . : Vise bong/butikkfaktura
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       260698 HKO  Nytt program
+5.30  * R5.30 131004 HFL  I bonghode og linje er bongnr. 12A.
+6.31  * R5.30 150317 bof  feilretting salgspris (netto)
+7.xx  * 7.00  010216 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+7.01  * 7.00  041119 bkv  Vasker vekk probl Newlook tegn
+8.01  *       100823 bof  Takle CK med rabatter
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       16 = Readc 16 on, no more records
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fbohel1    if   e           k disk    rename(bohepfr:bohel1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     fbodtl1    if   e           k disk    rename(bodtpfr:bodtl1r)
+     fvpkol1    if   e           k disk    rename(vpkopfr:vpkol1r)
+8.01 fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+      *
+     fbo310d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Definering av datastrukturer
+      *
+      *  Datastruktur for detaljlinje
+      *
+     d                 ds
+     d d_text                        77
+     d  d_vare                        8    overlay(d_text)
+7.xx d  c_sep0                        1    overlay(d_text:9)  inz(x'20')
+     d  d_tek1                       30    overlay(d_text:10)
+7.xx d  c_sep1                        1    overlay(d_text:40) inz(x'20')
+7.xx d  d_anta                       12    overlay(d_text:41)
+7.xx d  c_sep2                        1    overlay(d_text:53) inz(x'20')
+     d  d_enh1                        3    overlay(d_text:54)
+7.xx d  c_sep3                        1    overlay(d_text:57) inz(x'20')
+     d  d_raba                        6    overlay(d_text:58)
+7.xx d  c_sep4                        1    overlay(d_text:64) inz(x'20')
+     d  d_sums                       13    overlay(d_text:65)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(bofirm)
+     d p_aarr          s                   like(boaarr)
+     d p_wsid          s                   like(bowsid)
+5.30 d p_numm          s                   like(bobong)
+      *
+      * Definering av variabler i nøkler
+      *
+     d rkunl1_kund     s                   like(rkkund)
+     d vpkol1_pkod     s                   like(vapkod)
+8.01 d votyl1_otyp     s                   like(vaotyp)
+      *
+      * Definering av variable
+      *
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d b_forn          s              1    inz(*off)
+     d w_raba          s              5  2
+     d w_csts          s              1
+     d w_ctx2          s             20
+      *
+     d w_firm          s                   like(bofirm)
+     d w_aarr          s                   like(boaarr)
+     d w_wsid          s                   like(bowsid)
+5.30 d w_numm          s                   like(bobong)
+     d w_bdat          s                   like(bobdat)
+     d w_ffda          s                   like(boffda)
+6.31 d w_sums          s                   like(bdsums)
+7.01 d w_len           s              3  0
+7.01 d w_teller        s              3  0
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(6)
+7.xx d c_sepg          c                   const(X'20')
+      *
+      /EJECT
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_srrn - Relativt recordnummer i subfile
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * wvisrn - Vis den side som inneholder denne record.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Fyller control-bildet
+      *
+     c                   exsr      control_init
+      *
+      * Fyller subfile
+      *
+     c     bodtl1_key    setll     bodtl1
+     c                   exsr      crt_subfile                                  CRT SFL
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile                                  DSP SFL
+      *
+      * Behandling av standard funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile                                  CRT SFL
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on                                  CRT SFL
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å initierer/fylle opp control-bildet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     control_init  begsr
+      *
+      * Finner bong-hode
+      *
+     c     bohel1_key    chain     bohel1                             90
+     c                   if        *in90 = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Fyller bildet
+      *
+     c                   eval      b2kund = bokund
+     c                   eval      b2navn = bonavn
+     c                   eval      b2adr1 = boadr1
+     c                   eval      b2sted = bosted
+     c                   eval      b2wsid = bowsid
+     c                   eval      b2otyp = bootyp
+5.30 c                   eval      b2numm = bobong
+     c                   eval      b2binr = bobinr
+     c                   eval      b2time = 0
+     c                   eval      b2selg = boselg
+     c                   eval      b2lmtx = bolmtx
+     c                   eval      b2tots = botots
+      *
+     c                   if        botime <> *loval
+     c     *hms          move      botime        b2time
+     c                   endif
+      *
+     c                   if        bobinr <> 0
+     c                   eval      w_bdat = bofkda
+     c     *dmy          move      bofkda        b2bdat
+     c                   if        boffda <> *loval
+     c     *dmy          move      boffda        b2ffda
+     c                   else
+     c                   move      *zeros        b2ffda
+     c                   endif
+     c                   else
+     c                   eval      w_bdat = bobdat
+     c     *dmy          move      bobdat        b2bdat
+     c                   endif
+8.01  * Hent opplysninger fra ORDRETYPE-REGISTER
+8.01  *
+8.01 c                   eval      votyl1_otyp = bootyp
+8.01 c     votyl1_key    chain     votyl1r                            90
+      *
+      * Henter kundenavn
+      *
+     c                   if        bokund <> 0
+     c                   eval      rkunl1_kund = bokund
+     c     rkunl1_key    chain     rkunl1                             90
+     c                   if        *in90 = *off
+     c                   eval      b2knav = rknavn
+     c                   eval      b2kgat = rkgate
+     c                   eval      b2kste = rksted
+     c                   endif
+     c                   endif
+      *
+      * Hente inn betalingsbetingelser
+      *
+     c                   call      'FÅ703R'
+     c                   parm                    w_firm
+     c                   parm                    bobetb
+     c                   parm                    w_bdat
+     c                   parm                    w_csts
+     c                   parm                    w_ffda
+     c                   parm                    b2ctxt
+     c                   parm                    w_ctx2
+      *
+     c                   endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c     bodtl1_key    setll     bodtl1
+      *
+     c                   exsr      clr_subfile                                  TØM SFL
+     c                   exsr      crt_subfile                                  CRT SFL
+      *
+     c     end_forny     endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+      * Beholder eksisterende posisjonering i subfilen
+      *
+     c                   if        wcurrn > 0
+     c                   eval      wvisrn =  wcurrn
+     c                   endif
+      *
+      * Leser og behandler subfile
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl                                  16
+      *
+     c                   if        *in16
+     c                   leave
+     c                   endif
+      *
+      * Vise
+      *
+     c                   if        b1valg = '5'
+     c                   call      'BO311R'
+     c                   parm                    w_firm
+     c                   parm                    w_aarr
+     c                   parm                    w_wsid
+     c                   parm                    w_numm
+     c                   parm                    b1line
+     c                   eval      b1valg = *blank
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil                     SFL END
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c     bodtl1_key    reade     bodtl1                                 15
+      *
+     c                   if        *in15                                        EOF
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1line = bdline
+     c                   eval      b1text = *blank
+      *
+8.01 c                   if        vaokre = '-'
+8.01 c                   mult      -1            bdsums
+8.01 c                   endif
+8.01  *
+     c                   eval      d_anta = %editc(bdanta : 'M')
+6.31 c                   eval      w_sums = bdsums - bdrbe1
+6.31 c                                             - bdrbe2
+6.31 c                                             - bdorbe
+6.31 c                   eval      d_sums = %editc(w_sums : 'M')
+      *
+     c                   eval      d_vare = bdvare
+     c                   eval      d_tek1 = bdtek1
+     c                   eval      d_enh1 = bdenh1
+     c                   eval      d_raba = *blank
+      *
+     c                   eval(h)   w_raba = bdrab1 +
+     c                                      ((100 - bdrab1) * bdrab2 / 100)
+      *
+     c                   if        w_raba <> 0
+     c                   eval      d_raba = %editc(w_raba : '4')
+     c                   endif
+      *
+     c                   if        w_raba = 0
+     c                   eval      vpkol1_pkod = bdkpri
+     c     vpkol1_key    chain     vpkol1                             91
+     c                   if        *in91 = *off
+     c                   move      vaptxt        d_raba
+     c                   endif
+     c                   endif
+      *
+7.01 c                   exsr      newlo_vask
+      *
+     c                   eval      b1text = d_text
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c     end_crt       tag
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      wvisrn = w_sfrn
+      *
+     c                   endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+     c                   eval      *in22 = *off
+      *
+     c                   endsr
+      *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  * Newlook vask av data
+7.01  *  Fjerner tegn som gjør at Newlook feiltolker
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01  /FREE
+7.01
+7.01   begsr newlo_vask;
+7.01     for w_teller = 1 to 5 ;
+7.01       w_len = %len(%trim(d_tek1));
+7.01       if (w_len > 0);
+7.01       d_tek1 = %ScanRpl('.':'':d_tek1:w_len); // newlook tåler ikke . på slutten
+7.01       endif;
+7.01       w_len = %len(%trim(d_tek1));
+7.01       if (w_len > 0);
+7.01       d_tek1 = %ScanRpl(':':'':d_tek1:w_len); // newlook tåler ikke : på slutten
+7.01       endif;
+7.01     endfor ;
+7.01   endsr;
+7.01  /END-FREE
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_aarr
+     c                   parm                    p_wsid
+     c                   parm                    p_numm
+      *
+      * Key for oppslag på bong-hode-register
+      *
+     c     bohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_wsid
+     c                   kfld                    w_numm
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for les på bong-detalj-register
+      *
+     c     bodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_wsid
+     c                   kfld                    w_numm
+      *
+      * Key for oppslag på priskode-register
+      *
+     c     vpkol1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vpkol1_pkod
+8.01  *
+8.01  * Key for file : ORDRETYPE-REGISTER
+8.01  *
+8.01 c     votyl1_key    klist
+8.01 c                   kfld                    w_firm
+8.01 c                   kfld                    votyl1_otyp
+      *
+      *
+      * Henter parameter-verdier
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      w_aarr = p_aarr
+     c                   eval      w_wsid = p_wsid
+     c                   eval      w_numm = p_numm
+      *
+     c                   eval      *in22 = *on
+      *
+     c                   endsr

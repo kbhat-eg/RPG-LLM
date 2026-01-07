@@ -1,0 +1,1520 @@
+pdf  h option(*nodebugio) datedit(*dmy) decedit('0.')
+pdf  h DftActgrp(*No) BndDir('CGIDEV2/CGIDEV2')
+pdf   /copy hspecsbnd
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOKON                                              *
+      * Program . . . . : RK692R                                              *
+      * Beskrivelse . . : Utskrift av generalnota                             *
+      * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+      * Spesialversjon. :                                                     *
+      * Tilpasset for . :                                                     *
+      *                                                                       *
+      * Referanse  Dato   Endringsbeskrivelse                            Sign *
+      * --------- ------  ---------------------------------------------- ---- *
+      *           130803  Lagt inn oppslag på formularregister for å     KOB  *
+      *                   styre utskrift av firmainformasjon                  *
+      * R5.20     260803  Ny løsning for å kunne benytte kortere KID     KOB
+      * R5.20     280803  Lagt inn rutine for styring av firmaopplysn.   KOB  *
+      * R5.30     090304  Lagt inn parameterdato på liste                KOB  *
+      * R5.20     120504  Kode i kid for generalnota endret fra 2 til 1. HFL  *
+T5.30 * V5.30     260804  Skrev alltid KID.                              HFL  *
+5.49  * R5.49 140206 AMD  Lagt inn dummyparameter v/call til AK700R           *
+6.10  * V6.10     220909  Lagt inn sporingsfelter                        BSA  *
+pdf   * R6.10 141010 BSA  Lagt inn Jasper/xml utskrift                        *
+6.11  * R6.10 221010 bsa  Kaller eget program for scann av tegn.
+6.12  * R6.10 041110 bsa  Div. manglende info.
+6.14  * R6.10 280612 bsa  Firmanavn konverteres for mange ganger
+6.20  * R6.20 100511 bsa  Legger ut rutinetekst som metatagg.
+6.21  * R6.20 130511 bsa  Manglende scann av e-mail tekst + formatering
+6.22  * R6.20 181012 bsa  Håndterer giroskuff
+6.23  * R6.20 061212 bsa  Legger ut nytt unikt refno, utvidet metatagger
+6.24  * R6.20 040113 bsa  Endret logikk for refno
+6.25  * R6.20 191212 bsa  Ikke bestandig det skal skrives ny "xml_env"
+6.25  *                   på L1 brudd.
+6.26  * R6.20 100113 bsa  Manglende firmainformasjon
+6.27  * R6.20 151013 bsa  Feil avsender på mail
+6.28  * R6.20 151113 bsa  Legger ut "Department" info i xml
+6.29  * R6.20 031214 bsa  Legger ut xml'ene i samme mappe som ved fakturering.
+6.29  *                   Da behandles de i rekkefølge.
+6.nu  * R6.30 160614 bof  Endringer i forb. nummerutvidelse
+6.nu  * R6.30 140814 nho  Endring vedr kid, sett etter FO616R                 *
+6.30  * R6.30 150914 bsa  Utvidet parameterliste til FO798R. Håndtering av
+6.30  *                   flere mailfelter.
+6.31  * 6.30  280115 bsa  Skriver til datakø for å trigge java sniffer
+6.32  * 6.30  170415 bsa  Nullstiller minne ved bruk av XML
+6.33  * 6.30  040915 bsa  Legger ut avdeling som tagg for arkiveringsformål.
+      *                                                                       *
+      * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+      *                                                                 *
+      *  BRUK AV INDIKATORER                                            *
+      *                                                                 *
+      *       KA = F1  = Valg av firma                                  *
+      *       KC = F3  = Exit                                           *
+      *                                                                 *
+      *       LR = Avslutt program                                      *
+      *       30 = Protect av felter ved vise                           *
+      *    31-59 = Varsle m/feilmeldinger/skjermindikatorer             *
+      *    60-69 = Fileindikatorer chain etc.                           *
+      *    70-79 = Arbeidsindikatorer i sub-rutiner                     *
+      *    80-89 = Arbeidsindikatorer ordinære                          *
+      *    90-99 = Benyttes ved std. sub-rutiner                        *
+      *                                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     frkw2pf    ip   e           k disk
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     frktrlu    uf   e           k disk    rename(rktrpfr:rktrlur)
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+     faforl1    if   e           k disk    rename(aforpfr:aforl1r)
+     fraa4l1    if   e           k disk    rename(raa4pfr:raa4l1r)
+     fraa4lu    uf   e           k disk    rename(raa4pfr:raa4lur)
+     frgirpf    o  a e           k disk
+     frk692p    o    e             printer infds(d_infds)
+      *
+     d rkunl1_kund     s                   like(rnkund)
+     d rktrlu_kund     s                   like(rnkund)
+     d rktrlu_bdat     s                   like(rnbdat)
+     d rktrlu_tist     s                   like(rntist)
+     d aforl1_ruti     s                   like(afruti)
+      *
+     d                 ds
+     d wkwrec                  2    192
+     d  wkfirm                        3  0 overlay(wkwrec)
+     d  wkkund                        6  0 overlay(wkwrec:4)
+     d  wknavn                       30    overlay(wkwrec:10)
+      *
+     d wksort                        64
+     d  wksfir                        3  0 overlay(wksort:40)                   Firma
+     d  wksknr                        6  0 overlay(wksort:43)                   Kunden
+6.NU d  wksamf                        8  0 overlay(wksort:49)
+     d                 ds
+     d wgkkey                  2     65
+     d  wgfirm                        2  0 overlay(wgkkey)
+     d  wgkund                        6  0 overlay(wgkkey:3)
+6.NU d  wgbiln                        8  0 overlay(wgkkey:9)
+      *
+      *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      * LOCAL DATA
+      *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     d                uds
+     d pdato                 300    305  0
+     d pbdat                          8  0
+     d praar                          4  0
+     d prper                          2  0
+     d pbtyp                          1
+     d pforf                          1
+     d pbetb                          1
+      *
+pdf  d l_poff                584    584
+pdf  d l_bach                595    635
+pdf  d l_arch                636    636  0
+pdf  d l_skje                637    637  0
+pdf  d l_land                638    638  0
+pdf  d l_exlp                639    639  0
+pdf  d l_mail                640    640  0
+      *
+     d l_ruti                800    809
+pdf  d l_outq                810    819
+pdf  d l_akop                838    843  0
+     d l_oflw                860    862  0
+pdf  d l_bgir                881    881  0
+     d l_kidk                883    883  0
+     d l_ocrk                885    885  0
+      *
+6.23 d l_wsid                901    910
+     d l_user                911    920
+pdf  d l_filg                931    933
+     d l_firm                944    946  0
+6.33 d l_avde                947    950  0
+     d l_fnav                951    980
+      *
+     d p_stat          s              1
+     d p_ckod          s              2  0
+     d p_ctxt          s             20
+     d p_ctx2          s             20
+     d p_fkda          s               d   datfmt(*iso)
+     d p_ffda          s               d   datfmt(*iso)
+     d p_rda1          s               d   datfmt(*iso)
+     d p_rda2          s               d   datfmt(*iso)
+     d p_rda3          s               d   datfmt(*iso)
+      *
+pdf  d p_mail          s              1
+pdf  d p_kund          s              6  0
+pdf  d p_kpro          s              6  0
+6.nu d p_numm          s              8  0
+6.30 d p_suff          s              2  0
+pdf  d p_selg          s              4  0
+pdf  d p_serv          s             35
+pdf  d p_kule          s              1
+pdf  d p_navn          s             30
+pdf  d p_emal          s             50
+pdf  d p_ema2          s             50
+6.30 d p_ema3          s             50
+6.30 d p_kopi          s             50
+pdf  d p_emne          s             50
+pdf  d p_txt1          s             50
+pdf  d p_txt2          s             50
+pdf  d p_txt3          s             50
+pdf  d p_txt4          s             50
+pdf  d p_pers          s             50
+pdf  d p_inif          s             40
+pdf  d p_in03          s              1
+pdf  d b_pdfp          s              1    inz(*off)
+pdf  d b_firm          s              1    inz(*off)
+pdf  d b_first         s              1    inz(*off)
+6.25 d b_xmlg          s              1    inz(*off)
+pdf  d p_ok            s              1
+6.11 d p_lr            s              1
+6.11 d p_str_in        s            512
+6.11 d p_str_out       s            512
+6.31 d p_filg          s             10
+6.31 d p_xmlf          s            256
+pdf  d x_numm          s             15
+pdf  d x_vref          s             25
+pdf  d x_betb          s             42
+pdf  d w_date          s               d   datfmt(*iso)
+pdf  d w_kode          s              1
+pdf  d w_fell          s              6
+pdf  d w_type          s              2
+pdf  d w_fast          s             10
+pdf  d w_ruti          s             10
+6.nu d*w_numm          s              6  0
+6.nu d w_numm          s              8  0
+pdf  d w_pdf           s              1  0
+pdf  d w_jnav          s             15
+pdf  d w_jkey          s             41
+pdf  d w_jtxt          s             35
+pdf  d w_pdf_ds        s            512
+pdf  d w_mtxt          s            200
+pdf  d w_jstat         s              2  0
+pdf  d w_jtext         s            200
+pdf  d w_mark          s              5
+pdf  d w_bgir          s              5
+pdf  d w_spol          s              5
+pdf  d w_land          s              9
+pdf  d w_time          s               T
+pdf  d w_str_in        s            512
+pdf  d w_str_out       s            512
+pdf  d w_x             s              3  0
+pdf  d w_path          s            256
+6.22 d w_draw1         s             25
+6.22 d w_draw2         s             25
+6.22 d w_giro          s             25
+6.22 d w_skuf          s             25
+6.22 d w_dtray         s             10
+6.22 d w_gtray         s             10
+pdf  d w_dspl          s            100
+6.11 d w_tek1          s            512
+pdf  d w_1fnav         s             50
+pdf  d w_1fad1         s             50
+pdf  d w_1fad2         s             50
+pdf  d w_1navn         s             50
+pdf  d w_1gate         s             50
+pdf  d w_1adr2         s             50
+pdf  d w_2navn         s             50
+pdf  d w_2adr1         s             50
+pdf  d w_2adr2         s             50
+pdf  d w_stxt          s             25
+6.21 d w_ptxt1         s             75
+6.21 d w_ptxt2         s             75
+6.21 d w_ptxt3         s             75
+6.21 d w_ptxt4         s             75
+6.21 d w_pemne         s             75
+6.21 d w_ppers         s             50
+6.23 d w_refn          s             50
+6.21 d crlf            c                   const(X'0d25')
+pdf   *
+pdf  d XML_Output      s            256a   Varying
+pdf  d XML_path        s            256a   Varying
+pdf  d                                     Inz('/home/asp/print/adb')
+pdf  d jasper_mal      s            256a   inz('file:/home/asp/print/maler/+
+pdf  d                                     generalnota/generalnota.jasper')
+pdf  d jasper_logo     s            256a   Varying
+pdf  d tmpdate         s               D
+pdf  d tmptime         s               T
+pdf   *
+pdf  d d_pdf_ds        ds
+pdf  d  d_xmlm                       75
+pdf  d  d_jasm                       75
+pdf  d  d_logo                       75
+pdf  d  d_path                      100
+6.31 d  d_emal                       50
+6.31 d  d_fifo                       75
+6.31 d  d_fkop                        1
+6.31 d  d_dtaq                        1
+6.31 d  d_sign                        1
+      *
+      *
+      * Informasjon fra printer-file
+      *
+     d d_infds         ds
+     d  d_linnbr             367    368B 0
+     d  d_pagnbr             369    372B 0
+      *
+      * Datastruktur for kid-feltet
+      *
+     d                 ds
+     d d_kkid                        21
+     d  d_kkus                       20    overlay(d_kkid)
+     d   d_kfir                       3  0 overlay(d_kkus)
+     d   d_kkod                       1  0 overlay(d_kkus:4)
+6.nu d   d_ktyp                       1  0 overlay(d_kkus:5)
+6.nu d   d_kled                       1  0 overlay(d_kkus:6)
+6.nu d   d_kkto                       6  0 overlay(d_kkus:7)
+6.nu d   d_kbil                       8  0 overlay(d_kkus:13)
+     d  d_kmod                        1  0 overlay(d_kkid:21)
+      *
+6.nu d*w_kidr          s              6  0
+6.nu d w_kidr          s              8  0
+     d w_ksif          s              1  0
+     d w_kkus          s             24
+     d w_kkid          s             21
+5.49 d w_kki2          s             24
+      *
+     d w_prfi          s              1  0
+     d w_ffir          s              3  0
+     d w_fnav          s             30
+     d w_fad1          s             30
+     d w_fad2          s             30
+     d w_fste          s             30
+     d w_fftx          s             30
+     d w_tfax          s              8
+     d w_ftlf          s             11
+     d w_ffax          s             11
+     d w_tbnk          s             10
+     d w_fbgi          s             13
+6.28  *
+6.28 d d_fnav          s             50
+6.28 d w_dfnav         s             50
+6.28 d d_fad1          s             50
+6.28 d w_dfad1         s             50
+6.28 d d_fad2          s             50
+6.28 d w_dfad2         s             50
+6.28 d d_fste          s             50
+6.28 d d_fftx          s             50
+6.28 d d_tfax          s              8
+6.28 d d_ftlf          s             11
+6.28 d d_ffax          s             11
+      *
+     d w_firm          s                   like(rnfirm)
+     d w_avde          s              4  0
+     d w_4sam          s                   like(ra4sam)
+     d w_aprt          s              1  0
+     d w_bdat          s              6  0
+     d w_fdat          s                   like(rnfdat)
+     d w_belØ          s             11  2
+     d w_tbel          s             11  2
+      *
+pdf   /copy prototypeb
+pdf   /copy usec
+      *
+      *  Kundeposteringer - generalnota
+     irkw2pfr
+     i                                          rnkund        l1
+      /eject
+      *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      * Data struktur
+      *++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      *
+     c     dummy         tag
+      *
+      *
+      * Test betalingsmåte
+      *
+     c   l1              do
+pdf   * PDF er aktivert
+pdf  c                   if        b_pdfp = *on
+pdf   * Hvis første gang skal vi ikke finne nytt batchnummer
+pdf  c**                 if        b_first = *off
+pdf  c                   if        l_bach <> *blank and
+pdf  c                             w_jkey = *blank
+pdf  c                   eval      w_jkey = l_bach
+pdf  c                   else
+pdf  c                   exsr      pdf_batchno
+pdf  c                   endif
+pdf  c                   exsr      pdf_logg
+pdf   * Vi skriver xml for miljø formater
+6.25 c                   if        b_xmlg = *on
+pdf  c                   exsr      xml_envm
+6.25 c                   endif
+pdf  c**                 endif
+pdf  c                   endif
+      *
+     c                   eval      page = 0
+     c                   eval      w_belØ = *zeros
+     c                   move      rnkund        rkunl1_kund
+     c     rkunl1_key    chain     rkunl1                             91
+      *
+      *  Hent inn avd. opplysninger dersom
+      *  kode for det er satt i rutineregister
+      *
+6.28  * Henter inn informasjonen uansett
+6.28 c**                 if        afprfi = 2
+     c                   eval      w_prfi = afprfi
+     c                   eval      w_ffir = w_firm
+     c                   eval      w_avde = rkavde
+      *
+     c                   call      'RÅ707R'
+     c                   parm                    w_prfi
+     c                   parm                    w_ffir
+     c                   parm                    w_avde
+     c                   parm                    w_fnav
+     c                   parm                    w_fad1
+     c                   parm                    w_fad2
+     c                   parm                    w_fste
+     c                   parm                    w_fftx
+     c                   parm                    w_tfax
+     c                   parm                    w_ftlf
+     c                   parm                    w_ffax
+     c                   parm                    w_tbnk
+     c                   parm                    w_fbgi
+6.28  * Initierer Departmentfelter
+6.28 c                   eval      d_fnav = w_fnav
+6.28 c                   eval      d_fad1 = w_fad1
+6.28 c                   eval      d_fad2 = w_fad2
+6.28 c                   eval      d_fste = w_fste
+6.28 c                   eval      d_fftx = w_fftx
+6.28 c                   eval      d_tfax = w_tfax
+6.28 c                   eval      d_ftlf = w_ftlf
+6.28 c                   eval      d_ffax = w_ffax
+      *
+6.28 c                   if        afprfi = 2
+     c                   eval      a1fnav = w_fnav
+     c                   eval      a1fad1 = w_fad1
+     c                   eval      a1fad2 = w_fad2
+     c                   eval      a1fste = w_fste
+     c                   eval      a1fftx = w_fftx
+     c                   eval      a1tfax = w_tfax
+     c                   eval      a1ftlf = w_ftlf
+     c                   eval      a1ffax = w_ffax
+     c                   eval      a1tbnk = w_tbnk
+     c                   eval      a1fbgi = w_fbgi
+      *
+      * Skal firmanavn droppes på rentenota ?
+      *
+     c                   if        w_aprt = 1
+     c                   eval      a1fnav = *blank
+     c                   eval      a1fad1 = *blank
+     c                   eval      a1fad2 = *blank
+     c                   eval      a1fste = *blank
+     c                   eval      a1fftx = *blank
+     c                   eval      a1tfax = *blank
+     c                   eval      a1ftlf = *blank
+     c                   eval      a1ffax = *blank
+     c                   eval      a1tbnk = *blank
+     c                   eval      a1fbgi = *blank
+     c                   endif
+      *
+     c                   endif
+      *
+      * Klargjør kundedata for utskrift
+      *
+     c                   move      rkkund        a1kund
+     c                   move      rknavn        a1navn
+     c                   move      rkgate        a1gate
+     c                   move      rkadr2        a1adr2
+     c                   move      rksted        a1sted
+      *
+      *  Generalnota på denne kunde
+      *  - ikke hvis negativ
+      *
+     c                   if        rksamm = 'S'
+     c                   goto      slutt
+     c                   endif
+      *
+      * Beregn forfallsdato
+      *
+     c                   if        pbetb = 'J'
+     c                   eval      p_ckod = rkbetb
+     c                   else
+     c                   eval      p_ckod = 99
+     c                   endif
+      *
+     c                   move      pbdat         p_fkda
+      *
+     c                   eval      p_ffda = *loval
+     c                   eval      p_rda1 = *loval
+     c                   eval      p_rda2 = *loval
+     c                   eval      p_rda3 = *loval
+      *
+     c                   call      'RS203R'
+     c                   parm                    p_stat
+     c                   parm                    p_ckod
+     c                   parm                    p_ctxt
+     c                   parm                    p_ctx2
+     c                   parm                    p_fkda
+     c                   parm                    p_ffda
+     c                   parm                    p_rda1
+     c                   parm                    p_rda2
+     c                   parm                    p_rda3
+      *
+     c                   move      p_ffda        w_fdat
+     c     *dmy          move      p_ffda        a1fdat
+     c                   move      pdato         a1dato
+      *
+     c                   eval      w_4sam = w_4sam + 1
+     c                   eval      a1side = 1
+      *
+pdf  c                   if        b_pdfp = *off
+     c                   write(e)  a1hdr
+pdf  c                   else
+pdf  c                   exsr      xml_firm
+pdf  c                   exsr      xml_head
+pdf  c                   endif
+      *
+     c                   enddo
+      *
+      *  Generalnota på denne kunde
+      *  - ikke hvis negativ
+      *
+     c                   if        rksamm = 'S'
+     c                   goto      slutt
+     c                   endif
+      *
+     c     *dmy          move      rnbdat        w_bdat
+      *
+pdf  c                   if        b_pdfp = *off
+     c                   write(e)  linje
+pdf  c                   else
+pdf  c                   exsr      xml_deta
+pdf  c                   endif
+      *
+      * Er det overflow ?
+      *
+     c                   if        %error = '1'
+     c                   eval      a1side = a1side + 1
+pdf  c                   if        b_pdfp = *off
+     c                   write(e)  a1hdr
+pdf  c                   endif
+     c                   endif
+      *
+      * Akkumuler til total
+      *
+     c                   eval      w_belØ = w_belØ + rnbelØ
+     c                   eval      w_tbel = w_tbel + rnbelØ
+      *
+      * Oppdater kundepostering
+      *
+     c                   move      rnfirm        w_firm
+     c                   move      rnkund        rktrlu_kund
+     c                   move      rnbdat        rktrlu_bdat
+     c                   move      rntist        rktrlu_tist
+     c     rktrlu_key    chain     rktrlu                             91
+      *
+     c                   if        *in91 = *off
+     c                   move      w_fdat        rnfdat
+     c                   move      w_4sam        rnsamf
+6.10 c                   time                    rnedat
+6.10 c                   time                    rnetim
+6.10 c                   eval      rneusr = l_user
+     c                   update    rktrlur
+     c                   endif
+      *
+     c     slutt         tag
+      *
+     cl1                 if        rksamm <> 'S'
+     cl1                 exsr      brd_kunde
+     cl1                 eval      a1side = 1
+     cl1                 endif
+      *
+      * Oppdater koderegister
+      *
+     clr                 move      praar         ra4aar
+     clr   raa4lu_key    chain     raa4lu
+      *
+     clr                 if        %found
+     clr                 move      w_4sam        ra4sam
+     clr                 update    raa4lur
+     clr                 endif
+      *
+pdf  clr                 if        b_pdfp = *off
+     clr                 write(e)  totsam
+pdf  clr                 endif
+      *
+pdf  clr                 if        b_pdfp = *on and
+pdf  c                             l_skje = 1 and
+pdf   * Kun preview hvis en ordre er valgt
+pdf  c                             l_bach = w_jkey
+pdf  clr                 exsr      pdf_preview
+pdf  clr                 endif
+      *
+      /eject
+      *                                                                 *
+      * Subrutine for brudd på kunde                                    *
+      *                                                                 *
+     c     brd_kunde     begsr
+      *
+      *
+      * Klargjør kidd
+      *
+     c                   exsr      xkidd
+      *
+      * Skriv bankgiro-fil
+      *
+     c                   exsr      skr_giro
+      *
+      * Skriv totalinje
+      *
+pdf  c                   if        b_pdfp = *off
+     c                   write(e)  total
+pdf  c                   else
+pdf  c                   if        b_first = *off
+pdf  c                   exsr      xml_totaler
+pdf  c                   endif
+pdf  c                   endif
+pdf   * Legg ut xml fila
+pdf  c                   if        b_pdfp = *on
+pdf  c                   if        b_first = *off
+pdf  c                   exsr      xml_end
+pdf  c                   endif
+pdf   * Avslutt jobbiden
+pdf  c                   call      'AB710R'
+pdf  c                   parm                    w_jkey
+pdf  c                   endif
+      *
+      * Er det overflow ?
+      *
+     c                   if        %error = '1'
+pdf  c                   if        b_pdfp = *on
+     c                   write(e)  a1hdr
+pdf  c                   endif
+     c                   endif
+      *
+     c                   endsr
+     c/eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Skriv bankgirofil                                               *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     skr_giro      begsr
+      *
+     c                   move      rkfirm        rgfirm
+     c                   move      rkfirm        wgfirm
+     c                   move      rkkund        rgkund
+     c                   move      rkkund        wgkund
+     c                   move      w_4sam        rgbiln
+     c                   move      w_4sam        wgbiln
+     c                   eval      rgrabb = *zeros
+     c                   move      w_belØ        rgbelØ
+     c                   move      rknavn        rgnavn
+     c                   move      rkgate        rggate
+     c                   move      rkponr        rgponr
+     c                   move      rksted        rgsted
+     c                   move      rkpers        rgpers
+     c                   move      rktlfn        rgtlfn
+     c                   move      rktlfx        rgtlfx
+     c                   move      rkbgir        rgbgir
+     c                   move      rklagr        rglagr
+     c                   move      rkslgr        rgslgr
+     c                   move      rkdist        rgdist
+     c                   move      rkkatg        rgkatg
+     c                   move      rkbetb        rgbetb
+     c                   move      rkbetm        rgbetm
+     c                   move      rkfrie        rgfrie
+     c                   move      rkavde        rgavde
+     c                   move      rkftnr        rgftnr
+     c     *dmy          move      pdato         rgbdat
+     c                   move      w_fdat        rgfdat
+     c                   move      'P'           rgakti
+     c                   move      rkadr2        rgadr2
+     c                   eval      rgkkid = w_kkid
+      *
+     c                   move      wgkkey        rgkkey
+     c                   write     rgirpfr
+      *
+     c                   endsr
+     c/eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * XKIDD  Klargjør kidd                                            *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xkidd         begsr
+      *
+      * Løsning for å kunne benytte kortere kidd-nummer,
+      *
+      * Bygger opp kiddfelt (lang versjon)
+      *
+     c                   eval      d_kfir = w_firm
+E5.20c                   eval      d_kkod = 1                                   Rentenota i kid
+     c                   eval      d_kled = *zero
+6.nu c                   eval      d_ktyp = *zero
+     c                   eval      d_kkto = rkkund
+     c                   eval      d_kbil = w_4sam
+     c                   eval      w_kkus = d_kkus
+     c                   eval      w_ksif = *zero
+      *
+      * Beregning av sjekksiffer på kiddfelt (lang versjon)
+      *
+     c                   call      'AK720R'
+     c                   parm                    w_kkus
+     c                   parm                    w_ksif
+      *
+     c                   eval      d_kmod = w_ksif
+     c                   eval      w_kkid = d_kkid
+      *
+      * Oppdatering av kidd-referanse-fil
+      *
+     c                   select
+     c                   when      l_kidk = 0
+     c                   move      *blank        a5kkid
+T5.30c                   eval      w_kkid = *blanks
+T5.30c                   eval      *in88  = *on
+      *
+     c                   when      l_kidk = 1
+     c                   eval      a5kkid = %trim(w_kkid)
+      *
+     c                   when      l_kidk = 2
+     c                   call      'AK700R'
+     c                   parm                    w_firm
+     c                   parm                    w_kkid
+     c                   parm                    w_kidr
+     c                   parm                    w_ksif
+5.49 c                   parm                    w_kki2
+      *
+     c                   move      *blank        d_kkid
+     c                   move      w_kidr        d_kkus
+     c                   move      w_ksif        d_kmod
+     c                   eval      w_kkid = d_kkid
+     c                   eval      a5kkid = %trim(w_kkid)
+      *
+     c                   endsl
+      *
+     c                   endsr
+     c/eject
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf   * Subrutiner for XML/jasper integrasjon - Miljø variabler         *
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf  c     xml_envm      begsr
+pdf   * Hvis skjermvisning skal vi ikke lagre i spoolfile
+pdf  c                   if        l_skje = 1
+pdf  c                   eval      w_spol = 'true'
+pdf  c                   else
+pdf  c                   eval      w_spol = 'false'
+pdf  c                   endif
+pdf   *
+pdf   /Free
+pdf        // Finne nytt batch nummer
+pdf            UpdHTMLVar('BatchNo':               w_jkey);
+pdf            UpdHTMLVar('Batchtype':      'GENERALNOTA');
+pdf            UpdHTMLVar('Username':              l_user);
+pdf            WrtSection('Topp');
+pdf
+pdf        // Finn credentials variabler
+pdf            UpdHTMLVar('IPAdr':                  ' ');
+pdf            UpdHTMLVar('User':                l_user);
+pdf            UpdHTMLVar('PW':                     ' ');
+pdf            UpdHTMLVar('Schema':        'ADB'+l_filg);
+pdf            UpdHTMLVar('Companyno':    %char(l_firm));
+6.33           UpdHTMLVar('Departmentnoarkiv': %char(l_avde));
+pdf            WrtSection('Credential');
+pdf
+pdf        // Finn report command variabler
+pdf            UpdHTMLVar('Jaspertemplate':      d_jasm);
+pdf            UpdHTMLVar('Logo':           jasper_logo);
+pdf            UpdHTMLVar('Keepspool':           w_spol);
+pdf            WrtSection('ReportCommand');
+pdf
+pdf   /End-free
+pdf   *
+pdf   * Hvis skjermvisning skal ikke PDF skrives
+pdf  c                   if        l_skje = 0 and
+pdf  c                             l_mail = 0
+pdf   *
+pdf  c                   if        l_land = 1
+pdf  c                   eval      w_land = 'LANDSCAPE'
+pdf  c                   else
+pdf  c                   eval      w_land = 'PORTRAIT'
+pdf  c                   endif
+pdf   * Sjekk at valgt outq støttes av skriveren. Kan skli gjennom hvis
+pdf   * jobben legges på jobbkø.
+pdf  c                   eval      p_ok = '0'
+pdf  c                   call      'AP612R'
+pdf  c                   parm                    l_filg
+pdf  c                   parm                    l_outq
+pdf  c                   parm                    p_ok
+pdf   * Hvis feil utkø, logges dette i transaksjonsloggen
+pdf  c                   if        p_ok = '0'
+pdf  c                   eval      w_jstat = 20
+pdf  c                   eval      w_jtext = 'Ugyldig utkø '+ l_outq + ' er val+
+pdf  c                             gt. Ingen utskrift er generert. Utskrift kan+
+pdf  c                              arkiveres.'
+pdf  c                   call      'AB705R'
+pdf  c                   parm                    w_jkey
+pdf  c                   parm                    w_jstat
+pdf  c                   parm                    w_jtext
+pdf  c                   else
+pdf   * Hent inn skuffinformasjon for skriveren
+6.22 c                   eval      w_dtray = *blank
+6.22 c                   eval      w_gtray = *blank
+pdf  c                   call      'AP611R'
+pdf  c                   parm                    l_filg
+pdf  c                   parm                    l_outq
+6.22 c                   parm                    w_dtray
+6.22 c                   parm                    w_gtray
+6.22  * Hent inn skuffinformasjon for skriveren - default inskuff
+6.22 c                   eval      w_draw1 = *blank
+6.22 c                   movel     w_dtray       w_skuf
+6.22 c                   call      'AP614R'
+6.22 c                   parm                    l_outq
+6.22 c                   parm                    w_skuf
+6.22 c                   parm                    w_draw1
+6.22  * Hent inn skuffinformasjon for skriveren - giroskuff
+6.22 c                   eval      w_draw2 = *blank
+6.22 c                   movel     'GIROSKUFF'   w_giro
+6.22 c                   call      'AP614R'
+6.22 c                   parm                    l_outq
+6.22 c                   parm                    w_giro
+6.22 c                   parm                    w_draw2
+6.12  *
+6.12 c                   if        l_akop = 0
+6.12 c                   eval      l_akop = 1
+6.12 c                   endif
+pdf   *
+pdf   /Free
+pdf        // Finn print informasjon
+pdf            UpdHTMLVar('Printername':         l_outq);
+pdf            UpdHTMLVar('Copies':       %char(l_akop));
+pdf            UpdHTMLVar('Papersource':        w_draw1);
+pdf            UpdHTMLVar('Lastpagedrawer':     w_draw2);
+pdf            UpdHTMLVar('Duplex':             'false');
+pdf            UpdHTMLVar('Quality':                ' ');
+pdf            UpdHTMLVar('Sorting':                ' ');
+pdf            UpdHTMLVar('Staple':              'true');
+pdf            UPDHTMLVar('Alignment':           w_land);
+pdf            WrtSection('PrintCommand');
+pdf   /End-free
+pdf  c                   endif
+pdf  c                   endif
+pdf   *
+pdf   * Hvis mail skal skrives, må vi hente mail informasjon
+pdf   *
+pdf  c                   if        l_mail = 1
+pdf  c                   eval      p_kule = *blank
+pdf  c                   eval      p_kund = a1kund
+pdf  c                   eval      p_kpro = *zero
+pdf  c                   eval      p_numm = *zero
+6.30 c                   eval      p_suff = *zero
+pdf  c                   eval      p_selg = *zero
+pdf   * Henter tilbake mailserver
+pdf  c                   eval      p_serv = *blank
+pdf  c                   eval      p_stat = *blank
+pdf  c                   call      'AM705C'
+pdf  c                   parm                    p_serv
+pdf  c                   parm                    p_stat
+pdf   *
+6.21 c                   eval      p_in03 = *off
+pdf  c                   call      'FO798R'
+pdf  c                   parm                    p_kule
+pdf  c                   parm                    p_kund
+pdf  c                   parm                    p_kpro
+pdf  c                   parm                    p_numm
+6.30 c                   parm                    p_suff
+pdf  c                   parm                    p_selg
+pdf  c                   parm                    p_navn
+pdf  c                   parm                    p_emal
+6.30 c                   parm                    p_ema2
+6.30 c                   parm                    p_ema3
+pdf  c                   parm                    p_emne
+pdf  c                   parm                    p_txt1
+pdf  c                   parm                    p_txt2
+pdf  c                   parm                    p_txt3
+pdf  c                   parm                    p_txt4
+pdf  c                   parm                    p_pers
+6.30 c                   parm                    p_kopi
+pdf  c                   parm                    p_inif
+pdf  c                   parm                    p_in03
+6.21  * Scann av strenger
+6.21  *
+6.21 c                   eval      p_str_in = *blank
+6.21 c                   eval      p_lr = '0'
+6.21 c                   movel     p_emne        p_str_in
+6.21 c                   call      'AP613R'
+6.21 c                   parm                    p_str_in
+6.21 c                   parm                    p_str_out
+6.21 c                   parm                    p_lr
+6.21 c                   movel     p_str_out     w_pemne
+6.21  * Scann av strenger
+6.21  *
+6.21 c                   eval      p_str_in = *blank
+6.21 c                   eval      p_lr = '0'
+6.21 c                   movel     p_txt1        p_str_in
+6.21 c                   call      'AP613R'
+6.21 c                   parm                    p_str_in
+6.21 c                   parm                    p_str_out
+6.21 c                   parm                    p_lr
+6.21 c                   movel     p_str_out     w_ptxt1
+6.21  *
+6.21 c                   eval      p_str_in = *blank
+6.21 c                   eval      p_lr = '0'
+6.21 c                   movel     p_txt2        p_str_in
+6.21 c                   call      'AP613R'
+6.21 c                   parm                    p_str_in
+6.21 c                   parm                    p_str_out
+6.21 c                   parm                    p_lr
+6.21 c                   movel     p_str_out     w_ptxt2
+6.21  *
+6.21 c                   eval      p_str_in = *blank
+6.21 c                   eval      p_lr = '0'
+6.21 c                   movel     p_txt3        p_str_in
+6.21 c                   call      'AP613R'
+6.21 c                   parm                    p_str_in
+6.21 c                   parm                    p_str_out
+6.21 c                   parm                    p_lr
+6.21 c                   movel     p_str_out     w_ptxt3
+6.21  *
+6.21 c                   eval      p_str_in = *blank
+6.21 c                   eval      p_lr = '0'
+6.21 c                   movel     p_txt4        p_str_in
+6.21 c                   call      'AP613R'
+6.21 c                   parm                    p_str_in
+6.21 c                   parm                    p_str_out
+6.21 c                   parm                    p_lr
+6.21 c                   movel     p_str_out     w_ptxt4
+6.21  *
+6.21 c                   eval      p_str_in = *blank
+6.21 c                   eval      p_lr = '0'
+6.21 c                   movel     p_pers        p_str_in
+6.21 c                   call      'AP613R'
+6.21 c                   parm                    p_str_in
+6.21 c                   parm                    p_str_out
+6.21 c                   parm                    p_lr
+6.21 c                   movel     p_str_out     w_ppers
+6.21  *
+6.21 c                   eval      w_mtxt = %trim(w_ptxt1) + crlf +
+6.21 c                                      %trim(w_ptxt2) + crlf +
+6.21 c                                      %trim(w_ptxt3) + crlf +
+6.21 c                                      %trim(w_ptxt4) + crlf +
+6.21 c                                      %trim(w_ppers)
+6.21 c**                 eval      w_mtxt = p_txt1+p_txt2+p_txt3+p_txt4
+pdf   *
+pdf   /Free
+pdf        // Skriv mailinformasjon
+6.30           WrtSection('MailCommandStart');
+6.30       //  UpdHTMLVar('Receivers':           p_emal);
+6.30           if %Trim(p_emal)<> *blanks;
+6.30           UpdHTMLVar('Receivers':           p_emal);
+6.30           WrtSection('MailReceiver');
+6.30           endif;
+6.30           if %Trim(p_ema2)<> *blanks;
+6.30           UpdHTMLVar('Receivers':           p_ema2);
+6.30           WrtSection('MailReceiver');
+6.30           endif;
+6.30           if %Trim(p_ema3)<> *blanks;
+6.30           UpdHTMLVar('Receivers':           p_ema3);
+6.30           WrtSection('MailReceiver');
+6.30           endif;
+pdf            UpdHTMLVar('CC':                     ' ');
+6.30           UpdHTMLVar('BCC':                 p_kopi);
+6.27      //   UpdHTMLVar('Sender':              l_user);
+6.30           UpdHTMLVar('Sender':              p_kopi);
+6.21      //   UpdHTMLVar('Subject':             p_emne);
+6.21           UpdHTMLVar('Subject':             w_pemne);
+pdf            UpdHTMLVar('Message':             w_mtxt);
+pdf            UpdHTMLVar('SMTPServer':          p_serv);
+pdf            UPDHTMLVar('SMTPUser':               ' ');
+pdf            UPDHTMLVar('SMTPPw':                 ' ');
+6.30     //    WrtSection('MailCommand');
+6.30           WrtSection('MailCommandEnd');
+pdf   /End-free
+pdf  c                   endif
+pdf   *
+pdf  c                   eval      b_first = *off
+6.25 c                   eval      b_xmlg = *off
+pdf   *
+pdf  c                   endsr
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf   * Subrutiner for XML/jasper integrasjon - Heading                 *
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf  c     xml_head      begsr
+pdf   *
+pdf  c                   eval      w_str_in = *blanks
+pdf  c                   eval      w_str_out = *blanks
+pdf  c                   time                    w_time
+pdf   * Vi må oversette aktuelle tekster til "xml" tegn - Partner
+pdf  c                   eval      w_1navn = *blank
+pdf  c                   eval      w_1gate = *blank
+pdf  c                   eval      w_1adr2 = *blank
+      *
+6.13 c                   eval      p_str_in = *blank
+6.13 c                   eval      p_lr = '0'
+6.13 c                   movel     a1navn        p_str_in
+6.13 c                   call      'AP613R'
+6.13 c                   parm                    p_str_in
+6.13 c                   parm                    p_str_out
+6.13 c                   parm                    p_lr
+6.13 c                   movel     p_str_out     a1navn
+6.13 c                   movel     p_str_out     w_1navn
+      *
+6.13 c                   eval      p_str_in = *blank
+6.13 c                   eval      p_lr = '0'
+6.13 c                   movel     a1gate        p_str_in
+6.13 c                   call      'AP613R'
+6.13 c                   parm                    p_str_in
+6.13 c                   parm                    p_str_out
+6.13 c                   parm                    p_lr
+6.13 c                   movel     p_str_out     a1gate
+6.13 c                   movel     p_str_out     w_1gate
+      *
+6.13 c                   eval      p_str_in = *blank
+6.13 c                   eval      p_lr = '0'
+6.13 c                   movel     a1adr2        p_str_in
+6.13 c                   call      'AP613R'
+6.13 c                   parm                    p_str_in
+6.13 c                   parm                    p_str_out
+6.13 c                   parm                    p_lr
+6.13 c                   movel     p_str_out     a1adr2
+6.13 c                   movel     p_str_out     w_1adr2
+      *
+pdf   /Free
+pdf
+pdf        // Skriv partnerinfo (kunde)
+pdf            UpdHTMLVar('Partnerno':      %char(a1kund));
+pdf            UpdHTMLVar('Partnername':          w_1navn);
+pdf            UpdHTMLVar('Partneradress1':       w_1gate);
+pdf            UpdHTMLVar('Partneradress2':       w_1adr2);
+pdf            UpdHTMLVar('Partnerpostalcode':        ' ');
+pdf            UpdHTMLVar('Partnerpostoffice':     a1sted);
+pdf            UpdHTMLVar('Partnerphone':          rktlfn);
+pdf            UpdHTMLVar('Partnercellphone':      rkmobn);
+pdf            UpdHTMLVar('Partnerfax':            rktlfx);
+pdf
+pdf            test(de) *dmy a1fdat;
+pdf            if %error;
+pdf            tmpdate = *loval;
+pdf            else;
+pdf            tmpdate = %date(a1fdat : *dmy);
+pdf            endif;
+pdf            UpdHTMLVar('Duedate':   %char(tmpdate : *iso));
+pdf
+pdf            test(de) *dmy a1dato;
+pdf            if %error;
+pdf            tmpdate = *loval;
+pdf            else;
+pdf            tmpdate = %date(a1dato : *dmy);
+pdf            endif;
+pdf            UpdHTMLVar('Notedate':   %char(tmpdate : *iso));
+pdf            UpdHTMLVar('Bankaccount':               a1fbgi);
+pdf
+pdf            WrtSection('Partner');
+pdf
+pdf   /End-free
+pdf   *
+pdf  c                   endsr
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf   * Subrutiner for XML/jasper integrasjon - Heading                 *
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf  c     xml_firm      begsr
+pdf   *
+pdf  c                   time                    w_time
+pdf   * Vi må oversette aktuelle tekster til "xml" tegn - Firma
+pdf  c                   eval      w_1fnav = *blank
+pdf  c                   eval      w_1fad1 = *blank
+pdf  c                   eval      w_1fad2 = *blank
+6.28 c                   eval      w_dfnav = *blank
+6.28 c                   eval      w_dfad1 = *blank
+6.28 c                   eval      w_dfad2 = *blank
+      *
+6.13 c                   eval      p_str_in = *blank
+6.13 c                   eval      p_lr = '0'
+6.13 c                   movel     a1fnav        p_str_in
+6.13 c                   call      'AP613R'
+6.13 c                   parm                    p_str_in
+6.13 c                   parm                    p_str_out
+6.13 c                   parm                    p_lr
+6.14 c**                 movel     p_str_out     a1fnav
+6.13 c                   movel     p_str_out     w_1fnav
+      *
+6.13 c                   eval      p_str_in = *blank
+6.13 c                   eval      p_lr = '0'
+6.13 c                   movel     a1fad1        p_str_in
+6.13 c                   call      'AP613R'
+6.13 c                   parm                    p_str_in
+6.13 c                   parm                    p_str_out
+6.13 c                   parm                    p_lr
+6.13 c                   movel     p_str_out     a1fad1
+6.13 c                   movel     p_str_out     w_1fad1
+      *
+6.13 c                   eval      p_str_in = *blank
+6.13 c                   eval      p_lr = '0'
+6.13 c                   movel     a1fad2        p_str_in
+6.13 c                   call      'AP613R'
+6.13 c                   parm                    p_str_in
+6.13 c                   parm                    p_str_out
+6.13 c                   parm                    p_lr
+6.13 c                   movel     p_str_out     a1fad2
+6.13 c                   movel     p_str_out     w_1fad2
+6.28  *
+6.28  * Department
+6.28  *
+6.28 c                   eval      p_str_in = *blank
+6.28 c                   eval      p_lr = '0'
+6.28 c                   movel     d_fnav        p_str_in
+6.28 c                   call      'AP613R'
+6.28 c                   parm                    p_str_in
+6.28 c                   parm                    p_str_out
+6.28 c                   parm                    p_lr
+6.28 c                   movel     p_str_out     w_dfnav
+      *
+6.28 c                   eval      p_str_in = *blank
+6.28 c                   eval      p_lr = '0'
+6.28 c                   movel     d_fad1        p_str_in
+6.28 c                   call      'AP613R'
+6.28 c                   parm                    p_str_in
+6.28 c                   parm                    p_str_out
+6.28 c                   parm                    p_lr
+6.28 c                   movel     p_str_out     w_dfad1
+      *
+6.28 c                   eval      p_str_in = *blank
+6.28 c                   eval      p_lr = '0'
+6.28 c                   movel     d_fad2        p_str_in
+6.28 c                   call      'AP613R'
+6.28 c                   parm                    p_str_in
+6.28 c                   parm                    p_str_out
+6.28 c                   parm                    p_lr
+6.28 c                   movel     p_str_out     w_dfad2
+pdf  c*
+pdf   /Free
+pdf        // Skriv firmavariabler
+6.20           UpdHTMLVar('Reporttext':            aftxt1);
+pdf            UpdHTMLVar('CompanyName':          w_1fnav);
+pdf            UpdHTMLVar('Companyadress1':       w_1fad1);
+pdf            UpdHTMLVar('Companyadress2':       w_1fad2);
+pdf            UpdHTMLVar('Companypostalcode':        ' ');
+pdf            UpdHTMLVar('Companypostoffice':     a1fste);
+pdf            UpdHTMLVar('Companyphone':          a1ftlf);
+pdf            UpdHTMLVar('Companyfax':            a1ffax);
+pdf            UpdHTMLVar('Companyorgno':          a1fftx);
+pdf            UpdHTMLVar('Companygiro':           a1fbgi);
+6.26           UpdHTMLVar('Companyemail':   %trim(aamail));
+6.26           UpdHTMLVar('Companywebpage': %trim(aaweba));
+pdf            WrtSection('Company');
+6.28
+6.28           UpdHTMLVar('Departmentno':    %char(rkavde));
+6.28           UpdHTMLVar('Departmentname':        w_dfnav);
+6.28           UpdHTMLVar('Departmentadress1':     w_dfad1);
+6.28           UpdHTMLVar('Departmentadress2':     w_dfad2);
+6.28           UpdHTMLVar('Departmentpostalcode':      ' ');
+6.28           UpdHTMLVar('Departmentpostoffice':   d_fste);
+6.28           UpdHTMLVar('Departmentphone':        d_ftlf);
+6.28           UpdHTMLVar('Departmentfax':          d_ffax);
+6.28           WrtSection('Department');
+pdf
+pdf            test(de) *dmy a1dato;
+pdf            if %error;
+pdf            tmpdate = *loval;
+pdf            else;
+pdf            tmpdate = %date(a1dato : *dmy);
+pdf            endif;
+pdf            UpdHTMLVar('Creationdate':   %char(tmpdate : *iso));
+pdf
+pdf            UpdHTMLVar('Creationtime': %char(w_time : *hms));
+pdf            UpdHTMLVar('Documentno':     %char(w_4sam));
+pdf            WrtSection('Creation');
+pdf
+pdf   /End-free
+pdf   *
+pdf  c                   endsr
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf   * Subrutiner for XML/jasper integrasjon - Detaljer                *
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf  c     xml_deta      begsr
+pdf   *
+pdf  c                   eval      w_tek1 = *blank
+6.11 c                   eval      p_str_in = *blank
+6.11 c                   eval      p_lr = '0'
+6.11 c                   movel     rntext        p_str_in
+6.11 c                   call      'AP613R'
+6.11 c                   parm                    p_str_in
+6.11 c                   parm                    p_str_out
+6.11 c                   parm                    p_lr
+6.11 c                   movel     p_str_out     w_tek1
+pdf   *
+pdf   /Free
+pdf        // Skriv detaljer
+pdf            test(de) *dmy w_bdat;
+pdf            if %error;
+pdf            tmpdate = *loval;
+pdf            else;
+pdf            tmpdate = %date(w_bdat : *dmy);
+pdf            endif;
+pdf            UpdHTMLVar('Notedate':    %char(tmpdate : *iso));
+pdf            UpdHTMLVar('Notenumber':   %char(rnbiln));
+pdf            UpdHTMLVar('Period':       %char(rnrper));
+pdf            UpdHTMLVar('Text':               w_tek1);
+pdf            UpdHTMLVar('Amount':       %char(rnbelØ));
+pdf            WrtSection('Line');
+pdf
+pdf   /End-free
+pdf   *
+pdf  c                   endsr
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf   * Subrutiner for XML/jasper integrasjon - Totaler                 *
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf  c     xml_totaler   begsr
+pdf   *
+pdf  c                   eval      w_bgir = *blanks
+pdf  c                   if        l_bgir = 0
+pdf  c                   eval      w_bgir = 'false'
+pdf  c                   else
+pdf  c                   eval      w_bgir = 'true'
+pdf  c                   endif
+pdf  c                   eval      w_stxt = '*  Totalbeløp inkl. mva'
+pdf   *
+pdf   /Free
+pdf        // Skriv totallinje
+pdf            UpdHTMLVar('Kidno':                     a5kkid);
+pdf            UpdHTMLVar('Sumnotetext':              (w_stxt));
+pdf            UpdHTMLVar('Sumnote':             %char(w_belØ));
+pdf            UpdHTMLVar('Printgiro':                 w_bgir);
+pdf            WrtSection('TotalNotes');
+pdf
+pdf   /End-free
+pdf   *
+pdf  c                   endsr
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf   * Subrutiner for XML/jasper integrasjon - Slutt                   *
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf  c     xml_end       begsr
+pdf   *
+pdf   * Hvis denne ikke skal arkiveres, lages ikke archive tagg.
+pdf   *
+pdf  c                   if        l_arch = 1
+pdf   * Lag tag for vising i arkivklienten
+pdf  c                   eval      w_dspl = *blank
+6.23 c                   eval      w_dspl = 'Generalnota: ' + %char(w_4sam) +
+pdf  c                             ' Kunde: ' +  %trim(%char(a1kund) + ' - ' +
+pdf  c                             %trim(a1navn) + '  Beløp ' + %char(w_belØ))
+pdf   *
+6.11 c                   eval      p_str_in = *blank
+6.11 c                   eval      p_lr = '0'
+6.11 c                   movel     w_dspl        p_str_in
+6.11 c                   call      'AP613R'
+6.11 c                   parm                    p_str_in
+6.11 c                   parm                    p_str_out
+6.11 c                   parm                    p_lr
+6.11 c                   movel     p_str_out     w_dspl
+6.23  * Referansetagg
+6.23 c                   eval      w_refn = *blank
+6.24 c**                 eval      w_refn = 'GN-' + %char(w_4sam) +
+6.24 c**                           '-' + %char(%subdt(w_date:*years))
+6.24 c                   eval      w_refn = %char(%subdt(w_date:*years)) +
+6.24 c                             %char(w_4sam)
+pdf   /Free
+pdf
+6.23           UpdHTMLVar('Refno':          %trim(w_refn));
+pdf            UpdHTMLVar('Displaytag':     %trim(w_dspl));
+pdf            WrtSection('ArchiveCommandStart');
+pdf
+pdf            UpdHTMLVar('Metavalue':       %char(w_4sam));
+pdf            UpdHTMLVar('Metakey':          'NOTANUMMER');
+pdf            WrtSection('MetaTag');
+pdf
+pdf            UpdHTMLVar('Metavalue':      %char(a1kund));
+pdf            UpdHTMLVar('Metakey':         'KUNDENUMMER');
+pdf            WrtSection('MetaTag');
+pdf
+6.11           UpdHTMLVar('Metavalue':            w_1navn);
+pdf            UpdHTMLVar('Metakey':          'KUNDENAVN');
+pdf            WrtSection('MetaTag');
+pdf
+pdf            UpdHTMLVar('Metavalue':      %char(w_belØ));
+pdf            UpdHTMLVar('Metakey':              'BELOP');
+pdf            WrtSection('MetaTag');
+pdf
+pdf            UpdHTMLVar('Metavalue':             l_user);
+pdf            UpdHTMLVar('Metakey':             'BRUKER');
+pdf            WrtSection('MetaTag');
+pdf
+pdf            UpdHTMLVar('Metavalue': %char(w_date:*iso));
+pdf            UpdHTMLVar('Metakey':               'DATO');
+pdf            WrtSection('MetaTag');
+6.20
+6.20           UpdHTMLVar('Metavalue':             aftxt1);
+6.20           UpdHTMLVar('Metakey':         'RUTINETEKST');
+6.20           WrtSection('MetaTag');
+6.23
+6.23           UpdHTMLVar('Metavalue':             l_ruti);
+6.23           UpdHTMLVar('Metakey':             'RUTINE');
+6.23           WrtSection('MetaTag');
+6.23
+6.23           UpdHTMLVar('Metavalue':      %char(l_firm));
+6.23           UpdHTMLVar('Metakey':              'FIRMA');
+6.23           WrtSection('MetaTag');
+6.23
+6.23           UpdHTMLVar('Metavalue':             l_wsid);
+6.23           UpdHTMLVar('Metakey':             'SKJERM');
+6.23           WrtSection('MetaTag');
+6.23
+pdf            WrtSection('ArchiveCommandEnd');
+pdf   /End-free
+pdf   *
+pdf  c                   endif
+pdf   *
+pdf   * Skriv xmlfila til disk
+pdf   /Free
+pdf            WrtSection('Footer');
+pdf   /End-free
+6.29 c                   if        %trim(d_fifo) = *blanks
+pdf  c                   eval      XML_Output = XML_path + l_filg +'/'+
+pdf  c                             'Gnota_'+ %trim(w_jkey) + '.xml'
+6.29 c                   else
+6.29 c                   eval      XML_Output = %trim(d_fifo) + '/'+
+6.29 c                             'Gnota_'+ %trim(w_jkey) + '.xml'
+6.29 c                   endif
+pdf   *
+pdf  c                   callp     WrtHtmlToStmf(XML_Output: 819)
+6.31  * Skriver til datakø for å aktivere sniffer, hvis dataq er aktiv
+6.31 c                   if        d_dtaq = '1'
+6.31 c                   eval      p_xmlf = xml_output
+6.31 c                   eval      p_filg = 'ADB'+l_filg
+6.31 c                   call      'AP629C'
+6.31 c                   parm                    p_filg
+6.31 c                   parm                    p_xmlf
+6.31 c                   endif
+pdf   * Ikke lenger første xml
+pdf  c**                 eval      b_first = *off
+6.25 c                   eval      b_xmlg = *on
+pdf   *
+pdf  c                   endsr
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf   * Subrutiner for XML/jasper integrasjon - Skjermvisning           *
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+pdf  c     pdf_preview   begsr
+pdf   * Vi kaller program for launch av PDF i browser
+pdf  c                   call      'AP621R'
+pdf  c                   parm                    w_jkey
+pdf   *
+pdf  c                   endsr
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+pdf   * Subrutine for etablering av batchnummer
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+pdf   *
+pdf  c     pdf_batchno   begsr
+pdf   *
+pdf   * Vi starter med logging av jobb, og får tilbake unik jobbid.
+pdf   * Først få jobbnummer
+pdf   *
+pdf  c                   eval      w_kode = '0'
+pdf  c                   eval      w_firm = l_firm
+pdf  c                   eval      w_fell = 'NXTKLI'
+pdf  c                   eval      w_type = *blank
+pdf  c                   eval      w_fast = *blank
+pdf  c                   eval      w_numm = *zero
+pdf   *
+pdf  c                   call      'AS100R'
+pdf  c                   parm                    w_kode
+pdf  c                   parm                    w_firm
+pdf  c                   parm                    w_fell
+pdf  c                   parm                    w_type
+pdf  c                   parm                    w_fast
+pdf  c                   parm                    w_numm
+pdf   *
+pdf  c                   eval      w_jnav = 'PDF' + %char(w_numm)
+pdf  c                   eval      w_jtxt = 'Utskrift av PDF'
+pdf  c                   call      'AB700R'
+pdf  c                   parm                    w_jnav
+pdf  c                   parm                    w_jkey
+pdf  c                   parm                    w_jtxt
+pdf  c**                 eval      l_bach = w_jkey
+pdf   *
+pdf  c     end_batchno   endsr
+pdf   *
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+pdf   * Subrutine for logging av fremdrift
+pdf   * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+pdf   *
+pdf  c     pdf_logg      begsr
+pdf   *
+pdf   * Vi logger at utskriftprogrammet har startet
+pdf  c                   eval      w_jstat = 10
+pdf  c                   eval      w_jtext = 'Utskrift av rentenota har startet'
+pdf  c                   call      'AB705R'
+pdf  c                   parm                    w_jkey
+pdf  c                   parm                    w_jstat
+pdf  c                   parm                    w_jtext
+pdf   *
+pdf  c     end_logg      endsr
+pdf   *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     *inzsr        begsr
+      *
+     c     raa4l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra4aar
+      *
+     c     raa4lu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra4aar
+      *
+     c     rktrlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rktrlu_kund
+     c                   kfld                    rktrlu_bdat
+     c                   kfld                    rktrlu_tist
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for firmaregister
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for rutine-register
+      *
+     c     aforl1_key    klist
+     c                   kfld                    aforl1_ruti
+      *
+      * Setter startverdier
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      wksort = *blank
+     c                   eval      wksfir = l_firm
+pdf   *
+pdf   * Sjekk om vi skal bruke JASPER og XML generering av dokumenter
+pdf  c                   if        l_poff = '1'
+pdf  c                   eval      b_pdfp = *off
+pdf  c                   eval      w_pdf = 0
+pdf  c                   eval      w_pdf_ds = *blanks
+pdf  c                   eval      w_ruti = l_ruti
+pdf   *
+pdf  c                   call      'AP609R'
+pdf  c                   parm                    w_ruti
+pdf  c                   parm                    w_pdf
+pdf  c                   parm                    w_pdf_ds
+pdf  c                   eval      d_pdf_ds = w_pdf_ds
+pdf   * Vi skal kjøre med jasper
+pdf  c                   if        w_pdf = 1 and
+pdf  c                             %trim(d_xmlm) <> *blanks
+pdf  c                   eval      p_mail = '0'
+pdf   * Hent inn xml templaten
+pdf  c                   callp     GetHTMLIFS(d_xmlm :'<AS400>')
+6.32 c                   callp     ClrHtmlBuffer
+pdf   *
+pdf   * Finn hvor xml'en skal legges
+pdf   *
+pdf  c                   eval      XML_path = *blanks
+pdf  c                   eval      XML_path = %trim(d_path)
+pdf   *
+pdf   * Finn path til logo
+pdf   *
+pdf  c                   eval      jasper_logo = *blanks
+pdf  c                   eval      jasper_logo = %trim(d_logo)
+pdf   *
+pdf   * Første jobbnummer er allerede generert i AP600R. Overføres i *lda
+pdf   *
+pdf  c**                 eval      w_jkey = l_bach
+pdf  c                   time                    w_date
+pdf   * Vi logger at utskriftprogrammet har startet
+pdf  c**                 exsr      pdf_logg
+pdf  c                   eval      b_pdfp = *on
+pdf  c                   eval      b_first = *on
+pdf  c                   endif
+pdf  c                   else
+pdf  c                   eval      b_pdfp = *off
+pdf  c                   endif
+      *
+      * Hente inn formular-register
+      *
+     c                   eval      aforl1_ruti = l_ruti
+     c     aforl1_key    chain     aforl1r                            69
+      *
+     c                   if        not%found
+     c                   eval      afprfi = 1
+     c                   endif
+      *
+      * Hente inn formular-register
+      *
+     c                   eval      aforl1_ruti = l_ruti
+     c     aforl1_key    chain     aforl1r
+      *
+     c                   if        not%found
+     c                   eval      afinst = 1
+     c                   eval      afprfi = 1
+     c                   endif
+      *
+      * Instillinger av blankett
+      *
+     c                   if        afinst = 1
+pdf  c                   if        b_pdfp = *off
+     c                   write(e)  a0hdr
+pdf  c                   endif
+     c                   endif
+      *
+      *  Hent inn firma opplysninger dersom
+      *  kode for det er satt i rutineregister
+      *
+     c                   if        afprfi = 1
+     c                   eval      w_prfi = afprfi
+     c                   eval      w_ffir = w_firm
+     c                   eval      w_avde = rkavde
+      *
+     c                   call      'RÅ707R'
+     c                   parm                    w_prfi
+     c                   parm                    w_ffir
+     c                   parm                    w_avde
+     c                   parm                    w_fnav
+     c                   parm                    w_fad1
+     c                   parm                    w_fad2
+     c                   parm                    w_fste
+     c                   parm                    w_fftx
+     c                   parm                    w_tfax
+     c                   parm                    w_ftlf
+     c                   parm                    w_ffax
+     c                   parm                    w_tbnk
+     c                   parm                    w_fbgi
+      *
+     c                   eval      a1fnav = w_fnav
+     c                   eval      a1fad1 = w_fad1
+     c                   eval      a1fad2 = w_fad2
+     c                   eval      a1fste = w_fste
+     c                   eval      a1fftx = w_fftx
+     c                   eval      a1tfax = w_tfax
+     c                   eval      a1ftlf = w_ftlf
+     c                   eval      a1ffax = w_ffax
+     c                   eval      a1tbnk = w_tbnk
+     c                   eval      a1fbgi = w_fbgi
+      *
+      * Skal firmanavn droppes på rentenota ?
+      *
+     c                   if        w_aprt = 1
+     c                   eval      a1fnav = *blank
+     c                   eval      a1fad1 = *blank
+     c                   eval      a1fad2 = *blank
+     c                   eval      a1fste = *blank
+     c                   eval      a1fftx = *blank
+     c                   eval      a1tfax = *blank
+     c                   eval      a1ftlf = *blank
+     c                   eval      a1ffax = *blank
+     c                   eval      a1tbnk = *blank
+     c                   eval      a1fbgi = *blank
+     c                   endif
+      *
+     c                   endif
+      *
+      * Hent sist bruker generalnotanr.
+      *
+     c                   move      praar         ra4aar
+     c     raa4l1_key    chain     raa4l1                             91
+      *
+     c                   if        %found
+     c                   move      ra4sam        w_4sam
+     c                   else
+     c                   eval      w_4sam = *zero
+     c                   endif
+      *
+pdf   * Vi skriver xml for miljø formater
+pdf  c**                 if        b_pdfp = *on
+pdf  c**                 exsr      xml_envm
+pdf  c**                 eval      b_firm = *on
+pdf  c**                 endif
+6.25 c                   eval      b_xmlg = *on
+6.26  * hent informasjon fra firmareg
+6.26 c     afirl1_key    chain     afirl1r
+      *
+     c                   endsr

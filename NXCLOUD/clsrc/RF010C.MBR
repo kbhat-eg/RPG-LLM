@@ -1,0 +1,106 @@
+/* 04.05.11 NHO Sjekk om jobb er i bruk fra register RJOBPF          */
+/* 08.05.20 bsa Startet valg om kontroll/journalliste       7.03     */
+/* 04.02.21 bsa Må sende med system som parameter videre    7.04     */
+/*                                                                   */
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+             PGM        PARM(&SYST)
+
+             DCL        VAR(&USER) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&SYST) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&FFIR) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&MEMB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&WALI)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&MLD1)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD2)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&Ms1)   TYPE(*CHAR) LEN(50)
+             DCL        VAR(&Ms2)   TYPE(*CHAR) LEN(50)
+             DCL        VAR(&sv)    TYPE(*CHAR) LEN(1)
+             DCL        VAR(&f3)    TYPE(*DEC)  LEN(1 0)
+             DCL        VAR(&sp)       TYPE(*char) LEN(1)
+             DCL        VAR(&rut)      TYPE(*char) LEN(50)
+
+             DCL        VAR(&INFO)  TYPE(*CHAR) LEN(1)
+
+/* Sjekk om bilagsregistrering eller overføring fra delsystem        */
+
+             IF         COND(&SYST *EQ 'BRUK') THEN(DO)
+ /*  Sjekk om rutina kan brukes på denne filgruppe  (ekst.øk.syst) */
+             chgvar    var(&rut)        value('SPERRE_REG/OPPDAT_ØKBILAG')
+             call      pgm(TestSperre)  parm(&sp &rut)
+             if        cond(&sp *eq '1') then(do)
+               call    pgm(aa011c)  parm(5  10 +
+                               'Du kan ikke kjøre denne rutina' +
+                               'Trykk Enter/Ok Jobben avbrytes')
+               goto    endpgm
+             enddo
+
+ /*          RTVDTAARA  DTAARA(*LDA (911 7)) RTNVAR(&USER) */
+ /*          CHGVAR     VAR(%SST(&MEMB 1 7))  VALUE(&USER) */
+             RTVDTAARA  DTAARA(*LDA (911 10)) RTNVAR(&USER)
+             CHGVAR     VAR(%SST(&MEMB 1 10))  VALUE(&USER)
+
+
+             CHGVAR     VAR(&WALI) VALUE(4)
+             CHGVAR     VAR(&WAPO) VALUE(2)
+             CHGVAR     VAR(&MLD1) VALUE('Bilagsregistrering er +
+                          startet')
+             GOTO       ENDPG1
+             ENDDO
+
+
+BYGG:
+
+
+/* Overføring fra andre delsystemer                                  */
+
+             IF         COND(&SYST *NE 'BRUK') THEN(DO)
+
+             RTVDTAARA  DTAARA(*LDA (944 03)) RTNVAR(&FFIR)
+             CHGVAR     VAR(%SST(&MEMB 1 4))  VALUE(&SYST)
+             CHGVAR     VAR(%SST(&MEMB 5 3))  VALUE(&FFIR)
+             ENDDO
+
+/* Varselbilde dersom poster ikke finnes                             */
+/*                                                                   */
+             CALL       PGM(RF700R) PARM(&MEMB)
+             IF   COND(&MEMB *EQ ' ') THEN(DO)
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(26)
+             CHGVAR     VAR(&MS1) VALUE('Ingen poster finnes .... ')
+             CHGVAR     VAR(&MS2) VALUE('Trykk enter ...... ')
+/*           CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)  */
+             CALL       PGM(AA007R)  PARM(&MS1 &MS2 &SV &F3)
+/*           DLYJOB     DLY(5) endret fra tidsstyrt popup til vanlig */
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+
+ ENDPG1:
+/* Sjekk jobbregister                                                */
+             CALL       PGM(RJ001R)    PARM(&MEMB &INFO)
+
+             IF         COND(&INFO *EQ '2') THEN(DO)
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(26)
+/*           CHGVAR     VAR(&MLD1) VALUE('Rutinen er i bruk....... ')*/
+/*           CHGVAR     VAR(&MLD2) VALUE('Rutinen avsluttes ...... ')*/
+             CHGVAR     VAR(&MS1)  VALUE('Rutinen er i bruk....... ')
+             CHGVAR     VAR(&MS2)  VALUE('Rutinen avsluttes ...... ')
+/*           CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2) */
+             CALL       PGM(AA007R)  PARM(&MS1 &MS2 &SV &F3)
+/*           DLYJOB     DLY(5) endret fra tidsstyrt popup til vanlig */
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+
+/* Call av bilagsregistrering                                        */
+
+             CALL       PGM(RF010R) PARM(&MEMB)
+
+/* Sjekk jobbregister / Slett post                                   */
+             CHGVAR     VAR(&INFO) VALUE('S')
+             CALL       PGM(RJ001R)    PARM(&MEMB &INFO)
+
+/*7.04*/     call      pgm(rf021c)  parm(&syst)
+/*7.03*/
+
+ ENDPGM:     ENDPGM

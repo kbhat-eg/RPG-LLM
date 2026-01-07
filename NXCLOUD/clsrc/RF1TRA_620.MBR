@@ -1,0 +1,323 @@
+/* 11.10.10 NHO Kan ikke slette fil/membere                          */
+/* 21.06.13 sst Alt vedr Compello er tatt ut, kjøres i egen rutine   */
+/* 30.08.13 nho Sjekker i program RV015R om det skal kjøres visma    */
+/*              eller zirius                                         */
+/* 10.07.14 ask Lagt inn kobling mot Navison i tillegg til visma,    */
+/*              utvidet RV015 til å sjekke Navison samt etablert     */
+/*              valg om NX økonomi oppdatering skal droppes.         */
+/*              Har også fjernet testing på system "BEST".           */
+/*-------------------------------------------------------------------*/
+             PGM        PARM(&SYST)
+/*-------------------------------------------------------------------*/
+/* Initiering av parametre.                                          */
+/* Sender med riktige parametere ved call til RLØ61R                 */
+             DCL        VAR(&MLD3)  TYPE(*CHAR) LEN(41)
+             DCL        VAR(&MLD4)  TYPE(*DEC)  LEN(2 0)
+
+             DCL        VAR(&FGRP)  TYPE(*CHAR) LEN(3)
+             DCL        VAR(&SYST)  TYPE(*CHAR) LEN(4)
+             DCL        VAR(&FFIR)  TYPE(*CHAR) LEN(3)
+             DCL        VAR(&USER)  TYPE(*CHAR) LEN(10)
+             DCL        VAR(&WALI)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&MLD1)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MLD2)  TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MEMB)  TYPE(*CHAR) LEN(10)
+             DCL        VAR(&WPLIB) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&MALIB) TYPE(*CHAR) LEN(10) VALUE('MLTARC')
+
+             DCL        VAR(&VALG)  TYPE(*DEC)  LEN(1 0) VALUE(0)
+             DCL        VAR(&NXDR)  TYPE(*DEC)  LEN(1 0) VALUE(0)
+
+/* Henter verdier i fra LDA.                                         */
+
+             RTVDTAARA  DTAARA(*LDA (944 03)) RTNVAR(&FFIR)
+             RTVDTAARA  DTAARA(*LDA (931 03)) RTNVAR(&FGRP)
+
+             RTVDTAARA  DTAARA(*LDA (911 10)) RTNVAR(&USER)
+
+             CHGVAR     VAR(%SST(&MEMB 1 4))  VALUE(&SYST)
+             CHGVAR     VAR(%SST(&MEMB 5 3))  VALUE(&FFIR)
+             CHGVAR     VAR(%SST(&MALIB 7 3))  VALUE(&FGRP)
+
+/* Sjekk om det finnes posteringer i valgte delsystem                */
+
+/* Varselbilde dersom poster ikke finnes i FOVFPF                    */
+
+             IF         COND(&SYST *EQ 'FAKT') THEN(DO)
+             CHKOBJ     OBJ(*LIBL/FOVFPF) OBJTYPE(*FILE) MBR(*FIRST)
+             MONMSG     MSGID(CPF9815) EXEC(DO)
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(26)
+             CHGVAR     VAR(&MLD1) VALUE('Ingen poster fra ASOFAK  ')
+             CHGVAR     VAR(&MLD2) VALUE('Rutinen avsluttes ...... ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             DLYJOB     DLY(5)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+             GOTO       CMDLBL(OVERFOR)
+             ENDDO
+
+/* Varselbilde dersom poster ikke finnes i BOVFPF                    */
+
+             IF         COND(&SYST *EQ 'SHOP') THEN(DO)
+             CHKOBJ     OBJ(*LIBL/BOVFPF) OBJTYPE(*FILE) MBR(*FIRST)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(26)
+             CHGVAR     VAR(&MLD1) VALUE('Ingen poster fra ASSHOP  ')
+             CHGVAR     VAR(&MLD2) VALUE('Rutinen avsluttes ...... ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             DLYJOB     DLY(5)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+             GOTO       CMDLBL(OVERFOR)
+             ENDDO
+
+/* Varselbilde dersom poster ikke finnes i LOVFPF                    */
+
+             IF         COND(&SYST *EQ 'LAGR') THEN(DO)
+/*           CHGVAR     VAR(%SST(&MEMB 3 8))  VALUE(&USER)           */
+             CHKOBJ     OBJ(*LIBL/LOVFPF) OBJTYPE(*FILE) MBR(*FIRST)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(26)
+             CHGVAR     VAR(&MLD1) VALUE('Ingen poster fra ASLAGR  ')
+             CHGVAR     VAR(&MLD2) VALUE('Rutinen avsluttes ...... ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             DLYJOB     DLY(5)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+             GOTO       CMDLBL(OVERFOR)
+             ENDDO
+
+/* Varselbilde dersom poster ikke finnes i LONREPF     EAS01         */
+
+             IF         COND(&SYST *EQ 'LONN') THEN(DO)
+
+/* Legger LONPGMBT inn i biblioteksliste                             */
+
+             ADDLIBLE   LIB(LONPGMBT)
+             MONMSG     MSGID(CPF2103)
+
+/* Valg av klientgruppe                                          */
+
+             CALL       PGM(LON550R)
+
+             CHGVAR     VAR(&WPLIB) VALUE(%SST(*LDA 800 8))
+
+             ADDLIBLE   LIB(&WPLIB)
+             MONMSG     MSGID(CPF2103)
+
+             CHKOBJ     OBJ(*LIBL/LONREPF) OBJTYPE(*FILE) +
+                          MBR(*FIRST) /* EAS01 */
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(26)
+             CHGVAR     VAR(&MLD1) VALUE('Ingen poster fra 3P LØNN ')
+             CHGVAR     VAR(&MLD2) VALUE('Rutinen avsluttes ...... ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             DLYJOB     DLY(5)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+             GOTO       CMDLBL(OVERFOR)
+             ENDDO
+
+/* Varselbilde dersom poster ikke finnes i scannefil MultiSupport    */
+
+             IF         COND(&SYST *EQ 'MULT') THEN(DO)
+             CHKOBJ     OBJ(*LIBL/REMSPF) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(26)
+             CHGVAR     VAR(&MLD1) VALUE('Ingen poster fra Scanning')
+             CHGVAR     VAR(&MLD2) VALUE('Rutinen avsluttes ...... ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             DLYJOB     DLY(5)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+             GOTO       CMDLBL(OVERFOR)
+             ENDDO
+
+/* Varselbilde dersom poster ikke finnes i returfil MultiSupport     */
+
+             IF         COND(&SYST *EQ 'FLOW') THEN(DO)
+             CHKOBJ     OBJ(*LIBL/ACCPOSF5) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(26)
+             CHGVAR     VAR(&MLD1) VALUE('Ingen poster fra WorkFlow')
+             CHGVAR     VAR(&MLD2) VALUE('Rutinen avsluttes ...... ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             DLYJOB     DLY(5)
+             GOTO       CMDLBL(ENDPGM)
+             ENDDO
+             GOTO       CMDLBL(OVERFOR)
+             ENDDO
+
+/* Denne overføring er ikke spesifisert                              */
+
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(26)
+             CHGVAR     VAR(&MLD1) VALUE('Denne type overføring er ')
+             CHGVAR     VAR(&MLD2) VALUE('ikke definert i RF1TRANS ')
+             GOTO       CMDLBL(ENDPGM)
+
+/* Varselbilde 2                                                     */
+OVERFOR:
+             CHGVAR     VAR(&WALI) VALUE(13)
+             CHGVAR     VAR(&WAPO) VALUE(32)
+             CHGVAR     VAR(&MLD1) VALUE('Vennligst vent ..........')
+             CHGVAR     VAR(&MLD2) VALUE('Posteringer overføres ...')
+
+/* Test om det skal kjøres overføring til annet økonomisystem        */
+
+             CALL       PGM(RV015R)  PARM(&VALG &NXDR)
+
+/* Overføring av poster fra AS Ordre/Fakturering                     */
+
+             IF         COND(&SYST *EQ 'FAKT') THEN(DO)
+/* Visma Standard                                                    */
+             IF         COND(&VALG *EQ 1) THEN(DO)
+             CALL       PGM(RV001C)
+             ENDDO
+
+/* Visma Sum                                                         */
+             IF         COND(&VALG *EQ 2) THEN(DO)
+             CALL       PGM(RV009C)
+             ENDDO
+
+/* Visma Business                                                    */
+             IF         COND(&VALG *EQ 3) THEN(DO)
+             CALL       PGM(RB001C)
+             ENDDO
+
+/* Zirius                                                            */
+             IF         COND(&VALG *EQ 4) THEN(DO)
+             CALL       PGM(RZ001C)
+             ENDDO
+
+/* Navision                                                          */
+             IF         COND(&VALG *EQ 5) THEN(DO)
+             CALL       PGM(RN001C)
+             ENDDO
+
+/* Sjekker om NX økonomi skal oppdateres                             */
+
+             IF         COND(&NXDR *EQ 0) THEN(DO)
+             CALL       PGM(RFA15R)  PARM(&MEMB)
+             ENDDO
+             IF         COND(&NXDR *EQ 1) THEN(DO)
+             CLRPFM     FILE(*LIBL/FOVFPF) MBR(*FIRST)
+             MONMSG     MSGID(CPF3200)
+             ENDDO
+             ENDDO
+
+/* Overføring av poster fra AS Shop                                  */
+
+             IF         COND(&SYST *EQ 'SHOP') THEN(DO)
+/* Visma Standard                                                    */
+             IF         COND(&VALG *EQ 1) THEN(DO)
+             CALL       PGM(RV002C)
+             ENDDO
+
+/* Visma Sum                                                         */
+             IF         COND(&VALG *EQ 2) THEN(DO)
+             CALL       PGM(RV003C)
+             ENDDO
+
+/* Visma Business                                                    */
+             IF         COND(&VALG *EQ 3) THEN(DO)
+             CALL       PGM(RB002C)
+             ENDDO
+
+
+/* Zirius                                                            */
+             IF         COND(&VALG *EQ 4) THEN(DO)
+             CALL       PGM(RZ002C)
+             ENDDO
+
+/* Navision                                                          */
+             IF         COND(&VALG *EQ 5) THEN(DO)
+             CALL       PGM(RN002C)
+             ENDDO
+
+/* Sjekker om NX økonomi skal oppdateres                             */
+
+             IF         COND(&NXDR *EQ 0) THEN(DO)
+             CALL       PGM(RFB15R)  PARM(&MEMB)
+             ENDDO
+             IF         COND(&NXDR *EQ 1) THEN(DO)
+             CLRPFM     FILE(*LIBL/BOVFPF) MBR(*FIRST)
+             MONMSG     MSGID(CPF3200)
+             ENDDO
+             ENDDO
+
+/* Overføring av poster fra AS Lager/Innkjøp                         */
+
+             IF         COND(&SYST *EQ 'LAGR') THEN(DO)
+/* Navision                                                          */
+             IF         COND(&VALG *EQ 5) THEN(DO)
+             CALL       PGM(RN003C)
+             ENDDO
+
+/* Sjekker om NX økonomi skal oppdateres                             */
+
+             IF         COND(&NXDR *EQ 0) THEN(DO)
+             CALL       PGM(RFI15R)  PARM(&MEMB)
+             ENDDO
+             IF         COND(&NXDR *EQ 1) THEN(DO)
+             CLRPFM     FILE(*LIBL/LOVFPF) MBR(*FIRST)
+             MONMSG     MSGID(CPF3200)
+             ENDDO
+             ENDDO
+
+/* Overføring av poster fra MultiSupport - Preregistrering           */
+
+             IF         COND(&SYST *EQ 'MULT') THEN(DO)
+             CALL       WFIMPORT
+/*           OVRDBF     FILE(RBUNLU)   MBR(&MEMB)                    */
+/*           OVRDBF     FILE(RTRAPF)   MBR(&MEMB)                    */
+             CALL       PGM(RFP15R) PARM(&MEMB)
+/*           CLRPFM     FILE(*LIBL/REMSPF) MBR(*FIRST)               */
+             MONMSG     MSGID(CPF3200)
+             ENDDO
+
+
+/* Overføring av poster fra MultiSupport - Flow                      */
+
+             IF         COND(&SYST *EQ 'FLOW') THEN(DO)
+
+             ADDLIBLE   LIB(&MALIB)
+             MONMSG     MSGID(CPF2103)
+
+/*           Generer logisk file - ACCPOSL2  hvis ikke finnes        */
+
+             CHKOBJ OBJ(*CURLIB/ACCPOSL2) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+
+             CRTLF      FILE(*CURLIB/ACCPOSL2) +
+                          SRCFILE(*LIBL/QDDFSRC) MAXMBRS(*NOMAX) +
+                          SRTSEQ(*LANGIDUNQ)     LANGID(NOR)
+             MONMSG     MSGID(CPF7302)
+
+             ENDDO
+
+             CALL       PGM(RFM14R)
+
+/*           OVRDBF     FILE(RBUNLU)   MBR(&MEMB)                 */
+/*           OVRDBF     FILE(RTRAPF)   MBR(&MEMB)                 */
+             CALL       PGM(RFM15R) PARM(&MEMB)
+             MONMSG     MSGID(CPF3200)
+             ENDDO
+
+/* Overføring av poster fra 3P Lønn                                  */
+
+             IF         COND(&SYST *EQ 'LONN') THEN(DO)
+/*           OVRDBF     FILE(RBUNLU)   MBR(&MEMB)                    */
+/*           OVRDBF     FILE(RTRAPF)   MBR(&MEMB)                    */
+             CALL       PGM(RLØ16R) PARM(&MEMB &MLD3 &MLD4)
+             RMVLIBLE   LIB(&WPLIB)
+             ENDDO
+
+ENDPGM:      ENDPGM

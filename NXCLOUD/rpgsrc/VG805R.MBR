@@ -1,0 +1,506 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASLAGR
+      * Program . . . . : VG805R
+      * Beskrivelse . . : Oppdatering kosttransaksjoner / BOVFPF
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       060420 ask  Nytt program
+8.01  * 800   191023 ask  Lagt inn logging av kosttranser i RLOG
+8.02  * 800   101123 ask  Lagt inn omregning ved salg på enhet som avviker lager enhe
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     fbohel1    if   e           k disk    rename(bohepfr:bohel1r)
+     fbodtl1    if   e           k disk    rename(bodtpfr:bodtl1r)
+     ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+     fvgkkir    if   e           k disk    rename(vgkkst:vgkkirr)
+     fvkhvl1    if   e           k disk    rename(vkhvpfr:vkhvl1r)
+8.02 fvvenlr    if   e           k disk    rename(vvenpfr:vvenlrr)
+     fvvarlr    if   e           k disk    rename(vvarpfr:vvarlrr)
+     fbovfpf    o  a e             disk
+      *
+      * Definering av lda
+      *
+     d                uds
+     d l_firm                944    946  0
+      *
+      * Datastruktur for kontoinformasjon
+      *
+     d                 ds
+     d d_hele                       128
+     d  d_kav1                        4  0 overlay(d_hele)
+     d  d_kko1                        6  0 overlay(d_hele:5)
+     d  d_ksp1                        4  0 overlay(d_hele:11)
+     d  d_kav2                        4  0 overlay(d_hele:15)
+     d  d_kko2                        6  0 overlay(d_hele:19)
+     d  d_ksp2                        4  0 overlay(d_hele:25)
+     d  d_kav3                        4  0 overlay(d_hele:29)
+     d  d_kko3                        6  0 overlay(d_hele:33)
+     d  d_ksp3                        4  0 overlay(d_hele:39)
+     d  d_kav4                        4  0 overlay(d_hele:43)
+     d  d_kko4                        6  0 overlay(d_hele:47)
+     d  d_ksp4                        4  0 overlay(d_hele:53)
+     d  d_kav5                        4  0 overlay(d_hele:57)
+     d  d_kko5                        6  0 overlay(d_hele:61)
+     d  d_ksp5                        4  0 overlay(d_hele:67)
+     d  d_kav6                        4  0 overlay(d_hele:71)
+     d  d_kko6                        6  0 overlay(d_hele:75)
+     d  d_ksp6                        4  0 overlay(d_hele:81)
+     d  d_kav7                        4  0 overlay(d_hele:85)
+     d  d_kko7                        6  0 overlay(d_hele:89)
+     d  d_ksp7                        4  0 overlay(d_hele:95)
+     d  d_khnv                        4    overlay(d_hele:99)
+      *
+      * Definering av parametre
+      *
+     d p_aarr          s                   like(bdaarr)
+     d p_wsid          s                   like(bdwsid)
+     d p_bong          s                   like(bdbong)
+     d p_line          s                   like(bdline)
+     d p_vare          s                   like(bdvare)
+     d p_lage          s                   like(bdlage)
+     d p_dato          s              8  0
+     d p_cost          s              9  2
+      *
+      * Definering av variable i nøkler
+      *
+     d bohel1_aarr     s                   like(boaarr)
+     d bohel1_wsid     s                   like(bowsid)
+     d bohel1_bong     s                   like(bobong)
+     d bodtl1_aarr     s                   like(bdaarr)
+     d bodtl1_wsid     s                   like(bdwsid)
+     d bodtl1_bong     s                   like(bdbong)
+     d bodtl1_line     s                   like(bdline)
+     d vkhvl1_kkod     s                   like(vakkod)
+     d vkhvl1_klty     s                   like(vaklty)
+     d vkhvl1_koty     s                   like(vakoty)
+     d vvarlr_vare     s                   like(vvvare)
+8.02 d vvenlr_vare     s                   like(vevare)
+8.02 d vvenlr_enhe     s                   like(veenhe)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(bofirm)
+     d w_peri          s                   like(bfperi)
+     d w_dato          s               d   datfmt(*iso)
+     d w_bdat          s               d   datfmt(*iso)
+     d w_hele          s            128
+     d w_stat          s              1
+     d w_belp          s             11  2
+     d w_belh          s             11  2
+     d w_avde          s              4  0
+     d w_spes          s              4  0
+     d w_kont          s              6  0
+     d w_fast          s             10
+     d w_fell          s              6
+     d w_kode          s              1
+     d w_type          s              2
+     d w_biln          s                   like(bfbiln)
+8.01 d w_logg          s               z
+8.01 d w_lintel        s              8  0
+8.01 d w_dumkki        s              8  0
+8.01 d w_dumkkk        s              1  0
+8.01 d w_dumd20        s              2  0
+8.01 d w_dumaki        s             25
+8.01 d w_dumpru        s              6
+8.02 d w_cost          s              9  2
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Hovedprogram - behandling av bestillingslinje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Hent kode opplysninger
+      *
+     c     fstsl1_key    chain     fstsl1r
+      *
+     c     vgkkir_key    chain     vgkkir
+      *
+      * Henter bilagsnummer for hele bongen dersom postering skal gjøres, hvis ikke - avslutt
+      *
+     c                   if        vgkrgn = 'J'
+     c                   exsr      hntnum
+     c                   else
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Leser bonghode
+      *
+     c                   eval      bohel1_aarr = p_aarr
+     c                   eval      bohel1_wsid = p_wsid
+     c                   eval      bohel1_bong = p_bong
+     c     bohel1_key    chain     bohel1
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      *  Henter inn standard kontohenvisning
+      *
+     c                   eval      vkhvl1_kkod = faakhv
+     c     vkhvl1_key    chain     vkhvl1
+      *
+8.01  *  Setter bkføringdasto og periode
+      *
+8.01 c                   eval      w_dato = w_bdat
+     c                   eval      w_peri = (%subdt(w_dato:*months) * 100)
+     c                                     + (%subdt(w_dato:*years) - 2000)
+      *
+      * Leser bonglinje og oppdaterer
+      *
+     c                   eval      bodtl1_aarr = p_aarr
+     c                   eval      bodtl1_wsid = p_wsid
+     c                   eval      bodtl1_bong = p_bong
+     c                   eval      bodtl1_line = p_line
+     c     bodtl1_key    chain     bodtl1
+     c                   if        %found(bodtl1)
+      *
+      * Bare lagervarer skal oppdatere
+      *
+     c                   eval      vvarlr_vare = bdvare
+     c     vvarlr_key    chain     vvarlr
+     c                   if        not %found(vvarlr) or
+     c                             vvvtyp <> 'L'
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Hent kontohenvisning basert på varelinje - legger inn std hvis ikke funnet
+      *
+     c                   exsr      hntkon
+     c                   if        w_stat = '9'
+     c                   eval      d_kav1 = vakav1
+     c                   eval      d_kko1 = vakko1
+     c                   eval      d_ksp1 = vaksp1
+     c                   eval      d_kav2 = vakav2
+     c                   eval      d_kko2 = vakko2
+     c                   eval      d_ksp2 = vaksp2
+     c                   eval      d_kav3 = vakav3
+     c                   eval      d_kko3 = vakko3
+     c                   eval      d_ksp3 = vaksp3
+     c                   eval      d_kav4 = vakav4
+     c                   eval      d_kko4 = vakko4
+     c                   eval      d_ksp4 = vaksp4
+     c                   eval      d_kav5 = vakav5
+     c                   eval      d_kko5 = vakko5
+     c                   eval      d_ksp5 = vaksp5
+     c                   eval      d_kav6 = vakav6
+     c                   eval      d_kko6 = vakko6
+     c                   eval      d_ksp6 = vaksp6
+     c                   eval      d_kav7 = vakav7
+     c                   eval      d_kko7 = vakko7
+     c                   eval      d_ksp7 = vaksp7
+     c                   endif
+      *
+      * Hent glidende gjennomsnittlig kostpris for postering
+      *
+     c                   eval      p_vare = bdvare
+     c                   eval      p_lage = bdlage
+     c                   eval      p_dato = %dec(w_dato)
+      *
+     c                   call      'VG701R'
+     c                   parm                    p_vare
+     c                   parm                    p_lage
+     c                   parm                    p_dato
+     c                   parm                    p_cost
+      *
+     c                   if        p_cost = 0
+     c                   goto      avslutt
+     c                   endif
+      *
+8.02  * Sjekk på salg avvikende fra lagerenhet
+8.02  *
+8.02 c                   if        bdenh1 <> vvenhl
+8.02 c                   exsr      beregn_kost
+8.02 c                   else
+8.02 c                   eval      w_cost = p_cost
+8.02 c                   endif
+8.02  *
+8.02 c                   eval(h)   w_belp = w_cost * bdanta
+      *
+      * Før kostpostering
+      *
+     c                   eval      w_belh = w_belp
+     c                   eval      w_avde = d_kav3
+     c                   eval      w_kont = vgkkos
+     c                   eval      w_spes = d_ksp3
+      *
+     c                   exsr      skriv_post
+      *
+      * Før motpost
+      *
+     c                   eval      w_belh = w_belp * -1
+     c                   eval      w_avde = d_kav3
+     c                   eval      w_kont = d_kko3
+     c                   eval      w_spes = d_ksp3
+      *
+     c                   exsr      skriv_post
+      *
+     c                   endif
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Skriver hovedboks postering
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skriv_post    begsr
+      *
+
+     c                   eval      bffirm = w_firm
+     c                   eval      bfperi = w_peri
+     c                   eval      bfbunt = 0
+     c                   eval      bfbiln = w_biln
+     c                   eval      bfbill = bdline
+     c                   eval      bfbdat = w_dato
+     c                   eval      bffdat = *loval
+     c                   eval      bfbilk = vgkbik
+     c                   eval      bftext = 'Bongnr ' +
+     c                                     %trim(%char(bdbong)) +
+     c                                      '/' + %trim(%char(bdline))
+     c                   eval      bfdavd = 0
+     c                   eval      bfdkto = 0
+     c                   eval      bfdsps = 0
+     c                   eval      bfdmom = ' '
+     c                   eval      bfbelp = w_belh
+     c                   eval      bfcavd = 0
+     c                   eval      bfckto = 0
+     c                   eval      bfcsps = 0
+     c                   eval      bfcmom = ' '
+     c                   eval      bfproj = *blank
+     c                   eval      bfkref = 0
+     c                   eval      bfkund = bokund
+     c                   eval      bfvalk = *blank
+     c                   eval      bfvalb = 0
+
+     c                   eval      bfmngd = 0
+     c                   eval      bfautx = *blank
+      *
+      * Legger inn riktig
+      * kontobegrep
+      *
+     c                   if        bfbelp < 0
+     c                   eval      bfcavd = w_avde
+     c                   eval      bfckto = w_kont
+     c                   eval      bfcsps = w_spes
+     c                   eval      bfbelp = bfbelp * -1
+     c                   else
+     c                   eval      bfdavd = w_avde
+     c                   eval      bfdkto = w_kont
+     c                   eval      bfdsps = w_spes
+     c                   endif
+      *
+     c                   eval      bfmvag = 0
+      *
+7.11 c                   eval      bflogg = w_logg
+     c                   write     bovfpfr
+8.01 c                   exsr      logg_linjer
+      *
+     c                   endsr
+8.01  *
+8.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.01  * Legger ut posteringstrans til loggfil linjer
+8.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.01  *
+8.01  /Free
+8.01   begsr logg_linjer;
+8.01
+8.01     w_lintel = w_lintel + 1;
+8.01     w_dumkki = 0;
+8.01     w_dumkkk = 0;
+8.01     w_dumd20 = 0;
+8.01     w_dumaki = '  ';
+8.01     w_dumpru = '  ';
+8.01
+8.01        exec sql
+8.01        insert into rlodst
+8.01          (rldfir,rldtyp,rldts1,rldlin,rldper,
+8.01           rldbun,rldbin,rldbli,rldbda,rldfda,
+8.01           rldbko,rldbtx,rlddav,rlddko,rlddsp,
+8.01           rlddmv,rldbel,rldmvg,rldkav,rldkko,
+8.01           rldksp,rldkmv,rldpro,rldpra,rldpru,
+8.01           rldpao,rldkrf,rldres,rldlki,rldkki,
+8.01           rldkkk,rldaki,rldvko,rldvbe,rldmko,
+8.01           rldmen,rldsal,rldsfa,rldtty,rldbet,rldrem)
+8.01        values(:bffirm,'SHOP',:w_logg,:w_lintel,
+8.01               :bfperi,:bfbunt,:bfbiln,:bfbill,
+8.01               :bfbdat,:bfbdat,:bfbilk,:bftext,
+8.01               :bfdavd,:bfdkto,:bfdsps,:bfdmom,
+8.01               :bfbelp,:bfmvag,:bfcavd,:bfckto,
+8.01               :bfcsps,:bfcmom,:bfproj,:bfakti,
+8.01               :w_dumpru,:w_dumpru,:bfkref,:bfkund,
+8.01               :w_dumaki,:w_dumkki,:w_dumkkk,:w_dumaki,
+8.01               :bfvalk,:bfvalb,:bfmngk,:bfmngd,
+8.10               :bfautx,' ',' ',:w_dumd20,' ');
+8.01
+8.01   endsr;
+8.01  /END-FREE
+8.02  *
+8.02  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.02  * Subrutine for beregning av kost-pris i salgsenhet
+8.02  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.02  *
+8.02 c     beregn_kost   begsr
+8.02  *
+8.02  * Finn omregningsfaktor på salgsenhet og beregn priser i forhold til basisenhet
+8.02  *
+8.02 c                   eval      vvenlr_vare = bdvare
+8.02 c                   eval      vvenlr_enhe = bdenh1
+8.02 c     vvenlr_key    chain     vvenlr
+8.02 c                   if        %found(vvenlr)
+8.02 c                   eval(h)   w_cost = p_cost * veomre
+8.02 c                   endif
+8.02  *
+8.02  * Finn omregningsfaktor på lagerenhet og beregn priser dersom lagerenhet er ulik basisenhet
+8.02  *
+8.02 c                   if        vvenhe <> vvenhl
+8.02 c                   eval      vvenlr_enhe = vvenhl
+8.02 c     vvenlr_key    chain     vvenlr
+8.02 c                   if        %found(vvenlr)
+8.02 c                   eval(h)   w_cost = w_cost / veomre
+8 02 c                   endif
+8.02 c                   endif
+8.02  *
+8.02 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Henter/Oppdatering av NUMMER-REGISTER
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hntnum        begsr
+      *
+     c                   eval      w_fast = *blank
+     c                   eval      w_fell = vgkbis
+     c                   eval      w_type = *blank
+     c                   eval      w_kode = '0'
+      *
+      *  Kaller opp subprogram for henting av nummer fra NUMMER-REGISTER
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_biln
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Henter avdeling/konto/spesifikasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hntkon        begsr
+      *
+      *  Legger ut parametere for konto-henvisnings-program
+      *
+     c                   eval      w_stat = *blank
+     c                   eval      w_hele = *zero
+      *
+      *  Kaller program for å finne konto
+      *
+     c                   call      'VA720R'
+     c                   parm                    w_stat
+     c                   parm                    bdlety
+     c                   parm                    bootyp
+     c                   parm                    bdogrp
+     c                   parm                    bdhgrp
+     c                   parm                    bdugrp
+     c                   parm                    bdvare
+     c                   parm                    w_hele
+     c                   eval      d_hele = w_hele
+      *
+      *  Overstyrer avdeling dersom denne
+      *  finnes på ordrehode
+      *
+     c                   if        boavde > 0
+     c                   eval      d_kav1 = boavde
+     c                   eval      d_kav2 = boavde
+     c                   eval      d_kav3 = boavde
+     c                   eval      d_kav4 = boavde
+     c                   eval      d_kav5 = boavde
+     c                   eval      d_kav6 = boavde
+     c                   eval      d_kav7 = boavde
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Tar inn parameter fra forrige program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *entry        plist
+     c                   parm                    p_aarr
+     c                   parm                    p_wsid
+     c                   parm                    p_bong
+     c                   parm                    p_line
+8.01 c                   parm                    w_logg
+8.01 c                   parm                    w_lintel
+8.01 c                   parm                    w_bdat
+      *
+      *  Key for statuskoder
+      *
+     c     fstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for kostpris parameter
+      *
+     c     vgkkir_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for kontohenvisninger
+      *
+     c     vkhvl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vkhvl1_kkod
+     c                   kfld                    vkhvl1_klty
+     c                   kfld                    vkhvl1_koty
+      *
+      * Key for vareregister
+      *
+     c     vvarlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarlr_vare
+      *
+      *  Key for bong hode
+      *
+     c     bohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bohel1_aarr
+     c                   kfld                    bohel1_wsid
+     c                   kfld                    bohel1_bong
+      *
+      *  Key for bong linje
+      *
+     c     bodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    bodtl1_aarr
+     c                   kfld                    bodtl1_wsid
+     c                   kfld                    bodtl1_bong
+     c                   kfld                    bodtl1_line
+8.02  *
+8.02  *  Key for oppdslag på vare/enhet
+8.02  *
+8.02 c     vvenlr_key    klist
+8.02 c                   kfld                    w_firm
+8.02 c                   kfld                    vvenlr_vare
+8.02 c                   kfld                    vvenlr_enhe
+      *
+      * Henter inn firmakode fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   endsr
+      *

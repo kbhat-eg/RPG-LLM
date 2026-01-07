@@ -1,0 +1,386 @@
+     h option(*nodebugio) datedit(*dmy)
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : NO881R
+      * Beskrivelse . . : Oppretter poster i ekstern ordresystem fra Winner
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       080219 ASK  Nytt program
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fnowhir    if   e           k disk    rename(nowhst:nowhirr)
+     fnowhiu    uf   e           k disk    rename(nowhst:nowhiur)
+     fnowli1    if   e           k disk    rename(nowlst:nowli1r)
+     fnohelu    uf a e           k disk    rename(nohepfr:nohelur)
+     fnodtlu    uf a e           k disk    rename(nodtpfr:nodtlur)
+     fnkeolr    if   e           k disk    rename(nkeopfr:nkeolrr)
+     fnowcir    if   e           k disk    rename(nowcst:nowcirr)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(nofirm)
+     d p_lage          s              2
+     d p_avde          s              4  0
+     d p_date          s              8  0
+     d p_time          s              6  0
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+      *
+      * Definering av variabler i nøkler
+      *
+     d nohelu_fsys     s                   like(nofsys)
+     d nohelu_tell     s                   like(notell)
+     d nodtlu_fsys     s                   like(ndfsys)
+     d nodtlu_tell     s                   like(ndtell)
+     d nodtlu_line     s                   like(ndline)
+     d nowhir_date     s                   like(nwhdat)
+     d nowhir_time     s                   like(nwhtim)
+     d nowhiu_date     s                   like(nwhdat)
+     d nowhiu_time     s                   like(nwhtim)
+     d nowli1_date     s                   like(nwldat)
+     d nowli1_time     s                   like(nwltim)
+     d nkeolr_kode     s                   like(nkkode)
+     d nowcir_supp     s                   like(ncsupp)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(nofirm)
+     d w_tell          s              8  0
+     d w_ekod          s              3    inz('WIN')
+     d w_fast          s             10
+     d w_fell          s              6
+     d w_kode          s              1
+     d w_type          s              2
+     d w_enhe          s              3
+     d w_line          s              6  0
+     d w_lage          s              2  0
+      *
+     d b_notf          s              1    inz(*off)
+      *
+     d lo              c                   'abcdefghijklmnopqrstuvwxyzæøå'
+     d up              c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ'
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hoved program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Henter informasjon om ekstern ordretype og teller
+      *
+     c                   eval      nkeolr_kode = w_ekod
+     c     nkeolr_key    chain     nkeolr
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   eval      w_fast = *blank
+     c                   eval      w_fell = nkteln
+     c                   eval      w_type = *blank
+     c                   eval      w_kode = '0'
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_tell
+      *
+     c                   if        w_kode <> '0'
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Initierer verdier
+      *
+     c                   eval      nofirm = w_firm
+     c                   eval      nofsys = w_ekod
+     c                   eval      notell = w_tell
+     c                   eval      ndfirm = w_firm
+     c                   eval      ndfsys = w_ekod
+     c                   eval      ndtell = w_tell
+      *
+      * Leser winner transer og skriver eksternordre
+      *
+     c                   exsr      les_hode
+     c                   if        b_notf = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   exsr      les_linjer
+      *
+     c                   exsr      oppd_logg
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppretter ordre-hode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     les_hode      begsr
+      *
+     c     nowhir_key    chain     nowhirr
+     c                   if        not %found
+     c                   eval      b_notf = *on
+     c                   goto      end_hode
+     c                   endif
+      *
+      * Redigerer alfanumerisk lagerkode
+      *
+     c                   if        p_lage = *blank
+     c                   eval      w_lage = 0
+     c                   else
+     c                   eval      w_lage = %dec(p_lage:2:0)
+     c                   endif
+      *
+      * Mapper data til ekstern ordrehode
+      *
+     c                   eval      nonref = %char(nwhpnu)
+     c                   eval      nofrsp = 0
+     c                   eval      nolage = w_lage
+     c                   eval      noavde = p_avde
+     c                   eval      nouser = *blank
+     c                   eval      nokund = nwhkun
+     c                   eval      noknav = nwhkna
+     c                   eval      nokpro = nwhpnu
+     c                   eval      nopnav = nwhpna
+     c                   eval      nonavn = nwhkna
+     c                   eval      noadr1 = nwhkad
+     c                   eval      noadr2 = *blank
+     c                   eval      noponr = nwhkpn
+     c                   eval      nosted = nwhkpa
+     c                   eval      nolety = 0
+     c                   if        nwhlda > %date()
+     c                   eval      noldat = nwhlda
+     c                   else
+     c                   eval      noldat = %date()
+     c                   endif
+     c                   eval      nodref = nwhsna
+     c                   eval      norekv = *blank
+     c                   eval      nounav = nwhkna
+     c                   eval      noutlf = nwhktl
+     c                   eval      noumob = nwhmob
+     c                   eval      noufax = *blank
+     c                   eval      noumai = nwhmai
+     c                   eval      nomeld = nwhkrf
+     c                   eval      nonumm = 0
+     c                   eval      nolmat = 0
+     c                   eval      nobdat = nwhlda
+     c*                  eval      nolass = 0
+     c*                  eval      nofri1 = *blank
+     c*                  eval      nofri2 = *blank
+     c*                  eval      nofri3 = *blank
+      *
+     c                   time                    noodat
+     c                   time                    nootim
+     c                   eval      noousr = 'WINNER'
+     c                   time                    noedat
+     c                   time                    noetim
+     c                   eval      noeusr = 'WINNER'
+      *
+      * Skriv ekstern ordre hode
+      *
+     c                   write     nohelur
+      *
+     c     end_hode      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppretter ordre-linjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     les_linjer    begsr
+      *
+     c     nowli1_key    setll     nowli1r
+     c     nowli1_key    reade     nowli1r
+     c                   dow       not %eof
+      *
+      * Henter leverandør og div. vare leverandør via katalog
+      *
+     c                   eval      nowcir_supp = nwllev
+     c     nowcir_key    chain     nowcirr
+     c                   if        %found(nowcir)
+     c                   eval      ndvare = '00' + %char(ncldor)
+     c                   else
+     c                   eval      ndvare = '00000000'
+     c                   endif
+      *
+      * sjekker om katalog dato er utgått
+      *
+     c                   if        nccdat <> *loval and
+     c                             nccdat < %date()
+     c                   eval      ndvare = '00000000'
+     c                   endif
+      *
+      * Redigerer enhet som kan komme på mange former
+      *
+     c     lo:up         xlate     nwlenh        w_enhe
+     c     X'EA':'2'     xlate     w_enhe        w_enhe
+      *
+      * Mapper data til ekstern ordrelinje
+      *
+     c                   eval      w_line = w_line + 1
+     c                   eval      ndline = w_line
+     c                   eval      ndnref = %char(nwhpnu)
+     c                   eval      ndtek1 = nwllvn
+     c                   eval      ndtek2 = nwltek
+     c                   eval      ndanta = nwlant
+     c                   eval      ndenhe = w_enhe
+     c                   eval      ndntpr = nwlspr
+     c                   eval      ndlety = 0
+     c                   if        nwhlda > %date()
+     c                   eval      ndldat = nwhlda
+     c                   else
+     c                   eval      ndldat = %date()
+     c                   endif
+     c                   eval      ndmeld = *blank
+     c*                  eval      ndlass = 0
+     c*                  eval      ndlvnr = nwllev
+     c*                  eval      ndkpri = nwlkpr
+     c*                  eval      ndrab1 = nwlra1
+     c*                  eval      ndrab2 = nwlra2
+      *
+     c                   time                    ndodat
+     c                   time                    ndotim
+     c                   eval      ndousr = 'WINNER'
+     c                   time                    ndedat
+     c                   time                    ndetim
+     c                   eval      ndeusr = 'WINNER'
+      *
+      * Sjekk om tekstline
+      *
+     c                   if        nwlant = 0 or
+     c                             nwlenh = *blank or
+     c                             nwlspr = 0
+     c                   eval      ndvare = *blank
+     c                   eval      ndenhe = *blank
+     c                   eval      ndtek1 = nwltek
+     c                   endif
+      *
+      * Skriv eksternordre linje
+      *
+     c                   write     nodtlur
+      *
+      * Sjekk hengsling - skriv tekstlinje
+      *
+     c                   if        nwlhng > 0
+     c                   eval      w_line = w_line + 1
+     c                   eval      ndline = w_line
+     c                   eval      ndnref = %char(nwhpnu)
+     c                   eval      ndvare = *blank
+     c                   eval      ndanta = 0
+     c                   eval      ndntpr = 0
+     c                   eval      ndenhe = *blank
+     c                   if        nwlhng = 1
+     c                   eval      ndtek1 = 'Hengslet Venstre'
+     c                   else
+     c                   eval      ndtek1 = 'Hengslet Høyre'
+     c                   endif
+     c                   write     nodtlur
+     c                   endif
+      *
+     c     nowli1_key    reade     nowli1r
+      *
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppdaterer logging på hodefil
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppd_logg     begsr
+      *
+     c     nowhiu_key    chain     nowhiur
+     c                   if        %found
+     c                   eval      nwhstf = 'Oppd.'
+     c                   eval      nwhstd = %date()
+     c                   eval      nwhstt = %time()
+     c                   update    nowhiur
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_lage
+     c                   parm                    p_avde
+     c                   parm                    p_date
+     c                   parm                    p_time
+      *
+      * Key for les av temp. ordrehode
+      *
+     c     nowhir_key    klist
+     c                   kfld                    nowhir_date
+     c                   kfld                    nowhir_time
+      *
+      * Key for oppdatering av temp. ordrehode
+      *
+     c     nowhiu_key    klist
+     c                   kfld                    nowhiu_date
+     c                   kfld                    nowhiu_time
+      *
+      * Key for les av temp. ordrelinjer
+      *
+     c     nowli1_key    klist
+     c                   kfld                    nowli1_date
+     c                   kfld                    nowli1_time
+      *
+      * Key for oppdatering av ordrehode
+      *
+     c     nohelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    nohelu_fsys
+     c                   kfld                    nohelu_tell
+      *
+      * Key for oppdatering av ordrelinjer
+      *
+     c     nodtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    nodtlu_fsys
+     c                   kfld                    nodtlu_tell
+     c                   kfld                    nodtlu_line
+      *
+      * Key for ekstern ordrekode
+      *
+     c     nkeolr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    nkeolr_kode
+      *
+      * Key for kobling katalog/leverandør
+      *
+     c     nowcir_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    nowcir_supp
+      *
+      * Legger inn parameter informasjon
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      nowhir_date = %date(p_date:*iso)
+     c                   eval      nowhiu_date = %date(p_date:*iso)
+     c                   eval      nowli1_date = %date(p_date:*iso)
+     c                   eval      nowhir_time = %time(p_time:*iso)
+     c                   eval      nowhiu_time = %time(p_time:*iso)
+     c                   eval      nowli1_time = %time(p_time:*iso)
+      *
+     c                   endsr

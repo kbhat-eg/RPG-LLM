@@ -1,0 +1,392 @@
+      /TITLE  ASLAGR Legger ut regnskapstrans fra lagertellingsbatch
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : VG806R
+      * Beskrivelse . . :
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       140319 NHO  Nytt program
+ 7.01 * 6.30  310120 ask  Skrevet om mye på logikken i programmet
+      *                   Detaljer er ikke merket.
+ 8.01 * 800   160621 ask  Lagt inn switchstyring om regnskapstranser skal dannes
+ 8.01 *                   Switch er VG806_801
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fltell1    if   e           k disk    rename(ltelpfr:ltell1r)
+     flstsl1    if   e           k disk    rename(lstspfr:lstsl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvgkkir    if   e           k disk    rename(vgkkst:vgkkirr)
+     flovfpf    o  a e           k disk    rename(lovfpfr:lovfpfr)
+      *
+8.01 d lda            uds
+8.01 d l_filg                931    933
+      *
+      * Definering av variabler i nøkler
+      *
+     d ltell1_batc     s                   like(lebatc)
+     d vvarl1_vare     s                   like(vvvare)
+      *
+      * Definering av variable
+      *
+     d p_firm          s                   like(lefirm)
+     d p_batc          s                   like(lebatc)
+     d p_vare          s             15
+     d p_lage          s                   like(lelage)
+     d p_cost          s              9  2
+     d w_firm          s                   like(lefirm)
+     d w_dato          s               d   datfmt(*iso)
+     d w_avik          s                   like(leantt)
+     d w_atot          s                   like(leantt)
+     d w_belp          s                   like(lgbelp)
+     d w_btot          s                   like(lgbelp)
+      *
+     d w_stat          s              1
+     d w_ltyp          s              1  0
+     d w_otyp          s              2
+     d w_ogrp          s              2  0
+     d w_hgrp          s              2  0
+     d w_ugrp          s              3  0
+     d w_vare          s             15
+     d w_hele          s            128
+     d w_fast          s             10
+     d w_fell          s              6
+     d w_kode          s              1
+     d w_numm          s              8  0
+     d w_type          s              2
+     d wtbunt          s              5  0
+     d wofkda          s              6  0
+     d w_mnd           s              2  0
+     d w_datn          s              8  0
+      *
+      * Datastruktur for kontoinformasjon
+      *
+     d                 ds
+     d d_hele                  1    128
+     d d_kav1                  1      4  0
+     d d_kko1                  5     10  0
+     d d_ksp1                 11     14  0
+     d d_kav2                 15     18  0
+     d d_kko2                 19     24  0
+     d d_ksp2                 25     28  0
+     d d_kav3                 29     32  0
+     d d_kko3                 33     38  0
+     d d_ksp3                 39     42  0
+     d d_kav4                 43     46  0
+     d d_kko4                 47     52  0
+     d d_ksp4                 53     56  0
+     d d_kav5                 57     60  0
+     d d_kko5                 61     66  0
+     d d_ksp5                 67     70  0
+     d d_kav6                 71     74  0
+     d d_kko6                 75     80  0
+     d d_ksp6                 81     84  0
+     d d_kav7                 85     88  0
+     d d_kko7                 89     94  0
+     d d_ksp7                 95     98  0
+     d d_khev                 99    102
+     d d_nivo                103    103
+      *
+8.01 d u_s801          s              1    inz(*off)
+8.01  *
+8.01  * Definering av eksterne prg
+8.01  *
+8.01   dcl-s co402_verdi1  char(1);
+8.01   dcl-s co402_verdi2  char(2048);
+8.01   DCL-PR CO402R EXTPGM('CO402R');
+8.01     p_filgrp            char(3)     const;
+8.01     p_firm              packed(3:0) const;
+8.01     p_lager             packed(2:0) const;
+8.01     p_nokkel            char(50)    const;
+8.01     p_verdi1            char(1);
+8.01     p_verdi2            char(2048);
+8.02   END-PR;
+8.01  *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  HOVEDPROGRAM
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+8.01  * Sjekker om poster skal dannes
+8.01  *
+8.01 c                   if        u_s801 = *off
+8.01 c                   goto      avslutt
+8.01 c                   endif
+8.01  *
+      *  Finner  rader i TELLING for denne BATCH
+      *
+     c     ltell1_key    setll     ltell1
+     c     ltell1_key    reade     ltell1
+      *
+     c                   dow       not %eof
+      *
+      * Finn riktig antall før utregn. av kostpris -(antall på lager - antall tellet)
+      *
+     c                   eval      w_avik = leantt - leantl
+      *
+      * Hent gj.kostpris for denne varen
+      *
+     c                   eval      p_vare = levare
+     c                   eval      p_lage = lelage
+     c                   call      'VG701R'
+     c                   parm                    p_vare
+     c                   parm                    p_lage
+     c                   parm                    w_datn
+     c                   parm                    p_cost
+      *
+      * Beregner verdi på bevegelse og summerer opp
+      *
+     c                   if        w_avik <> 0
+     c                   eval      w_belp = w_avik * p_cost
+     c                   eval      w_btot = w_btot + w_belp
+     c                   endif
+      *
+     c     ltell1_key    reade     ltell1
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Oppdaterer regnskap
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Henter neste bilagsnummer
+      *
+     c                   exsr      hntnum
+      *
+      *  Henter kontoinformasjon
+      *
+     c                   exsr      hntkon
+      *
+      *  Legger ut felter i LOVF
+     c                   exsr      bygg_trans
+      *
+      * Danner kostpostering
+      *
+     c                   if        w_btot > 0
+     c                   eval      lgdkto = d_kko3
+     c                   eval      lgdsps = d_ksp3
+     c                   eval      lgbelp = w_btot
+     c                   else
+     c                   eval      lgckto = d_kko3
+     c                   eval      lgcsps = d_ksp3
+     c                   eval      lgbelp = w_btot * -1
+     c                   endif
+      *
+     c                   write     lovfpfr
+      *
+     c                   eval      lgdkto = 0
+     c                   eval      lgdsps = 0
+     c                   eval      lgckto = 0
+     c                   eval      lgcsps = 0
+      *
+      * Danner motpost
+      *
+     c                   if        w_btot > 0
+     c                   eval      lgckto = d_kko5
+     c                   eval      lgcsps = d_ksp5
+     c                   eval      lgbelp = w_btot
+     c                   else
+     c                   eval      lgdkto = d_kko5
+     c                   eval      lgdsps = d_ksp5
+     c                   eval      lgbelp = w_btot * -1
+     c                   endif
+      *
+      *  Legger ut balansetransaksjon til økonomi
+      *
+     c                   write     lovfpfr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+8.01 c     avslutt       tag
+     c                   eval       *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Henter/Oppdatering av NUMMER-REGISTER
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hntnum        begsr
+      *
+     c                   eval      w_fast = *blank
+     c                   eval      w_fell = vgkbis
+     c                   eval      w_type = *blank
+     c                   eval      w_kode = '0'
+      *
+      *  Kaller opp subprogram for henting av nummer fra NUMMER-REGISTER
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_numm
+      *
+     c                   eval      lgbiln = w_numm
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *  Henter avdeling/konto/spesifikasjon                            *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     hntkon        begsr
+      *
+      *  Legger ut parametere for konto-henvisnings-program
+      *
+     c                   eval      w_stat = *blank
+     c                   eval      w_ltyp = *zero
+     c                   eval      w_ogrp = vvogrp
+     c                   eval      w_hgrp = vvhgrp
+     c                   eval      w_ugrp = vvugrp
+     c                   eval      w_vare = vvvare
+     c                   move      *zero         w_hele
+      *
+      *  Kaller program for å finne konto
+      *
+     c                   call      'VA720R'
+     c                   parm                    w_stat
+     c                   parm                    w_ltyp
+     c                   parm                    w_otyp
+     c                   parm                    w_ogrp
+     c                   parm                    w_hgrp
+     c                   parm                    w_ugrp
+     c                   parm                    w_vare
+     c                   parm                    w_hele
+      *
+     c                   eval      d_hele = w_hele
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *  Legger ut felter til LOVFPF
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     bygg_trans    begsr
+      *
+      *  Legger inn firma i bilagsfirmafelt
+      *
+     c                   eval      lgfirm = w_firm
+      *
+      *  Finner dagens dato og periode
+      *
+     c                   time                    w_dato
+     c                   eval      lgbdat = w_dato
+      *
+      *  Legg inn periode
+      *
+     c                   eval      w_mnd  = *month
+     c                   eval      lgperi = *year
+     c                   movel     w_mnd         lgperi
+      *
+      *  Legger inn buntnummer
+      *
+     c                   eval      wtbunt = 0
+     c     *ymd          move      lgbdat        wofkda
+     c                   move      wofkda        wtbunt
+     c                   eval      lgbunt = wtbunt
+      *
+      *  Legger ut bilagstekst
+      *
+     c                   eval      lgtext = 'Batc: ' + lebatc
+      *
+      *  Legger ut bilagskode
+      *
+     c                   eval      lgbilk = vgkbik
+      *
+      *
+      *  Nullstiller felter som ikke benyttes i rutinen
+      *
+     c                   eval      lgfdat = lgbdat
+     c                   eval      lgproj = *blank
+     c                   eval      lgakti = *blank
+     c                   eval      lgkref = *zero
+     c                   eval      lgkund = *zero
+     c                   eval      lgvalk = *blank
+     c                   eval      lgvalb = *zero
+     c                   eval      lgmngk = *zero
+     c                   eval      lgautx = *blank
+     c                   eval      lgkidi = *blank
+     c                   eval      lgsfak = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_batc
+      *
+      * Key for les av TELLING
+      *
+     c     ltell1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ltell1_batc
+      *
+      *  Key for les av LAGER-STATUS
+      *
+     c     lstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      *  Key for les av vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for kostpris parameter
+      *
+     c     vgkkir_key    klist
+     c                   kfld                    w_firm
+      *
+      * Tilordne verdier
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      ltell1_batc = p_batc
+     c                   time                    w_dato
+     c                   eval      w_datn = %dec(w_dato)
+      *
+      *  Hent opplysninger fra LAGER-STATUS-KODER
+      *
+     c     lstsl1_key    chain     lstsl1r
+
+      *
+      * Hent opplysninger fra kostpris koder
+      *
+     c     vgkkir_key    chain     vgkkir
+      *
+      *  Hent opplysninger fra VAREREGISTERET
+      *
+     c                   eval      vvarl1_vare = levare
+     c     vvarl1_key    chain     vvarl1
+      *
+8.01  *
+8.01  * Sjekker om oppdatering skal kjøres
+8.01  *
+8.01   CallP CO402R(l_filg:w_firm:0:'VG806_801':
+8.01   co402_verdi1:co402_verdi2);
+8.81   if co402_verdi1 = '1';
+8.01     u_s801 = *on;
+8.01   endif;
+8.01  *
+     c                   endsr

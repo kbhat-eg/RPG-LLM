@@ -1,0 +1,436 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOKON
+      * Program . . . . : RA532R
+      * Beskrivelse . . : Kort, spørring
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       080910 BSA  Nytt program
+6.10  *       300312 BSA  Lagt til GE Kort
+6.11  *       130812 BSA  Hvis korttypen finnes i parameterlista, skal bare
+6.11  *                   denne typen vises.
+7.xx  * 7.00  220120 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+8.00  * 8.00  250522 sst  Endret fra 'GE Kort' til Santander
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fruksl1    if   e           k disk    rename(rukspfr:ruksl1r)
+     f**ra10l2    if   e           k disk    rename(ra10pfr:ra10l2r)
+      *
+     fra532d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(rusfir)
+     d p_skty          s                   like(ruskty)
+     d p_slag          s                   like(ruslag)
+     d p_sbes          s                   like(rusbes)
+      *
+      * Definering av variabler i nøkler
+      *
+     d ruksl1_skty     s                   like(ruskty)
+     d ruksl1_slag     s                   like(ruslag)
+      *
+      * Definering av variable
+      *
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_valg_ok       s              1    inz(*off)
+      *
+     d w_firm          s                   like(rusfir)
+      *
+      * Definering av konstanter
+      *
+7.xx d c_sfil          s              2  0 inz(7)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+     c                   if        w_curn > 0
+     c                   eval      w_sfrn = w_curn / c_sfil
+     c                   eval      w_sfrn = w_sfrn * c_sfil + 1
+     c                   endif
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c*                  if        b2skty <> 0 or
+     c*                            b2jtxt <> *blank
+     c*                  exsr      posisjoner
+     c*                  goto      b2tagb
+     c*                  endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+     c                   if        b_valg_ok = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_sfrn <> 0
+     c     w_sfrn        chain     b1sfl
+     c                   endif
+      *
+     c                   eval      ruksl1_skty = 0
+     c                   eval      ruksl1_slag = 0
+     c     ruksl1_key    setll     ruksl1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Korttype
+      *
+     c**                 if        b2jkod <> 0
+     c                   eval      w_seqe = *blank
+     c                   eval      ruksl1_skty = b1skty
+     c     ruksl1_key    setll     ruksl1
+     c                   goto      end_pos
+     c**                 endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b1skty = 0
+     c                   eval      b1slag = 0
+     c                   eval      b2styp = *blank
+     c                   eval      b2sbes = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_sfrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Velg
+      *
+     c                   if        b1valg = 1
+     c                   eval      p_skty = b1skty
+     c                   eval      p_slag = b1slag
+     c                   eval      p_sbes = b1sbes
+     c                   eval      b_valg_ok = *on
+     c                   leave
+     c                   endif
+      *
+     c                   enddo
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      ruksl1
+      *
+     c                   if        %eof or
+     c                             rusfir <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+6.11  * Hvis korttypen angitt i parameterliste, skal kun denne typen vises
+6.11 c                   if        p_skty <> 0 and
+6.11 c                             p_skty <> ruskty
+6.11 c                   iter
+6.11 c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      ruksl1_skty = ruskty
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1skty = ruskty
+     c                   eval      b1slag = ruslag
+     c                   eval      b1sbes = rusbes
+     c                   exsr      kort_type
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å sette kort/avtaletype i klartekst (full)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     kort_type     begsr
+      *
+     c                   select
+     c                   when      ruskty = 1
+     c                   eval      b1type = 'VISA Purchasing'
+     c                   when      ruskty = 2
+     c                   eval      b1type = 'Europay Purchasing'
+     c                   when      ruskty = 3
+     c                   eval      b1type = 'Maxbo Kort (DNB)'
+     c                   when      ruskty = 4
+6.10 c                   eval      b1type = 'Santander   '
+     c                   when      ruskty = 5
+     c                   eval      b1type = 'BM Kort (DNB)'
+     c                   when      ruskty = 6
+     c                   eval      b1type = 'NBBL Fordelskort'
+     c                   other
+     c                   eval      b1type = 'Udefinert....'
+     c                   endsl
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     ruksl1_key    setgt     ruksl1
+     c                   readp     ruksl1
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     ruksl1
+      *
+     c                   if        %eof or
+     c                             rusfir <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      ruksl1_skty = ruskty
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     ruksl1_key    setll     ruksl1
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_skty
+     c                   parm                    p_slag
+     c                   parm                    p_sbes
+      *
+      * Key for posisjonering på lager
+      *
+     c     ruksl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ruksl1_skty
+     c                   kfld                    ruksl1_slag
+      *
+      * Henter parametre, og initierer skjermbildet
+      *
+     c                   eval      w_firm = p_firm
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      ruksl1_skty = 0
+     c                   eval      ruksl1_slag = 0
+     c     ruksl1_key    setll     ruksl1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

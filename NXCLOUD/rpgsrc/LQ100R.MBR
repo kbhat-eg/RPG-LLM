@@ -1,0 +1,994 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : LQ100R
+      * Beskrivelse . . : Lagertransaksjoner, bunt behandling
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      * V5.50 221106 KOB  Lagt inn årsakskode ved registrering av transer
+      *  6.10  170609 BSA  Oppdatert med sporingsinformasjon
+6.nu  * 6.30  030614 bof  Utvidelser vedr. nummerutvidelse
+6.31  * 6.30  141014 nho  Feilmelding dersom buntnr > 99999
+6.20  *  6.20  121114 BKV  Legger inn default bruker sitt lager
+7.xx  * 7.xx  180516 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde
+7.01  * 7.00  090519 bof  Legge inn test på om regnsk.trans skal dannesde
+6.32  *  6.30  130218 nho  Test på modul, oppdat av gj.kostpris
+6.33  *  6.30  130218 nho  Justert indikator på meldingsbildet
+      *                    viser motsatt ved Regnsk.poster dannes
+7.01  *       070420 bof   vasking newlook b1text...
+
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = avslutt
+      *       10 = Roll
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       16 = Readc 16 on, no more records
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fllhelr    if   e           k disk    rename(llhepfr:llhelrr)
+     fllhelu    uf a e           k disk    rename(llhepfr:llhelur)
+     fllhel1    if   e           k disk    rename(llhepfr:llhel1r)
+     fllhel2    if   e           k disk    rename(llhepfr:llhel2r)
+     fllhel3    if   e           k disk    rename(llhepfr:llhel3r)
+     flstsl1    if   e           k disk    rename(lstspfr:lstsl1r)
+6.32 famodl1    if   e           k disk    rename(amodpfr:amodl1r)
+6.32 fvgkkir    if   e           k disk    rename(vgkkst:vgkkirr)
+      *
+     flq100d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+6.20 d l_lagr               1001   1002  0
+      *
+      * Parametre ut
+      *
+     d                 ds
+     d d_prec                        64
+6.nu d  d_numm                        8  0 overlay(d_prec)
+6.nu d  d_kode                        1    overlay(d_prec:9)
+6.nu d  d_peri                        6  0 overlay(d_prec:10)
+     d  d_dato                       10d   datfmt(*iso)
+6.nu d                                     overlay(d_prec:16)
+6.nu d  d_dumm                        1    overlay(d_prec:26) inz('x')
+      *
+      * Definering av variabler i nøkler
+      *
+     d llhel1_numm     s                   like(lqnumm)
+     d llhelr_numm     s                   like(lqnumm)
+     d llhelu_numm     s                   like(lqnumm)
+     d llhel2_numm     s                   like(lqnumm)
+     d llhel3_numm     s                   like(lqnumm)
+     d llhel2_type     s                   like(lqtype)
+     d llhel3_text     s                   like(lqtext)
+6.32 d amodl1_modu     s                   like(axmodu)
+6.32 d x_mod           s              1  0
+      *
+      * Definering av variable
+      *
+6.31 d w_mld1          s             50
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(lqfirm)
+     d w_numm          s                   like(lqnumm)
+     d w_lage          s                   like(lqlage)
+     d w_tim6          s              6  0
+     d w_latx          s             20
+     d w_adrs          s             30
+     d w_ponr          s              4  0
+     d w_pste          s             30
+     d w_avde          s              4  0
+     d w_nbko          s              1
+     d w_ntyp          s              2
+     d w_nfel          s                   like(laabun)
+     d w_nfas          s                   like(l_wsid)
+     d w_date          s               d   datfmt(*iso)
+     d w_time          s               t   timfmt(*iso)
+     d w_prec          s             64
+     d w_stat          s              1
+     d w_xrko          s              2
+     d w_xtxt          s             20
+7.01 d w_len           s              3  0
+7.01 d w_teller        s              3  0
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(12)
+      *
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_srrn - Relativt recordnummer i subfile
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * w_virn - Vis den side som inneholder denne record.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * B4WIN  - B4 Vindu for å slette
+      * C2WIN  - C2 Vindu for registrering/vedlikehold av bunthode
+      * B7WIN  - B7 Vindu for varsel om feilvalg
+      * B8WIN  - B8 Vindu for oppdatering av lager uten regnskap
+      * B9WIN  - B9 Vindu for oppdatering av lager med regnskap
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_pgm
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   eval      w_numm = 0
+     c                   eval      c2funk = 'Ny reg.   '
+     c                   exsr      xc2win
+     c                   eval      w_numm = c2numm
+     c                   exsr      xc2bld
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   when      *inkh
+     c                   exsr      xc8bld
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2numm <> 0 or
+     c                             b2type <> *blank or
+     c                             b2text <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     end_pgm       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   eval      b2numm = 0
+     c                   eval      b2type = *blank
+     c                   eval      b2text = *blank
+      *
+     c                   select
+     c                   when      w_seqe = ' '
+     c     llhel1_key    setll     llhel1
+     c                   when      w_seqe = 'T'
+     c     llhel2_key    setll     llhel2
+     c                   when      w_seqe = 'B'
+     c     llhel3_key    setll     llhel3
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjoner startverdi på buntnummer
+      *
+     c                   if        b2numm <> 0
+     c                   eval      w_seqe = ' '
+     c                   eval      llhel1_numm = b2numm
+     c     llhel1_key    setll     llhel1
+     c                   endif
+      *
+      * Posisjoner startverdi på bunttype
+      *
+     c                   if        b2type <> *blank
+     c                   if        b2type = '""'
+     c                   eval      b2type = *blank
+     c                   endif
+     c                   eval      w_seqe = 'T'
+     c                   eval      llhel2_type = b2type
+     c                   eval      llhel2_numm = 0
+     c     llhel2_key    setll     llhel2
+     c                   endif
+      *
+      * Posisjoner startverdi på buntbeskrivelse
+      *
+     c                   if        b2text <> *blank
+     c                   eval      w_seqe = 'B'
+     c                   eval      llhel3_text = b2text
+     c                   eval      llhel3_numm = 0
+     c     llhel3_key    setll     llhel3
+     c                   endif
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2numm = 0
+     c                   eval      b2type = *blank
+     c                   eval      b2text = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+      * Beholder eksisterende posisjonering i subfilen
+      *
+     c                   if        w_curn > 0
+     c                   eval      w_virn = w_curn
+     c                   endif
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl                                  16
+      *
+     c                   if        *in16
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre hode på post
+      *
+     c                   if        b1valg = 2
+     c                   eval      w_numm = b1numm
+     c                   eval      *in31 = *on
+     c                   eval      c2funk = 'Endring   '
+     c                   exsr      xc2win
+     c                   eval      *in31 = *off
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Kopiere post
+      *
+     c                   if        b1valg = 3
+     c                   eval      w_numm = b1numm
+     c                   eval      c2funk = 'Kopiering '
+     c                   exsr      xc2win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slette post
+      *
+     c                   if        b1valg = 4
+     c                   eval      w_numm = b1numm
+     c                   exsr      xb4win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Skrive ut post
+      *
+     c                   if        b1valg = 6
+     c                   eval      w_numm = b1numm
+     c                   exsr      xc6bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Endre detaljlinjer
+      *
+     c                   if        b1valg = 7
+     c                   eval      w_numm = b1numm
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Overføre bunt til lager
+      *
+     c                   if        b1valg = 8
+     c                   eval      w_numm = b1numm
+     c                   exsr      xb8win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å kalle opp program for endring av linjer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   call      'LS100R'
+     c                   parm                    w_numm
+      *
+     c     end_c2bld     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å kalle opp program for utskrift av kontrolliste
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc6bld        begsr
+      *
+     c                   eval      d_numm = w_numm
+     c                   eval      d_kode = *blank
+     c                   eval      w_prec = d_prec
+      *
+     c                   call      'LQ600C'
+     c                   parm                    w_prec
+      *
+     c     end_c6bld     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å kalle opp program for oppdatering av regnskap
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc8bld        begsr
+      *
+5.50 c                   call      'LO150C'
+      *
+     c     end_c8bld     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb4win        begsr
+      *
+     c                   eval      b4numm = w_numm
+     c                   exfmt     b4win
+      *
+     c                   if        *inkc = *on
+     c                   goto      end_b4win
+     c                   endif
+      *
+      *  Kaller opp subprogram for å slette
+      *
+     c                   eval      b_forn = *on
+     c                   call      'LQ400R'
+     c                   parm                    w_numm
+      *
+     c     end_b4win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for bygging/endring av bunthode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2win        begsr
+      *
+     c                   eval      c2latk = *blank
+     c                   eval      c2text = *blank
+      *
+     c                   if        w_numm <> 0
+     c                   eval      llhelr_numm = w_numm
+     c     llhelr_key    chain     llhelr
+     c                   if        %found
+     c                   eval      c2numm = lqnumm
+     c                   eval      c2type = lqtype
+     c                   move      lqlage        c2lage
+     c                   move      lqlast        c2last
+     c                   eval      c2text = lqtext
+      *
+     c                   eval      w_xrko = lqxrko
+     c                   exsr      sjekk_Årsak
+     c                   eval      c2xrko = lqxrko
+     c                   eval      c2xtxt = w_xtxt
+      *
+     c                   eval      w_lage = lqlage
+     c                   exsr      sjekk_lager
+     c                   eval      c2ltek = w_latx
+      *
+     c                   if        lqtype = 'O '
+     c                   eval      w_lage = lqlast
+     c                   exsr      sjekk_lager
+     c                   eval      c2latk = w_latx
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   else
+     c                   eval      c2numm = 0
+     c                   eval      c2type = *blank
+6.20 c                   move      l_lagr        c2lage
+6.20 c*                  eval      c2lage = *blank
+     c                   eval      c2last = *blank
+     c                   eval      c2ltek = *blank
+     c                   endif
+      *
+      * Ved kopiering - legg inn nytt nummer
+      *
+     c                   if        c2funk = 'Kopiering '
+     c                   eval      c2numm = 0
+     c                   endif
+      *
+     c     c2win_ut      tag
+     c                   exfmt     c2win
+      *
+     c                   if        *inkc = *on
+     c                   goto      end_c2win
+     c                   endif
+      *
+     c                   if        *inkd = *on
+     c                   exsr      finn_lager
+     c                   goto      c2win_ut
+     c                   endif
+6.31 c                   if        c2numm > 0 and
+6.31 c                             c2numm > 99999
+6.31 c                   eval      w_mld1 = 'Buntnummer større en+
+6.31 c                                       n 99999 kan ikke regi+
+6.31 c                                       streres !'
+6.31 c                   call      'AA005R'
+6.31 c                   parm                    w_mld1
+6.31 c                   goto      c2win_ut
+6.31 c                   endif
+      *
+      * Sjekk innlagte verdier i bilde
+      *
+     c                   if        %len(%trim(c2lage)) = 1
+     c                   eval      c2lage = '0' + %trim(c2lage)
+     c                   endif
+     c                   move      c2lage        w_lage
+     c                   exsr      sjekk_lager
+     c                   if        b_feil = *on
+     c                   eval      *in33 = *on
+     c                   goto      c2win_ut
+     c                   endif
+      *
+     c                   if        c2type = 'OF'
+     c                   if        %len(%trim(c2last)) = 1
+     c                   eval      c2last = '0' + %trim(c2last)
+     c                   endif
+     c                   move      c2last        w_lage
+     c                   exsr      sjekk_lager
+     c                   if        b_feil = *on
+     c                   eval      *in35 = *on
+     c                   goto      c2win_ut
+     c                   endif
+     c                   endif
+      *
+     c                   if        c2type = 'OF' and
+     c                             c2lage = c2last
+     c                   eval      *in34 = *on
+     c                   goto      c2win_ut
+     c                   endif
+      *
+      * Er gyldige årsakskode angitt?
+      *
+     c                   if        c2xrko <> ' '
+     c                   move      c2xrko        w_xrko
+     c                   exsr      sjekk_Årsak
+     c                   if        b_feil = *on
+     c                   eval      *in40 = *on
+     c                   goto      c2win_ut
+     c                   endif
+     c                   eval      c2xtxt = w_xtxt
+     c                   else
+     c                   eval      c2xtxt = *blank
+     c                   endif
+      *
+     c                   if        c2text = *blank
+     c                   eval      *in32 = *on
+     c                   goto      c2win_ut
+     c                   endif
+      *
+      * Oppdater eller registrer ny
+      *
+     c                   eval      b_forn = *on
+     c                   eval      llhelu_numm = c2numm
+     c     llhelu_key    chain     llhelu
+      *
+     c                   if        c2numm = 0
+     c                   exsr      hntnum
+     c                   eval      c2numm = w_numm
+     c                   endif
+      *
+     c                   eval      lqtype = c2type
+     c                   move      c2lage        lqlage
+     c                   move      c2last        lqlast
+     c                   eval      lqtext = c2text
+     c                   eval      lqxrko = c2xrko
+      *
+     c                   if        %found
+6.10 c                   time                    lqedat
+6.10 c                   time                    lqetim
+6.10 c                   eval      lqeusr = l_user
+     c                   update    llhelur
+     c                   else
+     c                   eval      lqfirm = w_firm
+     c                   eval      lqnumm = c2numm
+     c                   eval      lqdate = w_date
+     c                   eval      lqtime = w_time
+     c                   eval      lqwsid = l_wsid
+     c                   eval      lquser = l_user
+6.10 c                   time                    lqedat
+6.10 c                   time                    lqetim
+6.10 c                   eval      lqeusr = l_user
+     c                   write     llhelur
+     c                   endif
+      *
+     c     end_c2win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å oppdatere bunt i lager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xb8win        begsr
+      *
+     c                   eval      b8numm = w_numm
+      *
+6.32  * Sjekker om GJKOST Modul
+6.32 c                   eval      x_mod = 0
+6.32 c                   eval      amodl1_modu = 'GJKOST'
+6.32 c     amodl1_key    chain     amodl1
+6.32 c                   if        %found(amodl1)
+6.32  * Henter kode informasjon
+6.32 c     vgkkir_key    chain     vgkkir
+6.32 c                   if        %found(vgkkir) and
+6.32 c                             vgkrgn = 'J'
+6.32 c                   eval      *in31 = *on
+6.32 c                   eval      x_mod = 1
+6.32 c                   goto      et_std
+6.32 c                   endif
+6.32 c                   endif
+      *
+     c
+      *
+     c                   if        laaovf = 0
+6.33 c**                 eval      *in31 = *on
+6.33 c                   eval      *in31 = *off
+     c                   else
+6.33 c**                 eval      *in31 = *off
+6.33 c                   eval      *in31 = *on
+     c                   endif
+      *
+6.32 c     et_std        tag
+6.32  *
+     c                   if        b1type = 'OF'
+     c                   eval      *in32 = *on
+     c                   else
+     c                   eval      *in32 = *off
+     c                   endif
+      *
+     c                   exfmt     b8win
+      *
+      *  F3=Avslutt
+      *
+     c                   if        *inkc = *on
+     c                   goto      end_b8win
+     c                   endif
+      *
+     c                   eval      d_numm = w_numm
+     c                   eval      d_kode = '1'
+     c                   eval      d_kode = *blank
+     c                   eval      w_prec = d_prec
+      *
+      * Oppdater lager med kvitteringsliste
+      *
+     c                   call      'LQ700R'
+     c                   parm                    w_prec
+      *
+     c                   call      'LQ600C'
+     c                   parm                    w_prec
+5.50  *
+5.50  * Legg ut regnskapposter
+5.50  *
+7.01 c                   if        laaovf = 0
+5.50 c                   call      'LQ705C'
+5.50 c                   parm                    w_prec
+7.01 c                   endif
+      *
+5.50  *
+6.32 c                   if        x_mod = 1
+6.32 c                   call      'VG803C'
+6.32 c                   parm                    w_prec
+6.32 c                   endif
+      *
+      * Skal pakkseddel skrives ved overføring?
+      *
+     c                   if        c8pakk = 1
+     c                   call      'LQ604C'
+     c                   parm                    w_prec
+     c                   endif
+      *
+      *  Kaller opp subprogram for å slette bunt etter oppdatering
+      *
+     c                   eval      b_forn = *on
+     c                   call      'LQ400R'
+     c                   parm                    w_numm
+      *
+     c     end_b8win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = ' '
+     c                   read      llhel1
+     c                   when      w_seqe = 'T'
+     c                   read      llhel2
+     c                   when      w_seqe = 'B'
+     c                   read      llhel3
+     c                   endsl
+      *
+     c                   if        %eof
+     c                   eval      *in15 = *on
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   if        lqfirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1numm = lqnumm
+     c                   eval      b1type = lqtype
+     c                   eval      b1lage = lqlage
+     c                   eval      b1last = lqlast
+     c                   eval      b1text = lqtext
+     c                   eval      b1user = lquser
+      *
+     c                   if        lqdate <> *loval
+     c     *dmy          move      lqdate        b1rdat
+     c                   else
+     c                   eval      b1rdat = 0
+     c                   endif
+      *
+     c                   if        lqtime <> *loval
+     c     *hms          move      lqtime        w_tim6
+     c                   movel     w_tim6        b1rtim
+     c                   else
+     c                   eval      b1rtim = 0
+     c                   endif
+7.01  *  Vasker tegn som newlook ikke tåler
+7.01 c                   exsr      newlo_vask
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c     end_crt       tag
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for spørring på lager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     finn_lager    begsr
+      *
+     c                   if        w_afld = 'C2LAGE'
+     c                   call      'RA510R'
+     c                   parm                    w_firm
+     c                   parm                    w_lage
+     c                   parm                    c2ltek
+     c                   move      w_lage        c2lage
+     c                   goto      sp_end
+     c                   endif
+      *
+     c                   if        w_afld = 'C2LAST'
+     c                   call      'RA510R'
+     c                   parm                    w_firm
+     c                   parm                    w_lage
+     c                   parm                    c2latk
+     c                   move      w_lage        c2last
+     c                   goto      sp_end
+     c                   endif
+      *
+      * Spørring på årsakskode
+      *
+     c                   if        w_afld = 'C2XRKO'
+     c                   call      'RA524R'
+     c                   parm                    w_firm
+     c                   parm                    c2xrko
+     c                   parm                    c2xtxt
+     c                   goto      sp_end
+     c                   endif
+      *
+     c     sp_end        endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kontroll av lager
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_lager   begsr
+      *
+     c                   eval      w_latx = *blank
+      *
+     c                   eval      b_feil = *off
+     c                   call      'FÅ720R'
+     c                   parm                    w_firm
+     c                   parm                    w_lage
+     c                   parm                    w_latx
+     c                   parm                    w_adrs
+     c                   parm                    w_ponr
+     c                   parm                    w_pste
+     c                   parm                    w_avde
+     c                   parm                    b_feil
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kontroll av årsakskode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_Årsak   begsr
+      *
+     c                   eval      w_xtxt = *blank
+      *
+     c                   call      'RS724R'
+     c                   parm                    w_stat
+     c                   parm                    w_xrko
+     c                   parm                    w_xtxt
+      *
+     c                   if        w_stat <> *blank
+     c                   eval      b_feil = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for henting av neste ledige buntnummer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hntnum        begsr
+      *
+     c                   eval      w_nbko = '0'
+     c                   eval      w_nfel = laabun
+     c                   eval      w_ntyp = *blank
+     c                   eval      w_nfas = l_wsid
+      *
+     c     ny_hnt        tag
+     c                   call      'AS100R'
+     c                   parm                    w_nbko
+     c                   parm                    w_firm
+     c                   parm                    w_nfel
+     c                   parm                    w_ntyp
+     c                   parm                    w_nfas
+     c                   parm                    w_numm
+      *
+     c                   eval      llhelr_numm = w_numm
+     c     llhelr_key    chain     llhelr
+     c                   if        %found
+     c                   goto      ny_hnt
+     c                   endif
+      *
+     c                   endsr
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  * Newlook vask av data
+7.01  *  Fjerner tegn som gjør at Newlook feiltolker
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01  /FREE
+7.01
+7.01   begsr newlo_vask;
+7.01     for w_teller = 1 to 25;
+7.01       w_len = %len(%trim(b1text));
+7.01       if (w_len > 0);
+7.01       b1text = %ScanRpl('.':'':b1text:w_len); // newlook tåler ikke . på slutten
+7.01       endif;
+7.01       w_len = %len(%trim(b1text));
+7.01       if (w_len > 0);
+7.01       b1text = %ScanRpl(':':'':b1text:w_len); // newlook tåler ikke : på slutten
+7.01       endif;
+7.01     endfor ;
+7.01   endsr;
+7.01  /END-FREE
+7.01  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Key for les av BUNT
+      *
+     c     llhelr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    llhelr_numm
+      *
+      *  Key for oppdatering av BUNT
+      *
+     c     llhelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    llhelu_numm
+      *
+      *  Key for posisjonering av BUNT
+      *
+     c     llhel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    llhel1_numm
+      *
+      *  Key for posisjonering på BUNTTYPE
+      *
+     c     llhel2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    llhel2_type
+     c                   kfld                    llhel2_numm
+      *
+      *  Key for posisjonering på BUNTTEKST
+      *
+     c     llhel3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    llhel3_text
+     c                   kfld                    llhel3_numm
+      *
+      *  Key for les av STATUS
+      *
+     c     lstsl1_key    klist
+     c                   kfld                    w_firm
+6.32  *
+6.32  * Key for les av moduler Nexstep
+6.32  *
+6.32 c     amodl1_key    klist
+6.32 c                   kfld                    amodl1_modu
+      *
+6.32  * Key for kostpris parameter
+6.32  *
+6.32 c     vgkkir_key    klist
+6.32 c                   kfld                    w_firm
+      *
+      *
+      *
+      * Henter firmanummer fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      *  Hent opplysninger fra LAGER-KODE-REGISTER
+      *
+     c     lstsl1_key    chain     lstsl1r                            90
+      *
+      *  Legger inn dato og klokkeslett (timestamp)
+      *
+     c                   time                    w_date
+     c                   time                    d_dato
+     c                   time                    w_time
+      *
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      w_seqe = *blank
+     c                   eval      llhel1_numm = 0
+     c     llhel1_key    setll     llhel1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *

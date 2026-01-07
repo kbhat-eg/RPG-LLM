@@ -1,0 +1,397 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VP753R
+      * Beskrivelse . . : Vare-pris, henter innkjøpspriser på enhet
+      *
+      *                   Input:  Firma, vare,prgr., enhet, lev.type og dato
+      *                   Output: Kostpris og innkjøpspris
+      *
+      *                           Dersom innkjøpspris ikke ble funnet,
+      *                           settes denne lik kostpris
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       111099 HKO  Nytt program
+5.70  * PRGR  241008 BOF  Utvidet med prisgruppe
+6.20  *       220311 BOF  Utvidet med prisgiver på vare-pris
+6.21  * 6.20  120112 Bsa  Må ta hensyn om kost/innkjøpspriser ligger på tilbuds-
+6.21  *                   register hvis kampanje er utfylt. Bruker bare priser hvis
+6.21  *                   de er angitt på enhet, og bruker ikke omregninsgfaktorer.
+6.21  *                   Årsak - det er ikke sikkert prisen gjelder på andre enheter.
+      *
+8.01  *PRG2   150622 bsa  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvprl1    if   e           k disk    rename(vvprpfr:vvprl1r)
+6.20 fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+6.21 fvtill9    if   e           k disk    rename(vtilpfr:vtill9r)
+      *
+      * Definering av pamametre
+      *
+     d p_firm          s                   like(vpfirm)
+     d p_vare          s                   like(vpvare)
+5.70 d p_prgr          s                   like(vpprgr)
+     d p_enhe          s                   like(vpenhe)
+     d p_lety          s                   like(vplety)
+     d p_dato          s                   like(vppdat)
+     d p_kopr          s                   like(vpkopr)
+     d p_inpr          s                   like(vpinpr)
+      *
+      * Definering av variable i nøkler
+      *
+6.20 d vvarl1_vare     s                   like(vvvare)
+     d vvprl1_vare     s                   like(vpvare)
+6.20 d vvprl1_ldor     s                   like(vpldor)
+5.70 d vvprl1_prgr     s                   like(vpprgr)
+     d vvprl1_enhe     s                   like(vpenhe)
+     d vvprl1_lety     s                   like(vplety)
+6.21 d vtill9_vare     s                   like(vvvare)
+6.21 d vtill9_prgr     s                   like(vpprgr)
+6.21 d vtill9_lety     s                   like(vplety)
+      *
+      * Definering av variable
+      *
+     d b_pris          s              1    inz(*off)
+6.20 d b_inlr          s              1    inz(*off)
+      *
+     d w_firm          s                   like(vpfirm)
+     d w_dato          s                   like(vppdat)
+6.20 d w_ldor          s                   like(vvldor)
+6.20 d w_lage          s              2  0
+6.21 d p_kamp          s              5
+      *
+      *
+6.20 d                uds
+6.20 d l_lage               1001   1002  0
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20 c                   eval      w_lage = l_lage
+6.20  *
+6.20  * Henter leverandør for vare og lager
+6.20  *
+6.20 c                   call      'VL721R  '
+6.20 c                   parm                    w_firm
+6.20 c                   parm                    p_vare
+6.20 c                   parm                    w_lage
+6.20 c                   parm                    w_ldor
+6.20 c                   parm                    b_inlr
+      *
+6.20 c                   eval      vvarl1_vare = p_vare
+6.20 c     vvarl1_key    chain     vvarl1                             90
+      *
+      * Henter prisinformasjon for enhet
+      *
+6.20  * 1. leverandør for lageret
+6.20 c                   eval      vvprl1_ldor = w_ldor
+     c                   exsr      hent_pris
+6.20 c                   if        b_pris = *off  and
+6.20 c                             w_ldor <> vvldor
+6.20  * 2. hovedleverandør
+6.20 c                   eval      vvprl1_ldor = vvldor
+6.20 c                   exsr      hent_pris
+6.20 c                   if        b_pris = *off
+6.20  * siste mulighet...
+6.20 c                   eval      vvprl1_ldor = 0
+6.20 c                   exsr      hent_pris
+6.20 c                   endif
+6.20 c                   endif
+      *
+      * Dersom innkjøpspris ikke ble funnet, settes denne lik kostpris
+      *
+     c                   if        p_inpr = 0
+     c                   eval      p_inpr = p_kopr
+     c                   endif
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for hendting av prisinformasjon for salgsenhet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_pris     begsr
+      *
+     c                   eval      b_pris = *off
+6.21  * Hvis kampanje sjekker vi om det finnes tilslag på denne
+6.21 c                   if        p_kamp <> *blanks
+6.21 c                   eval      vtill9_vare = p_vare
+6.21 c                   eval      vtill9_prgr = p_prgr
+6.21 c                   eval      vtill9_lety = p_lety
+6.21 c     vtill9_key    setll     vtill9
+6.21 c     vtill9_key    reade     vtill9                                 91
+6.21 c                   dow       *in91 = *off
+6.21  *
+6.21 c                   if        p_kamp = vtkamp
+6.21  * Enhet 1
+6.21 c                   if        vtenh1 = p_enhe and
+6.21 c                             vtinp1 <> 0
+6.21 c                   eval      b_pris = *on
+6.21 c                   eval      p_kopr = vtkop1
+6.21 c                   eval      p_inpr = vtinp1
+6.21  * Gyldige dato
+6.21 c                   if        w_dato >= vtfdat and
+6.21 c                             w_dato <= vttdat
+6.21 c                   leave
+6.21 c                   endif
+6.21 c                   endif
+6.21  * Enhet 2
+6.21 c                   if        vtenh2 = p_enhe and
+6.21 c                             vtinp2 <> 0
+6.21 c                   eval      b_pris = *on
+6.21 c                   eval      p_kopr = vtkop2
+6.21 c                   eval      p_inpr = vtinp2
+6.21  * Gyldige dato
+6.21 c                   if        w_dato >= vtfdat and
+6.21 c                             w_dato <= vttdat
+6.21 c                   leave
+6.21 c                   endif
+6.21 c                   endif
+6.21  * Enhet 3
+6.21 c                   if        vtenh3 = p_enhe and
+6.21 c                             vtinp3 <> 0
+6.21 c                   eval      b_pris = *on
+6.21 c                   eval      p_kopr = vtkop3
+6.21 c                   eval      p_inpr = vtinp3
+6.21  * Gyldige dato
+6.21 c                   if        w_dato >= vtfdat and
+6.21 c                             w_dato <= vttdat
+6.21 c                   leave
+6.21 c                   endif
+6.21 c                   endif
+6.21  *
+6.21 c                   endif
+6.21  *
+6.21 c     vtill9_key    reade     vtill9                                 91
+6.21 c                   enddo
+6.21  *
+6.21  * Vi prøver med prisgruppe blank, hvis det ikke ble treff
+6.21  *
+6.21 c                   eval      vtill9_vare = p_vare
+6.21 c                   eval      vtill9_prgr = *blank
+6.21 c                   eval      vtill9_lety = p_lety
+6.21 c     vtill9_key    setll     vtill9
+6.21 c     vtill9_key    reade     vtill9                                 91
+6.21 c                   dow       *in91 = *off
+6.21  *
+6.21 c                   if        p_kamp = vtkamp
+6.21  * Enhet 1
+6.21 c                   if        vtenh1 = p_enhe and
+6.21 c                             vtinp1 <> 0
+6.21 c                   eval      b_pris = *on
+6.21 c                   eval      p_kopr = vtkop1
+6.21 c                   eval      p_inpr = vtinp1
+6.21  * Gyldige dato
+6.21 c                   if        w_dato >= vtfdat and
+6.21 c                             w_dato <= vttdat
+6.21 c                   leave
+6.21 c                   endif
+6.21 c                   endif
+6.21  * Enhet 2
+6.21 c                   if        vtenh2 = p_enhe and
+6.21 c                             vtinp2 <> 0
+6.21 c                   eval      b_pris = *on
+6.21 c                   eval      p_kopr = vtkop2
+6.21 c                   eval      p_inpr = vtinp2
+6.21  * Gyldige dato
+6.21 c                   if        w_dato >= vtfdat and
+6.21 c                             w_dato <= vttdat
+6.21 c                   leave
+6.21 c                   endif
+6.21 c                   endif
+6.21  * Enhet 3
+6.21 c                   if        vtenh3 = p_enhe and
+6.21 c                             vtinp3 <> 0
+6.21 c                   eval      b_pris = *on
+6.21 c                   eval      p_kopr = vtkop3
+6.21 c                   eval      p_inpr = vtinp3
+6.21  * Gyldige dato
+6.21 c                   if        w_dato >= vtfdat and
+6.21 c                             w_dato <= vttdat
+6.21 c                   leave
+6.21 c                   endif
+6.21 c                   endif
+6.21  *
+6.21 c                   endif
+6.21  *
+6.21 c     vtill9_key    reade     vtill9                                 91
+6.21 c                   enddo
+6.21  * p_kamp<>*blank
+6.21 c                   endif
+      *
+     c                   eval      vvprl1_vare = p_vare
+5.70 c                   eval      vvprl1_prgr = p_prgr
+     c                   eval      vvprl1_enhe = p_enhe
+     c                   eval      vvprl1_lety = p_lety
+     c     vvprl1_key    setll     vvprl1
+     c     vvprl1_key    reade     vvprl1                                 91
+     c                   dow       *in91 = *off
+      *
+     c                   eval      b_pris = *on
+     c                   eval      p_kopr = vpkopr
+     c                   eval      p_inpr = vpinpr
+      *
+     c                   if        w_dato >= vppdat
+     c                   leave
+     c                   endif
+      *
+     c     vvprl1_key    reade     vvprl1                                 91
+     c                   enddo
+      *
+      * Dersom pris ikke finnes for oppgitt leveringstype, hentes pris fra
+      * leveringstype 0
+      *
+     c                   if        b_pris = *off and
+     c                             p_lety <> 0
+      *
+     c                   eval      vvprl1_vare = p_vare
+5.70 c                   eval      vvprl1_prgr = p_prgr
+     c                   eval      vvprl1_enhe = p_enhe
+     c                   eval      vvprl1_lety = 0
+     c     vvprl1_key    setll     vvprl1
+     c     vvprl1_key    reade     vvprl1                                 91
+     c                   dow       *in91 = *off
+      *
+     c                   eval      b_pris = *on
+     c                   eval      p_kopr = vpkopr
+     c                   eval      p_inpr = vpinpr
+      *
+     c                   if        w_dato >= vppdat
+     c                   leave
+     c                   endif
+      *
+     c     vvprl1_key    reade     vvprl1                                 91
+     c                   enddo
+      *
+     c                   endif
+5.70  *
+5.70  * Dersom pris ikke finnes for oppgitt prisgruppe, hentes pris fra
+5.70  * prisgruppe = blank
+5.70  *
+5.70 c                   if        b_pris = *off and
+5.70 c                             p_prgr <> *blank
+5.70  *
+5.70 c                   eval      vvprl1_vare = p_vare
+5.70 c                   eval      vvprl1_prgr = *blank
+5.70 c                   eval      vvprl1_enhe = p_enhe
+5.70 c                   eval      vvprl1_lety = p_lety
+5.70 c     vvprl1_key    setll     vvprl1
+5.70 c     vvprl1_key    reade     vvprl1                                 91
+5.70 c                   dow       *in91 = *off
+5.70  *
+5.70 c                   eval      b_pris = *on
+5.70 c                   eval      p_kopr = vpkopr
+5.70 c                   eval      p_inpr = vpinpr
+5.70  *
+5.70 c                   if        w_dato >= vppdat
+5.70 c                   leave
+5.70 c                   endif
+5.70  *
+5.70 c     vvprl1_key    reade     vvprl1                                 91
+5.70 c                   enddo
+5.70  *
+5.70  * Dersom pris ikke finnes for oppgitt leveringstype, hentes pris fra
+5.70  * leveringstype 0
+5.70  *
+5.70 c                   if        b_pris = *off and
+5.70 c                             p_lety <> 0
+5.70  *
+5.70 c                   eval      vvprl1_vare = p_vare
+5.70 c                   eval      vvprl1_prgr = *blank
+5.70 c                   eval      vvprl1_enhe = p_enhe
+5.70 c                   eval      vvprl1_lety = 0
+5.70 c     vvprl1_key    setll     vvprl1
+5.70 c     vvprl1_key    reade     vvprl1                                 91
+5.70 c                   dow       *in91 = *off
+5.70  *
+5.70 c                   eval      b_pris = *on
+5.70 c                   eval      p_kopr = vpkopr
+5.70 c                   eval      p_inpr = vpinpr
+5.70  *
+5.70 c                   if        w_dato >= vppdat
+5.70 c                   leave
+5.70 c                   endif
+5.70  *
+5.70 c     vvprl1_key    reade     vvprl1                                 91
+5.70 c                   enddo
+5.70  *
+5.70 c                   endif
+5.70  *
+5.70 c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_vare
+5.70 c                   parm                    p_prgr
+     c                   parm                    p_enhe
+     c                   parm                    p_lety
+     c                   parm                    p_dato
+     c                   parm                    p_kopr
+     c                   parm                    p_inpr
+6.21 c                   parm                    p_kamp
+      *
+      * Key for les på vare-pris-register
+      *
+     c     vvprl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvprl1_vare
+6.20 c                   kfld                    vvprl1_ldor
+5.70 c                   kfld                    vvprl1_prgr
+     c                   kfld                    vvprl1_enhe
+     c                   kfld                    vvprl1_lety
+6.21  *
+6.21  * Key for les på vare-pris-register
+6.21  *
+6.21 c     vtill9_key    klist
+6.21 c                   kfld                    w_firm
+6.21 c                   kfld                    vtill9_vare
+6.21 c                   kfld                    vtill9_prgr
+6.21 c                   kfld                    vtill9_lety
+6.20  *
+6.20  * Key for oppslag på vare
+6.20  *
+6.20 c     vvarl1_key    klist
+6.20 c                   kfld                    w_firm
+6.20 c                   kfld                    vvarl1_vare
+      *
+      *
+      * Henter firma fra parameter
+      *
+     c                   eval      w_firm = p_firm
+      *
+      * Initierer dato
+      *
+     c                   eval      w_dato = p_dato
+      *
+     c                   if        w_dato = *loval
+     c                   time                    w_dato
+     c                   endif
+      *
+      * Initierer output-parametre
+      *
+     c                   eval      p_kopr = 0
+     c                   eval      p_inpr = 0
+      *
+     c                   endsr

@@ -1,0 +1,165 @@
+/* 04.05.11 NHO Sjekk om jobb er i bruk fra register RJOBPF          */
+             PGM        PARM(&MEMB)
+
+             DCL        VAR(&MEMB)  TYPE(*CHAR) LEN(10)
+             DCL        VAR(&WKUN)  TYPE(*DEC)  LEN(6 0)
+             DCL        VAR(&WCAL)  TYPE(*DEC)  LEN(1 0)
+             DCL        VAR(&BTCH)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&MEM1)  TYPE(*CHAR) LEN(10) VALUE('RFA      ')
+             DCL        VAR(&MEM2)  TYPE(*CHAR) LEN(10) VALUE('RFB      ')
+             DCL        VAR(&MEM3)  TYPE(*CHAR) LEN(10) VALUE('RFC      ')
+             DCL        VAR(&IN03)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&STAT)  TYPE(*DEC)  LEN(1 0)
+             DCL        VAR(&WALI)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&WAPO)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&MLD1)  TYPE(*CHAR) LEN(30)
+             DCL        VAR(&MLD2)  TYPE(*CHAR) LEN(30)
+             DCL        VAR(&FEIL)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&TELL)  TYPE(*DEC)  LEN(7 0)
+             DCL        VAR(&JKEY)  TYPE(*CHAR) LEN(41)
+             DCL        VAR(&JSTA)  TYPE(*DEC)  LEN(2 0)
+             DCL        VAR(&JMLD)  TYPE(*CHAR) LEN(200)
+
+             DCL        VAR(&INFO)  TYPE(*CHAR) LEN(1)
+
+/* Finn bruker + parameter for utskrift                              */
+
+             RTVDTAARA  DTAARA(*LDA (863 1))  RTNVAR(&BTCH)
+             CHGVAR VAR(%SST(&MEM1 4 7)) VALUE(&MEMB)
+             CHGVAR VAR(%SST(&MEM2 4 7)) VALUE(&MEMB)
+             CHGVAR VAR(%SST(&MEM3 4 7)) VALUE(&MEMB)
+             CHGVAR VAR(&WKUN) VALUE(0)
+             CHGVAR VAR(&WCAL) VALUE(1)
+
+/* Tømmer arbeidsfiler FØR kjøring                                  */
+
+             CALL       PGM(RF701R) PARM(&MEM1)  /* RTRIPF */
+
+             CALL       PGM(RF702R) PARM(&MEM1)  /* RJOULU */
+             CALL       PGM(RF702R) PARM(&MEM2)  /* RJOULU */
+             CALL       PGM(RF702R) PARM(&MEM3)  /* RJOULU */
+
+/* Program for printerstyring                                        */
+
+             CALL       PGM(AP600R) PARM('RF115 ' '1' '0' &IN03 &BTCH)
+
+             IF         COND(&IN03 *EQ '1') THEN(GOTO CMDLBL(ENDPGM))
+
+             IF         COND(&BTCH *NE '1') THEN(DO)
+             CHGVAR     VAR(&WALI) VALUE(6)
+             CHGVAR     VAR(&WAPO) VALUE(40)
+             CHGVAR     VAR(&MLD1) VALUE('Vennligst vent ..........')
+             CHGVAR     VAR(&MLD2) VALUE('Fordelinger pågår .......')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             ENDDO
+
+/* Call av fordelings-parametre                                      */
+
+             CALL       PGM(RF102R) PARM(&MEM1 &MEMB)
+
+/* Call av kontrollprogram                                           */
+
+             CALL       PGM(RF104C) PARM(&MEM1 &FEIL &TELL)
+
+             IF         COND(&FEIL *EQ 'J') THEN(DO)
+             GOTO       SLUTT
+             ENDDO
+
+/* Varselbilde dersom poster ikke finnes                             */
+
+             IF         COND(&TELL *EQ 0) THEN(DO)
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(26)
+             CHGVAR     VAR(&MLD1) VALUE('Ingen poster finnes .... ')
+             CHGVAR     VAR(&MLD2) VALUE('Rutinen avsluttes ...... ')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             DLYJOB     DLY(5)
+             GOTO       CMDLBL(SLETT)
+             ENDDO
+
+/* Call av oppsplitting                                              */
+
+             IF         COND(&BTCH *NE '1') THEN(DO)
+             CHGVAR     VAR(&WALI) VALUE(8)
+             CHGVAR     VAR(&WAPO) VALUE(36)
+             CHGVAR     VAR(&MLD1) VALUE('Vennligst vent ..........')
+             CHGVAR     VAR(&MLD2) VALUE('Oppsplitting pågår ......')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             ENDDO
+
+             CALL       PGM(RF105R) PARM(&MEM1)
+
+/* Call saldering/samlebilag                                         */
+
+             CALL       PGM(RF106R) PARM(&MEM1)
+
+/* Call saldering/avkryssing                                         */
+
+             CALL       PGM(RF107R) PARM(&WKUN &WCAL &MEM1)
+/*           CALL       PGM(NS107R) PARM(&WKUN &WCAL &MEM1)          */
+
+/* Sett SWITCH = XXX1XXXX (U4 = På)                                  */
+
+             CHGJOB     SWS(XXX1XXXX)
+
+/* Genererer poster til hovedbokskonto                               */
+
+/*610        OVRDBF     FILE(RJOULU) MBR(&MEM2) SEQONLY(*NO)         */
+             CALL       PGM(RF108R) PARM(&MEM1 &MEM2)
+
+/* Summering av bilag                                                */
+
+             ovrdbf     file(rjoul3) tofile(*libl/rjoul3) mbr(*first)
+             ovrdbf     file(rjoulu) tofile(*libl/rjoulu) mbr(sven)
+             CALL       PGM(RF109R) PARM(&MEM2 &MEM3 &MEMB)
+
+/* Legger på sporingsreferanse                                       */
+
+             CALL       PGM(RF119R) PARM(&MEM3)
+
+/* Call av oppdatering                                               */
+
+             IF         COND(&BTCH *NE '1') THEN(DO)
+             CHGVAR     VAR(&WALI) VALUE(10)
+             CHGVAR     VAR(&WAPO) VALUE(32)
+             CHGVAR     VAR(&MLD1) VALUE('Vennligst vent ..........')
+             CHGVAR     VAR(&MLD2) VALUE('Oppdatering pågår .......')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             ENDDO
+
+             chgvar     var(&stat) value(0)
+             chgvar     var(&jkey) value(' ')
+             CALL       PGM(RF110R) parm(&MEM3 &jkey &stat)
+
+             CALL       PGM(RF113R) PARM(&MEMB &MEM3)
+
+/* Call av utskrift-program                                          */
+
+             IF         COND(&BTCH *NE '1') THEN(DO)
+             CHGVAR     VAR(&WALI) VALUE(12)
+             CHGVAR     VAR(&WAPO) VALUE(28)
+             CHGVAR     VAR(&MLD1) VALUE('Vennligst vent ..........')
+             CHGVAR     VAR(&MLD2) VALUE('Utskrift pågår ..........')
+             CALL       PGM(AA006C)  PARM(&WALI &WAPO &MLD1 &MLD2)
+             ENDDO
+
+             CALL       PGM(RF115C) PARM(&MEM3)
+
+ SLETT:
+             CALL       PGM(RF703R) PARM(&MEMB)  /* RTRALU */
+
+             CALL       PGM(RF704R) PARM(&MEMB)  /* RBUNLU */
+
+ SLUTT:
+             CALL       PGM(RF701R) PARM(&MEM1)  /* RTRIPF */
+
+             CALL       PGM(RF702R) PARM(&MEM3)  /* RJOULU */
+
+             CHGJOB     SWS(XXX0XXXX) /* T5.01 */
+ ENDPGM:
+
+/* Sletter post i jobbregister                                       */
+             CHGVAR     VAR(&INFO) VALUE('S')
+             CALL       PGM(RJ001R)    PARM(&MEMB &INFO)
+
+             ENDPGM

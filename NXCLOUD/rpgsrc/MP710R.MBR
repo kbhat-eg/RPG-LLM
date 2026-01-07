@@ -1,0 +1,498 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : MP710R
+      * Beskrivelse . . : Velger ut leverandørene som skal sjekkes mot
+      *                   bestillingsforslag.
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       010411 bsa  Nytt program
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fmppalr    if   e           k disk    rename(mppapfr:mppalrr)
+      *
+      *
+      * Definering av parametre
+      *
+     d p_dato          s               d   datfmt(*iso)
+     d p_ndat          s               d   datfmt(*iso)
+     d p_dgnr          s              1  0
+     d p_ldor          s                   like(mpldor)
+     d p_lnum          s                   like(mplnum)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      *
+     d mppalr_ldor     s                   like(mpldor)
+     d mppalr_lnum     s                   like(mplnum)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(mpfirm)
+     d w_30            s              3  0
+     d w_dag           s              2  0
+      *
+     d s_ldor          s                   like(mpldor)
+     d s_lnum          s                   like(mplnum)
+      *
+     d b_dann          s              1    inz(*off)
+     d b_mon           s              1    inz(*off)
+     d b_tue           s              1    inz(*off)
+     d b_wed           s              1    inz(*off)
+     d b_thu           s              1    inz(*off)
+     d b_fri           s              1    inz(*off)
+     d b_sat           s              1    inz(*off)
+     d b_sun           s              1    inz(*off)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meldingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   time                    p_dato
+     c                   eval      p_dgnr = 0
+     c                   call      'MP701R  '
+     c                   parm                    p_dato
+     c                   parm                    p_dgnr
+      *
+      *
+     c     mppalr_key    setll     mppalr
+      *
+     c                   read      mppalr
+      *
+     c                   dow       not %eof(mppalr)
+      * Sjekk ikke hvis siste kjøredato er før dagens dato
+     c                   if        p_dato > mpsdat
+      * Sjekk om leverandøren er aktiverrt for varsling
+     c                   if        mprapp = '1'
+     c                   exsr      behandling
+     c                   endif
+     c                   endif
+      *
+     c                   read      mppalr
+     c                   enddo
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Tester om leverandør /parameter skal danne bestillingsforlag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandling    begsr
+      *
+     c                   eval      b_dann = *on
+      *
+     c                   if        mphold = 0
+      * Finn neste kjøredato
+     c                   select
+      *
+     c                   when      mphypp = 'MD'
+     c     p_dato        subdur    mpsdat        w_30:*M
+     c                   if        w_30 >= 1
+     c     p_dato        adddur    01:*MONTHS    p_ndat
+     c                   endif
+      *
+     c                   when      mphypp = 'DG'
+     c     p_dato        subdur    mpsdat        w_30:*D
+     c                   if        w_30 >= 1
+     c     p_dato        adddur    01:*DAYS      p_ndat
+     c                   endif
+      *
+     c                   when      mphypp = '14'
+     c                   exsr      beh_14d
+      *
+     c                   when      mphypp = 'UK'
+     c                   exsr      beh_uke
+     c                   endsl
+      *
+      * Vi kjører jobben for alle leverandører uavhengig av kjøremøsnter for
+      * reell kjøring.
+     c**                 if        b_dann = *on
+     c                   eval      p_ldor = mpldor
+     c                   eval      p_lnum = mplnum
+     c                   call      'MP713R  '
+     c                   parm                    p_ldor
+     c                   parm                    p_lnum
+     c                   parm                    p_ndat
+     c**                 endif
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de 14-daglige
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     beh_14d       begsr
+      *
+     c                   eval      b_sun = *off
+     c                   eval      b_mon = *off
+     c                   eval      b_tue = *off
+     c                   eval      b_wed = *off
+     c                   eval      b_thu = *off
+     c                   eval      b_fri = *off
+     c                   eval      b_sat = *off
+      *
+     c**   p_dato        subdur    mpsdat        w_30:*D
+      * søndag
+     c                   if        mpdag7 = '1'
+     c                   eval      b_sun = *on
+     c                   endif
+      * mandag
+     c                   if        mpdag1 = '1'
+     c                   eval      b_mon = *on
+     c                   endif
+      * tirsdag
+     c                   if        mpdag2 = '1'
+     c                   eval      b_tue = *on
+     c                   endif
+      * onsdag
+     c                   if        mpdag3 = '1'
+     c                   eval      b_wed = *on
+     c                   endif
+      * torsdag
+     c                   if        mpdag4 ='1'
+     c                   eval      b_thu = *on
+     c                   endif
+      * fredag
+     c                   if        mpdag5 = '1'
+     c                   eval      b_fri = *on
+     c                   endif
+      * lørdag
+     c                   if        mpdag6 = '1'
+     c                   eval      b_sat = *on
+     c                   endif
+      *
+      * Finn neste kjøredato
+      *
+     c                   eval      w_dag = 0
+     c                   select
+     c                   when      p_dgnr = 1
+     c                   exsr      sjk_sunday
+     c                   when      p_dgnr = 2
+     c                   exsr      sjk_monday
+     c                   when      p_dgnr = 3
+     c                   exsr      sjk_tuesday
+     c                   when      p_dgnr = 4
+     c                   exsr      sjk_wedday
+     c                   when      p_dgnr = 5
+     c                   exsr      sjk_thursday
+     c                   when      p_dgnr = 6
+     c                   exsr      sjk_friday
+     c                   when      p_dgnr = 7
+     c                   exsr      sjk_saturday
+     c                   endsl
+      *
+     c                   eval      w_dag = w_dag + 7
+      * Neste kjøredato
+     c     p_dato        adddur    w_dag:*DAYS   p_ndat
+      *
+      *
+     c     end_14d       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de ukentlige
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     beh_uke       begsr
+      *
+     c                   eval      b_sun = *off
+     c                   eval      b_mon = *off
+     c                   eval      b_tue = *off
+     c                   eval      b_wed = *off
+     c                   eval      b_thu = *off
+     c                   eval      b_fri = *off
+     c                   eval      b_sat = *off
+      *
+     c**   p_dato        subdur    mpsdat        w_30:*D
+      * søndag
+     c                   if        mpdag7 = '1'
+     c                   eval      b_sun = *on
+     c                   endif
+      * mandag
+     c**                 if        p_dgnr = 2  and
+     c                   if        mpdag1 = '1'
+     c                   eval      b_mon = *on
+     c                   endif
+      * tirsdag
+     c                   if        mpdag2 = '1'
+     c                   eval      b_tue = *on
+     c                   endif
+      * onsdag
+     c                   if        mpdag3 = '1'
+     c                   eval      b_wed = *on
+     c                   endif
+      * torsdag
+     c                   if        mpdag4 = '1'
+     c                   eval      b_thu = *on
+     c                   endif
+      * fredag
+     c                   if        mpdag5 = '1'
+     c                   eval      b_fri = *on
+     c                   endif
+      * lørdag
+     c                   if        mpdag6 = '1'
+     c                   eval      b_sat = *on
+     c                   endif
+      * Finn neste kjøredato
+     c                   eval      w_dag = 0
+     c                   select
+     c                   when      p_dgnr = 1
+     c                   exsr      sjk_sunday
+     c                   when      p_dgnr = 2
+     c                   exsr      sjk_monday
+     c                   when      p_dgnr = 3
+     c                   exsr      sjk_tuesday
+     c                   when      p_dgnr = 4
+     c                   exsr      sjk_wedday
+     c                   when      p_dgnr = 5
+     c                   exsr      sjk_thursday
+     c                   when      p_dgnr = 6
+     c                   exsr      sjk_friday
+     c                   when      p_dgnr = 7
+     c                   exsr      sjk_saturday
+     c                   endsl
+      * Neste kjøredato
+     c     p_dato        adddur    w_dag:*DAYS   p_ndat
+      *
+     c     end_uke       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de ukentlige dagene - søndag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     sjk_sunday    begsr
+      *
+     c                   if        b_sun = *on
+     c                   eval      w_dag = 0
+     c                   elseif    b_mon = *on
+     c                   eval      w_dag = 1
+     c                   elseif    b_tue = *on
+     c                   eval      w_dag = 2
+     c                   elseif    b_wed = *on
+     c                   eval      w_dag = 3
+     c                   elseif    b_thu = *on
+     c                   eval      w_dag = 4
+     c                   elseif    b_fri = *on
+     c                   eval      w_dag = 5
+     c                   elseif    b_sat = *on
+     c                   eval      w_dag = 6
+     c                   endif
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de ukentlige dagene - mandag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     sjk_monday    begsr
+      *
+     c                   if        b_sun = *on
+     c                   eval      w_dag = 6
+     c                   elseif    b_mon = *on
+     c                   eval      w_dag = 0
+     c                   elseif    b_tue = *on
+     c                   eval      w_dag = 1
+     c                   elseif    b_wed = *on
+     c                   eval      w_dag = 2
+     c                   elseif    b_thu = *on
+     c                   eval      w_dag = 3
+     c                   elseif    b_fri = *on
+     c                   eval      w_dag = 4
+     c                   elseif    b_sat = *on
+     c                   eval      w_dag = 5
+     c                   endif
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de ukentlige dagene - tirsdag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     sjk_tuesday   begsr
+      *
+     c                   if        b_sun = *on
+     c                   eval      w_dag = 5
+     c                   elseif    b_mon = *on
+     c                   eval      w_dag = 6
+     c                   elseif    b_tue = *on
+     c                   eval      w_dag = 0
+     c                   elseif    b_wed = *on
+     c                   eval      w_dag = 1
+     c                   elseif    b_thu = *on
+     c                   eval      w_dag = 2
+     c                   elseif    b_fri = *on
+     c                   eval      w_dag = 3
+     c                   elseif    b_sat = *on
+     c                   eval      w_dag = 4
+     c                   endif
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de ukentlige dagene - onsdag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     sjk_wedday    begsr
+      *
+     c                   if        b_sun = *on
+     c                   eval      w_dag = 4
+     c                   elseif    b_mon = *on
+     c                   eval      w_dag = 5
+     c                   elseif    b_tue = *on
+     c                   eval      w_dag = 6
+     c                   elseif    b_wed = *on
+     c                   eval      w_dag = 0
+     c                   elseif    b_thu = *on
+     c                   eval      w_dag = 1
+     c                   elseif    b_fri = *on
+     c                   eval      w_dag = 2
+     c                   elseif    b_sat = *on
+     c                   eval      w_dag = 3
+     c                   endif
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de ukentlige dagene - torsdag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     sjk_thursday  begsr
+      *
+     c                   if        b_sun = *on
+     c                   eval      w_dag = 3
+     c                   elseif    b_mon = *on
+     c                   eval      w_dag = 4
+     c                   elseif    b_tue = *on
+     c                   eval      w_dag = 5
+     c                   elseif    b_wed = *on
+     c                   eval      w_dag = 6
+     c                   elseif    b_thu = *on
+     c                   eval      w_dag = 0
+     c                   elseif    b_fri = *on
+     c                   eval      w_dag = 1
+     c                   elseif    b_sat = *on
+     c                   eval      w_dag = 2
+     c                   endif
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de ukentlige dagene - fredag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     sjk_friday    begsr
+      *
+     c                   if        b_sun = *on
+     c                   eval      w_dag = 2
+     c                   elseif    b_mon = *on
+     c                   eval      w_dag = 3
+     c                   elseif    b_tue = *on
+     c                   eval      w_dag = 4
+     c                   elseif    b_wed = *on
+     c                   eval      w_dag = 5
+     c                   elseif    b_thu = *on
+     c                   eval      w_dag = 6
+     c                   elseif    b_fri = *on
+     c                   eval      w_dag = 0
+     c                   elseif    b_sat = *on
+     c                   eval      w_dag = 1
+     c                   endif
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Sjekker de ukentlige dagene - lørdag
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c     sjk_saturday  begsr
+      *
+     c                   if        b_sun = *on
+     c                   eval      w_dag = 1
+     c                   elseif    b_mon = *on
+     c                   eval      w_dag = 2
+     c                   elseif    b_tue = *on
+     c                   eval      w_dag = 3
+     c                   elseif    b_wed = *on
+     c                   eval      w_dag = 4
+     c                   elseif    b_thu = *on
+     c                   eval      w_dag = 5
+     c                   elseif    b_fri = *on
+     c                   eval      w_dag = 6
+     c                   elseif    b_sat = *on
+     c                   eval      w_dag = 0
+     c                   endif
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *
+      * Key for les på parameter pr. lev.
+      *
+     c     mppalr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mppalr_ldor
+     c                   kfld                    mppalr_lnum
+      *
+      * Henter verdier fra LDA, og initierer skjermbildet
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   eval      *in22 = *on
+      *
+     c                   endsr

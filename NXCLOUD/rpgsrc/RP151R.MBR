@@ -1,0 +1,397 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOKON
+      * Program . . . . : RP150R
+      * Beskrivelse . . : Prosjekt, Status, spørring
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       011119 sst  Nytt program
+7.00  *       110520 sst  Hent budsjett fra RP1BUT dersom ikke varelinjer
+7.01  *       121020 sst  Hent budsjett fra Total/konto/vare-nivå
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frp1pl1    if   e           k disk    rename(rp1ppfr:rp1pl1r)
+     frp2ul1    if   e           k disk    rename(rp2upfr:rp2ul1r)
+     frp3al1    if   e           k disk    rename(rp3apfr:rp3al1r)
+     frhtrlc    if   e           k disk    rename(rhtrpfr:rhtrlcr)
+     frpval3    if   e           k disk    rename(rpvapfr:rpval3r)
+      *
+     frp151d    cf   e             workstn
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_pros                101    106
+     d l_upro                107    112
+     d l_akti                113    118
+     d l_kpro                119    124
+      *
+     d l_user                911    920
+7.01 d l_filg                931    933
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(rpvfir)
+     d p_pros          s                   like(rp1pro)
+     d p_upro          s                   like(rp3upr)
+     d p_akti          s                   like(rp3akt)
+     d p_kost          s              9  0
+     d p_kont          s              5  0
+      *
+      * Definering av variabler i nøkler
+      *
+     d rp1pl1_pros     s                   like(rp1pro)
+     d rp2ul1_pros     s                   like(rp2pro)
+     d rp2ul1_upro     s                   like(rp2upr)
+     d rp3al1_pros     s                   like(rp3pro)
+     d rp3al1_upro     s                   like(rp3upr)
+     d rp3al1_akti     s                   like(rp3akt)
+     d rhtrlc_hpro     s                   like(rbhpro)
+     d rhtrlc_kont     s                   like(rbkont)
+     d rpval3_pros     s                   like(rpvpro)
+      *
+      * Definering av variable
+      *
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_valg_ok       s              1    inz(*off)
+      *
+     d w_firm          s                   like(rpvfir)
+     d w_konto         s                   like(rpvkto)
+     d w_type          s              3
+     d w_kosto         s              9  0
+     d w_ms1           s             50
+     d w_ms2           s             50
+     d w_svar          s              1
+     d w_in12          s              1  0
+     d w_rint          s             11  2
+     d w_rkst          s             11  2
+     d w_kint          s             11  2
+     d w_kkst          s             11  2
+     d w_dato          s               d   datfmt(*iso)
+     d w_datox         s             10
+7.01 d w_buds_alt      s              1    inz('T')
+7.01   dcl-s co402_verdi1  char(1);
+7.01   dcl-s co402_verdi2  char(2048);
+7.01   DCL-PR CO402R EXTPGM('CO402R');
+7.01     p_filgrp            char(3)     const;
+7.01     p_firm              packed(3:0) const;
+7.01     p_lager             packed(2:0) const;
+7.01     p_nokkel            char(50)    const;
+7.01     p_verdi1            char(1);
+7.01     p_verdi2            char(2048);
+7.01   END-PR;
+      *
+      * Definering av konstanter
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     c                   eval      w_acpo = 10
+     c                   eval      w_acli = 10
+     c*                  write     b2cmd
+     c                   write     b2ctl
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   exsr      GetReal
+     c                   exsr      GetKalk
+7.00 c                   if        b2kkst = 0
+7.00 c                   eval      b2kkst = rp1but
+7.00 c                   endif
+     c                   eval      b2kdb = b2kint - b2kkst
+     c                   eval      b2rdb = b2rint - b2rkst
+     c                   if        b2kint <> 0
+     c                             and 100 / b2kint * b2kdb < 100
+     c                             and 100 / b2kint * b2kdb > -100
+     c                   eval      b2kdg = 100 / b2kint * b2kdb
+     c                   else
+     c                   eval      b2kdg = 99,9
+     c                   endif
+     c                   if        b2rint <> 0
+     c                             and 100 / b2rint * b2rdb < 100
+     c                             and 100 / b2rint * b2rdb > -100
+     c                   eval      b2rdg = 100 / b2rint * b2rdb
+     c                   else
+     c                   eval      b2rdg = 99,9
+     c                   endif
+     c                   eval      b2aint = b2kint - b2rint
+     c                   eval      b2akst = b2kkst - b2rkst
+     c                   eval      b2adb  = b2kdb  - b2rdb
+     c                   time                    w_dato
+     c                   eval      w_datox = %char(w_dato)
+     c                   eval      b2dato = %subst(w_datox:9:2) + '.' +
+     c                                      %subst(w_datox:6:2) + '.' +
+     c                                      %subst(w_datox:1:4)
+     c                   exfmt     b2ctl
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      avslutt
+     c                   endif
+     c                   goto      b2taga
+      *
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      *
+      * ______________________________________________________________________________
+      *
+     c     GetReal       begsr
+      *  Hent Postert i regnskap på denne konto/prosjekt
+      *
+     c                   eval      w_rkst = *zero
+     c                   eval      w_rint = *zero
+     c                   eval      rhtrlc_hpro = p_pros
+     c                   eval      rhtrlc_kont = w_konto
+     c     rhtrlc_key    setll     rhtrlc
+     c     rhtrlc_key    reade     rhtrlc
+     c                   dow       not %eof(rhtrlc)
+      *  Inntekter
+     c                   if        rbkont > 2999
+     c                             and  rbkont < 4000
+     c                   if           p_upro = *blank
+     c                             or p_upro = rbupro
+     c                   if           p_akti = *blank
+     c                             or p_akti = rbakti
+     c                   eval      w_rint = w_rint - rbneto
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   eval(h)   b2rint = w_rint
+      *  Kostnader
+     c                   if        rbkont > 3999
+     c                             and  rbkont < 5000
+     c                   if           p_upro = *blank
+     c                             or p_upro = rbupro
+     c                   if           p_akti = *blank
+     c                             or p_akti = rbakti
+     c                   eval      w_rkst = w_rkst + rbneto
+     c                   endif
+     c                   endif
+     c                   endif
+     c     rhtrlc_key    reade     rhtrlc
+     c                   enddo
+      *
+     c                   eval(h)   b2rkst = w_rkst
+      *
+     c                   endsr
+      * ______________________________________________________________________________
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å hente Kalkyler
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     GetKalk       begsr
+      *
+      *    Kostnader
+     c                   eval      w_kkst = *zero
+7.01 c                   if        w_buds_alt = 'T'
+7.01 c                   eval      w_kkst = rp1but
+7.01 c                   else
+     c                   eval      rpval3_pros = p_pros
+     c     rpval3_key    setll     rpval3
+     c                   read      rpval3
+     c                   eval      p_kost = *zero
+     c                   dow       not %eof(rpval3)
+     c                             and rpvfir = w_firm
+     c                             and rpvpro = p_pros
+      *
+     c                   if        p_upro = *blank
+     c                             or rpvupr = p_upro
+     c                   if        p_akti = *blank
+     c                             or rpvakt = p_akti
+7.01 c                   if        (w_buds_alt = 'K'
+7.01 c                             and rpvsts  = 'B')
+7.01 c                             or (w_buds_alt = 'V'
+7.01 c                             and rpvsts = ' ')
+     c                   eval(h)   w_kkst = w_kkst + (rpvabj * rpvkpr)
+     c                   endif
+7.01 c                   endif
+     c                   endif
+      *
+     c                   read      rpval3
+      *
+     c                   enddo
+7.01  *
+7.01 c                   endif
+      *
+     c                   eval(h)   b2kkst = w_kkst
+      *  _________________________________________________________________________
+      *    inntekter
+     c                   eval      w_kint = *zero
+      *    Fra Hovedprosjekt
+     c                   eval      rp1pl1_pros = p_pros
+     c     rp1pl1_key    setll     rp1pl1
+     c                   read      rp1pl1
+      *
+     c                   if        not %eof(rp1pl1)
+     c                             and rp1frm = w_firm
+     c                             and rp1pro = p_pros
+     c                             and rp1rup = *blank
+     c                             and rp1rak = *blank
+      *
+     c                   eval      w_kint = w_kint + rp1buo
+     c                   goto      SaIntX
+     c                   endif
+      *
+      *    Fra Underprosjekt
+      *
+     c                   eval      rp2ul1_pros = p_pros
+     c                   eval      rp2ul1_upro = *blank
+     c     rp2ul1_key    setll     rp2ul1
+     c                   read      rp2ul1
+      *
+     c                   dow       rp2pro = p_pros
+     c                   if        not %eof(rp2ul1)
+     c                             and rp2frm = w_firm
+     c                             and rp2pro = p_pros
+     c                             and (rp2upr = p_upro
+     c                               or p_upro = *blank)
+     c                             and rp2rak = *blank
+     c                   eval(h)   w_kint = w_kint + rp2buo
+     c                   endif
+      *
+     c                   read      rp2ul1
+      *
+     c                   enddo
+      *
+      *    Fra Aktivitet
+     c                   eval      rp3al1_pros = p_pros
+     c                   eval      rp3al1_upro = *blank
+     c                   eval      rp3al1_akti = *blank
+     c     rp3al1_key    setll     rp3al1
+     c                   read      rp3al1
+      *
+     c                   dow       rp3pro = p_pros
+     c                   if        not %eof(rp3al1)
+     c                             and rp3frm = w_firm
+     c                             and rp3pro = p_pros
+     c                             and (rp2upr = p_upro
+     c                               or p_upro = *blank)
+     c                             and (rp3akt = p_akti
+     c                               or p_akti = *blank)
+     c                             and rp2rak = *blank
+     c                   eval(h)   w_kint = w_kint + rp3buo
+     c                   endif
+      *
+     c                   read      rp3al1
+      *
+     c                   enddo
+      *
+     c     SaIntX        tag
+      *
+     c                   eval(h)   b2kint = w_kint
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_pros
+     c                   parm                    p_upro
+     c                   parm                    p_akti
+      *
+      * Key for les av prosjekt
+      *
+     c     rp1pl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rp1pl1_pros
+      *
+      * Key for les av underprosjekt
+      *
+     c     rp2ul1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rp2ul1_pros
+     c                   kfld                    rp2ul1_upro
+      *
+      * Key for les av aktivitet
+      *
+     c     rp3al1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rp3al1_pros
+     c                   kfld                    rp3al1_upro
+     c                   kfld                    rp3al1_akti
+      *
+      * Key for les av hovedboksposter
+      *
+     c     rhtrlc_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rhtrlc_hpro
+      *
+      * Key for posisjonering på avdeling
+      *
+     c     rpval3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rpval3_pros
+      *
+      *
+      * Henter parametre, og initierer skjermbildet
+      *
+     c                   eval      w_firm = p_firm
+      *
+     c                   eval      *in22 = *on
+      *
+7.01  *
+7.01   CallP CO402R(l_filg:w_firm:0:'PROSJEKT_BUDSJETT_ALTERNATIV':
+7.01                    co402_verdi1:co402_verdi2);
+7.01   if co402_verdi1 = '1';
+7.01     w_buds_alt = %subst(co402_verdi2:1:1);
+7.01   endif;
+      *
+     c                   eval      b2pros = p_pros
+     c                   eval      rp1pl1_pros = p_pros
+     c     rp1pl1_key    chain     rp1pl1
+     c                   if        %found(rp1pl1)
+     c                   eval      b2ptxt = rp1txt
+     c                   endif
+     c                   if        p_upro <> *blank
+     c                   eval      b2pros = %trim(b2pros) + '\' + p_upro
+     c                   eval      rp2ul1_pros = p_pros
+     c                   eval      rp2ul1_upro = p_upro
+     c     rp2ul1_key    chain     rp2ul1
+     c                   if        %found(rp2ul1)
+     c                   eval      b2ptxt = %trim(b2ptxt) + '\' + rp2txt
+     c                   endif
+     c                   endif
+     c                   if        p_akti <> *blank
+     c                   eval      b2pros = %trim(b2pros) + '\' + p_akti
+     c                   eval      rp3al1_pros = p_pros
+     c                   eval      rp3al1_upro = p_upro
+     c                   eval      rp3al1_akti = p_akti
+     c     rp3al1_key    chain     rp3al1
+     c                   if        %found(rp3al1)
+     c                   eval      b2ptxt = %trim(b2ptxt) + '\' + rp3txt
+     c                   endif
+     c                   endif
+      *
+      *
+     c                   endsr

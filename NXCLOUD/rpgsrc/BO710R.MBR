@@ -1,0 +1,854 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASSHOP
+      * Program . . . . : BO710R
+      * Beskrivelse . . : Bong hode, overføring til faktura
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       171004 HKO  Nytt program
+      *       161104 HKO  Lagt inn dritt-logikk for å hådtere gammeldags
+      *                   håndtering av fortegn. I den gamle løsningen
+      *                   er det ordretypen som styrer fortegnet. Derfor
+      *                   må fortegnet snus tilbake for fakturaen.
+      *       181105 ASK  Lagt inn drittlogikk for å håndtere avvikende mva,
+      *                   fakturagebyr og ordrerabatt.
+5.49  * R5.49 140206 AMD  Lagt inn dummyparameter v/call til AK700R
+5.50  * R5.50 091008 MHA  Lagt inn mulighet til å styre om transaksjonskontroll
+      *                   skal benyttes eller ikke.
+6.10  * 6.10  110909 BSA  Oppdatert med sporingsinformasjon
+6.11  * 6.11  110310 AMD  Fjernet en hel del kode i forbindelse med
+6.11  *                   endringer i momsberegning + justeringer
+6.12  * 6.10  281210 BSA  Endring i forlengelse av mva omgjøring
+6.20  * R6.10 110211 BSA  Legger ut poster i BOKK, hvis kunden har kreditkort.
+6.21  * R6.20 201211 bof  Utvidet med pakkseddel dato - satt til *loval
+6.22  * R6.10 300312 BSA  Innført GE kort, håndteres som kreditkort
+6.23  * R6.20 010414 BSA  Feil i lengde på parameter til AK700R
+6.24  * R6.20 180814 BKV  Legg ut MVA på fakturagebyr
+6.25  * R6.20 180215 BKV  Legg inn avd fra bonglinje
+6.nu  * R6.30 250614 bof  Ny kid pga. nummerutvidelse
+6.31  * R6.30 220914 ask  Fjernet felt som ikke lenger er i bruk
+6.32  * R6.30 280515 bof  Total innkl. mva hentes fra parameter
+6.33  * R6.30 050615 bsa  Utvidet lengde på KID parameter
+6.34  * R6.30 160416 bof  BDSUMI og BDSUMO bleikke satt, dro med seg tidl.
+6.35  * R6.30 210416 bof  rettelse av 6.34
+6.36  * R6.30 210416 bof  Feil fortegn på hist.faktura. fakturasum
+6.37  * R6.30 250416 bof  Flere korr. vedr. gebyr
+6.38  * R6.30 050619 bsa  Beregning av KID 2
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fbohel1    if   e           k disk    rename(bohepfr:bohel1r)
+     fbodtl1    if   e           k disk    rename(bodtpfr:bodtl1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     ffgebl1    if   e           k disk    rename(fgebpfr:fgebl1r)
+     fsohelu    uf a e           k disk    rename(sohepfr:sohelur)
+     f                                     commit(COMFLAG)
+     fsodtlu    uf a e           k disk    rename(sodtpfr:sodtlur)
+     f                                     commit(COMFLAG)
+     fbohelu    uf a e           k disk    rename(bohepfr:bohelur)
+     f                                     commit(COMFLAG)
+     fbodtlu    uf a e           k disk    rename(bodtpfr:bodtlur)
+     f                                     commit(COMFLAG)
+6.20 fbokkl4    uf a e           k disk    rename(bokkpfr:bokkl4r)
+6.20 f                                     commit(COMFLAG)
+6.20 frukrlr    if   e           k disk    rename(rukrpfr:rukrlrr)
+      *
+      * Definering av parametere
+      *
+     d p_firm          s                   like(bofirm)
+     d p_aarr          s                   like(boaarr)
+     d p_wsid          s                   like(bowsid)
+     d p_bong          s                   like(bobong)
+     d p_tnim          s             11  2
+      *
+      * Datastruktur for KID-feltet
+      *
+     d                 ds
+     d d_kkid                        21
+     d  d_kkus                       20    overlay(d_kkid)
+     d   d_kfir                       3  0 overlay(d_kkus:1)
+     d   d_kkod                       1  0 overlay(d_kkus:4)
+6.nu d   d_ktyp                       1  0 overlay(d_kkus:5)
+6.nu d   d_kled                       1  0 overlay(d_kkus:6)
+6.nu d   d_kkto                       6  0 overlay(d_kkus:7)
+6.nu d   d_kbil                       8  0 overlay(d_kkus:13)
+     d  d_kmod                        1  0 overlay(d_kkid:21)
+6.38  *
+6.38  * Datastruktur for egendefinert kidd
+6.38  *
+6.38 d                 ds
+6.38 d d_kkid_2                      23
+6.38 d  d_kkus_2                     22    overlay(d_kkid_2)
+6.38 d   d_kdum_2                    14    overlay(d_kkus_2)
+6.38 d   d_kfak_2                     8  0 overlay(d_kkus_2:15)
+6.38 d  d_kmod_2                      1  0 overlay(d_kkid_2:23)
+      *
+      * Parameter for utskrift av faktura
+      *
+     d                 ds
+     d d_parm                        28
+     d  d_aarr                        4  0 overlay(d_parm:1)
+     d  d_otyp                        2    overlay(d_parm:5)
+     d  d_ffnr                        6  0 overlay(d_parm:7)
+     d  d_tfnr                        6  0 overlay(d_parm:13)
+     d  d_prog                       10    overlay(d_parm:19)
+      *
+      * Definering av variabler i nøkler
+      *
+     d vvarl1_vare     s                   like(vvvare)
+     d rkunl1_kund     s                   like(rkkund)
+     d fgebl1_otyp     s                   like(fgotyp)
+     d fgebl1_kkat     s                   like(fgkkat)
+     d bodtlu_line     s                   like(bdline)
+6.20 d rukrlr_kkun     s                   like(rukkun)
+6.20 d bokkl4_ktyp     s                   like(brktyp)
+6.20 d bokkl4_kund     s                   like(brkund)
+6.20 d bokkl4_binr     s                   like(brbinr)
+      *
+      * Definering av variable
+      *
+     d w_kkus          s             24
+     d w_kkid          s             25
+6.33 d w_kidr          s              8  0
+     d w_ksif          s              1  0
+6.23 d w_kki2          s             25
+6.38 d w_kki27         s             27
+6.38 d w_kki21         s             21
+      *
+     d w_firm          s                   like(bofirm)
+     d w_aarr          s                   like(boaarr)
+     d w_wsid          s                   like(bowsid)
+     d w_bong          s                   like(bobong)
+     d w_line          s                   like(bdline)
+     d w_rabg          s                   like(sorbgp)
+     d w_mvag          s                   like(somvgp)
+     d w_gebe          s                   like(sosalp)
+     d w_geby          s                   like(sosalp)
+     d w_gebm          s                   like(sosalp)
+     d w_mvfr          s             10  9
+     d w_mvpr          s              6  2
+     d w_mvti          s              5  4
+     d w_totb          s                   like(bototb)
+      *
+     d w_salp          s                   like(sosalp)
+     d w_rk1p          s                   like(sork1p)
+     d w_rk2p          s                   like(sork2p)
+     d w_rkop          s                   like(sorkop)
+     d w_rbgp          s                   like(sorbgp)
+     d w_mvgp          s                   like(somvgp)
+     d w_kstp          s                   like(sokstp)
+      *
+6.10 d                uds
+6.10 d l_user                911    920
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Sjekker om bong hode finnes - hvis ikke avbrytes programmet.
+      *
+     c     bohel1_key    chain     bohel1
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Hent opplysninger fra KUNDE-REGISTER
+      *
+     c                   eval      rkunl1_kund = bokund
+     c     rkunl1_key    chain     rkunl1r
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandle bong linjer:
+      * Leser alle bong-linjer akkumulerer verdier og skriver faktura-linje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bodtl1_key    setll     bodtl1
+     c     bodtl1_key    reade     bodtl1
+     c                   dow       not %eof
+      *
+     c                   clear                   sodtlur
+      *
+     c                   eval      sdfirm = w_firm
+     c                   eval      sdaarr = boaarr
+     c                   eval      sdbinr = bobinr
+     c                   eval      sdnumm = 0
+     c                   eval      sdsuff = 0
+     c                   eval      sdktxt = 3
+     c                   eval      sdline = bdline
+     c                   eval      sdotyp = bootyp
+     c                   eval      sdltyp = bdltyp
+6.25 c                   eval      sdavde = bdavde
+     c                   eval      sdlety = bdlety
+     c                   eval      sdvare = bdvare
+     c                   eval      sdenh1 = bdenh1
+     c                   eval      sdlage = bdlage
+     c                   eval      sdtek1 = bdtek1
+     c                   eval      sdtek2 = bdtek2
+     c                   eval      sdkpri = bdkpri
+     c                   eval      sdkmva = 0
+     c***                eval      sdkord =
+     c***                eval      sdlvre =
+     c***                eval      sdogrp =
+     c***                eval      sdhgrp =
+     c***                eval      sdugrp =
+     c***                eval      sdedih =
+     c***                eval      sdedil =
+     c                   eval      sdalme = bdalme
+     c                   eval      sdbrty = bdbrty
+     c                   eval      sdbrr1 = bdbrr1
+     c                   eval      sdbrr2 = bdbrr2
+     c                   eval      sdomva = bdkmva
+     c                   eval      sdpriv = bdpriv
+      *
+     c                   eval      sdanta = bdanta
+     c                   eval      sdoppr = bdoppr
+     c                   eval      sdsapr = bdsapr
+     c                   eval      sdkopr = bdkopr
+     c                   eval      sdrab1 = bdrab1
+     c                   eval      sdrab2 = bdrab2
+     c***                eval      sdpasl =
+      *
+     c                   eval      sdsalg = bdsapr * bdanta
+     c                   eval      sdkost = bdkopr * bdanta
+      *
+      * Rabatter blir beregnet på nytt
+      * da de ikke lå ferdig på varelinje
+      *
+     c                   eval      sdrkr1 = sdrab1 * sdsalg/100
+     c                   eval(h)   sdrkr2 = sdrab2 * ((sdsalg-sdrkr1)/100)
+     c                   eval(h)   sdrkro = bdorab *
+     c                                      ((sdsalg-sdrkr1-sdrkr2) /100)
+      *
+     c                   if        bdvare <> *blank
+     c                   eval      vvarl1_vare = bdvare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+     c                   eval      sdkmva = vvkmva
+     c                   endif
+     c                   endif
+      *
+     c                   if        bomkod = 1
+     c                   eval      sdkmva = 1
+     c                   endif
+      *
+3.35  * Snu fortegn ved kreditnota
+      *
+     c                   if        p_tnim < 0
+3.35 c                   eval      sdanta = sdanta * -1
+3.35 c                   eval      sdsalg = sdsalg * -1
+3.35 c                   eval      sdrkr1 = sdrkr1 * -1
+3.35 c                   eval      sdrkr2 = sdrkr2 * -1
+3.35 c                   eval      sdbrk1 = sdbrk1 * -1
+3.35 c                   eval      sdbrk2 = sdbrk2 * -1
+3.35 c                   eval      sdrkro = sdrkro * -1
+3.35 c                   eval      sdkost = sdkost * -1
+     c                   endif
+      *
+     c                   write     sodtlur
+      *
+      * Akkumulerer verdier for ordrehode
+      *
+     c                   exsr      mva_beregn
+     c                   exsr      rab_beregn
+     c                   exsr      kostpris
+     c                   exsr      alm_rabatt
+      *
+      * Les neste linje
+      *
+     c     bodtl1_key    reade     bodtl1
+     c                   enddo
+      *
+      * Gebyrhåndtering
+      *
+6.32 c                   eval      w_totb = p_tnim
+     c                   exsr      sjekk_gebyr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandle bong hode:
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * KID-behandling
+      *
+      * Bygger opp kiddfelt (lang versjon)
+      *
+     c                   eval      d_kfir = w_firm
+     c                   eval      d_kkod = 0
+     c                   eval      d_kled = 0
+6.nu c                   eval      d_ktyp = 0
+     c                   eval      d_kkto = bokund
+     c                   eval      d_kbil = bobinr
+      *
+     c                   eval      w_kkus = d_kkus
+     c                   eval      w_ksif = 0
+      *
+      * Beregning av sjekksiffer på kiddfelt (lang versjon)
+      *
+     c                   call      'AK720R'
+     c                   parm                    w_kkus
+     c                   parm                    w_ksif
+      *
+     c                   eval      d_kmod = w_ksif
+6.38  *
+6.38  * Beregning av sjekksiffer på fakturanr (egendef. kidd)
+6.38  *
+6.38 c                   eval      d_kfak_2 = bobinr
+6.38 c                   eval      w_kkus   = d_kkus_2
+6.38  *
+6.38 c                   call      'AK720R'
+6.38 c                   parm                    w_kkus
+6.38 c                   parm                    w_ksif
+6.38  *
+6.38 c                   eval      d_kmod_2 = w_ksif
+6.38 c                   eval      w_kki2   = d_kkid_2
+      *
+      * Oppdatering av kidd-referanse-fil
+      *
+     c                   eval      w_kkid = d_kkid
+6.38 c                   movel     w_kki2        w_kki27
+6.38  *
+6.38 c                   movel     w_kki2        w_kki27
+6.38 c                   move      w_kki27       w_kki21
+6.38 c                   move      *blanks       w_kki2
+6.38 c                   move      w_kki21       w_kki2
+      *
+     c                   call      'AK700R'
+     c                   parm                    w_firm
+     c                   parm                    w_kkid
+     c                   parm                    w_kidr
+     c                   parm                    w_ksif
+5.49 c                   parm                    w_kki2
+      *
+      * Skriver til faktura-hode
+      *
+     c                   eval      sofirm = w_firm
+     c                   eval      soaarr = boaarr
+     c                   eval      sobinr = bobinr
+     c                   eval      sonumm = 0
+     c                   eval      sosuff = 0
+     c                   eval      sootyp = bootyp
+     c                   eval      solety = bolety
+     c                   eval      solage = bolage
+     c                   eval      sokref = bokref
+     c                   eval      sobdat = bobdat
+     c                   eval      soldat = boldat
+6.21 c                   eval      sopada = *loval
+     c                   eval      sopdat = *loval
+     c                   eval      sofkda = bofkda
+     c                   eval      soffda = boffda
+     c                   eval      sobetb = bobetb
+     c                   eval      soselg = boselg
+     c                   eval      sodist = bodist
+     c                   eval      solmat = bolmat
+     c                   eval      solbet = bolbet
+     c                   eval      sovalk = bovalk
+     c                   eval      sorkat = borkat
+     c                   eval      sosped = bosped
+     c                   eval      sokjor = bokjor
+     c                   eval      somkod = bomkod
+     c                   eval      solkun = bolkun
+     c                   eval      sokund = bokund
+     c                   eval      sokuna = bokuna
+     c                   eval      sonavn = bonavn
+     c                   eval      soadr1 = boadr1
+     c                   eval      soadr2 = boadr2
+     c                   eval      sosted = bosted
+     c                   eval      soavde = boavde
+     c                   eval      sokont = bokont
+     c                   eval      sospes = bospes
+     c                   eval      soproj = boproj
+     c                   eval      soakti = boakti
+     c                   eval      sovref = bovref
+     c                   eval      sodref = bodref
+     c                   eval      sorekv = borekv
+     c                   eval      solmtx = bolmtx
+     c                   eval      solbtx = bolbtx
+     c                   eval      sorabp = borabp
+     c***                eval      sopasl =
+     c***                eval      sopask =
+     c***                eval      sonett =
+     c***                eval      sobrut =
+     c***                eval      sokoli =
+     c                   eval      sosalp = 0
+      *
+      *
+     c***                eval      sobkun =
+     c***                eval      sokkun =
+     c                   eval      sowsid = bowsid
+     c                   eval      souser = bouser
+     c                   eval      sodate = bodate
+     c                   eval      sotime = botime
+     c***                eval      soedih =
+     c                   eval      sofsum = w_totb
+6.36 c                   if        p_tnim < 0
+6.36 c                   eval      sofsum = sofsum * -1
+6.36 c                   endif
+     c                   eval      soneto = boneto
+     c                   eval      sobong = bobong
+     c                   eval      soshop = 1
+      *
+     c                   movel     w_kidr        sokidr
+     c                   move      w_ksif        sokidr
+     c                   eval      sokidd = w_kkid
+      *
+      * Legger ut totalt betalt og
+      * finner tilbake mva dersom pliktig
+      *
+      *
+     c                   eval      sosalp = w_salp
+     c                   eval      somvgp = w_mvgp
+     c                   eval      sork1p = w_rk1p
+     c                   eval      sork2p = w_rk2p
+     c                   eval      sorkop = w_rkop
+     c                   eval      sokstp = w_kstp
+     c                   eval      sorbgp = w_rbgp
+      *
+      *
+      *
+     c                   eval      sofaty = bofaty
+      *
+3.35  * Snu fortegn ved kreditnota
+      *
+     c                   if        p_tnim < 0
+3.35 c                   eval      sosalp = sosalp * -1
+3.35 c                   eval      sork1p = sork1p * -1
+3.35 c                   eval      sork2p = sork2p * -1
+3.35 c                   eval      sorb1p = sorb1p * -1
+3.35 c                   eval      sorb2p = sorb2p * -1
+3.35 c                   eval      sogr1p = sogr1p * -1
+3.35 c                   eval      sogr2p = sogr2p * -1
+3.35 c                   eval      sorbgp = sorbgp * -1
+3.35 c                   eval      sorkop = sorkop * -1
+3.35 c                   eval      sokstp = sokstp * -1
+3.35 c                   eval      somvgp = somvgp * -1
+     c                   eval      sofsum = sofsum * -1
+     c                   endif
+      *
+     c                   write     sohelur
+6.20  * Sjekk om kunden har kort. Da skal det legges ut referanser her
+6.20 c                   exsr      sjk_kort
+6.20  *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  * Subrutine for sjekk av kort og utlegg av poster i BOKK
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  *
+6.20 c     sjk_kort      begsr
+6.20  *
+6.20 c                   eval      rukrlr_kkun = sokund
+6.20 c     rukrlr_key    setll     rukrlr
+6.20 c     rukrlr_key    reade     rukrlr                                 90
+6.20  *
+6.20 c                   dow       *in90 = *off
+6.20  * Leg ut BOKK postering for alle kort som ikke er sperret
+6.20 c                   if        rukspr <> 'J'
+6.20 c                   eval      bokkl4_ktyp = ruktyp
+6.20 c                   eval      bokkl4_kund = sokund
+6.20 c                   eval      bokkl4_binr = sobinr
+6.20 c     bokkl4_key    chain     bokkl4r
+6.20 c                   if        not %found(bokkl4)
+6.20 c                   clear                   bokkl4r
+6.20 c                   eval      brfirm = w_firm
+6.20 c                   eval      brktyp = ruktyp
+6.20 c                   eval      brkund = sokund
+6.20 c                   eval      brbinr = sobinr
+6.20 c                   eval      brkort = rukknr
+6.20 c                   eval      brstrk = rukstr
+6.20 c                   time                    brodat
+6.20 c                   time                    brotim
+6.20 c                   time                    bredat
+6.20 c                   time                    bretim
+6.20 c                   eval      breusr = souser
+6.20 c**                 eval      breusr = l_user
+6.22  * NB Legger ikke ut post hvis det er BM/Maxbo/GE kort og ikke fullmakt
+6.20 c                   if        ruktyp = 5 and
+6.20 c                             rukobl <> 1
+6.20 c                   elseif    ruktyp = 3 and
+6.20 c                             rukobl <> 1
+6.22 c                   elseif    ruktyp = 4 and
+6.22 c                             rukobl <> 1
+6.20 c                   else
+6.20 c                   write     bokkl4r
+6.20 c                   endif
+6.20 c                   endif
+6.20 c                   endif
+6.20  *
+6.20 c     rukrlr_key    reade     rukrlr                                 90
+6.20 c                   enddo
+6.20  *
+6.20 c                   endsr
+6.20  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for håndtering av mva beregning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     mva_beregn    begsr
+      *
+     c                   eval      w_mvag = sdsalg - sdrkr1 - sdrkr2 -
+     c                                      sdrkro
+      *
+     c                   eval      w_salp = w_salp + sdsalg
+     c                   eval      w_mvgp = w_mvgp + w_mvag
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for håndtering av rabatt beregning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     rab_beregn    begsr
+      *
+     c                   eval      w_rabg = sdsalg - sdrkr1 - sdrkr2
+      *
+     c                   eval      w_rk1p = w_rk1p + sdrkr1
+     c                   eval      w_rk2p = w_rk2p + sdrkr2
+     c                   eval      w_rkop = w_rkop + sdrkro
+     c                   eval      w_rbgp = w_rbgp + w_rabg
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for håndtering av almennings rabatt beregning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     alm_rabatt    begsr
+      *
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for håndtering av kostpris
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     kostpris      begsr
+      *
+     c                   eval      w_kstp = w_kstp + sdkopr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for gebyr håndtering
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_gebyr   begsr
+      *
+      * Finner verdi for gebyrkontroll
+      *
+6.11 c                   eval      w_gebe = (w_salp)
+6.11 c                                    - (w_rk1p)
+6.11 c                                    - (w_rk2p)
+6.11 c                                    - (w_rkop)
+      *
+      * Sjekk om gebyr er overstyrt på ordre/kunde
+      *
+     c                   if        bokgfa = 1
+     c                   goto      end_geb
+     c                   endif
+      *
+      * Sjekk gebyr på kundekategori eller ordretype nivå
+      *
+     c                   eval      fgebl1_otyp = bootyp
+     c                   eval      fgebl1_kkat = rkkatg
+     c     fgebl1_key    setll     fgebl1
+     c     fgebl1_key    reade     fgebl1
+      *
+     c                   dow       not %eof
+     c                   if        fgtype = 1
+     c                   goto      geb_grens
+     c                   endif
+     c     fgebl1_key    reade     fgebl1
+     c                   enddo
+      *
+     c                   eval      fgebl1_kkat = 0
+     c     fgebl1_key    setll     fgebl1
+     c     fgebl1_key    reade     fgebl1
+      *
+     c                   dow       not %eof
+     c                   if        fgtype = 1
+     c                   goto      geb_grens
+     c                   endif
+     c     fgebl1_key    reade     fgebl1
+     c                   enddo
+      *
+     c                   goto      end_geb
+      *
+      * Sjekk gebyrgrense og beregn evt. gebyr inkl. mva
+      *
+     c     geb_grens     tag
+     c                   if        w_gebe < fggren
+     c                   if        fgbelp <> 0
+     c                   eval      w_geby = fgbelp
+     c                   else
+     c                   eval(h)   w_geby = (w_gebe * fgsats) /100
+     c                   endif
+     c                   endif
+      *
+     c                   call      'FÅ705R'
+     c                   parm                    w_firm
+     c                   parm                    bofkda
+     c                   parm                    w_mvpr
+     c                   parm                    w_mvti
+     c                   parm                    w_mvfr
+      *
+6.35 c                   eval      w_gebm = w_geby
+      *
+     c                   if        bomkod = 0
+     c                   eval      w_gebm = w_geby + ((w_geby*w_mvpr)/100)
+     c                   endif
+      *
+      * Oppdater fakturahode med gebyrbeløp
+      *
+     c                   eval      w_totb = w_totb + w_gebm
+     c                   if        bomkod = 0
+     c                   eval      w_salp = w_salp + w_geby
+     c                   eval      w_kstp = w_kstp + w_geby
+     c                   eval      w_mvgp = w_mvgp + w_geby
+     c                   else
+     c                   endif
+      *
+      * Legg ut ny fakturalinje med gebyrbeløp
+      *
+     c                   clear                   sodtlur
+      *
+     c                   eval      sdfirm = w_firm
+     c                   eval      sdaarr = boaarr
+     c                   eval      sdbinr = bobinr
+     c                   eval      sdline = bdline + 10
+     c                   eval      sdktxt = 9
+     c                   eval      sdotyp = bootyp
+     c                   eval      sdltyp = fgltyp
+     c                   eval      sdvare = fgvare
+     c                   eval      sdtek1 = fgtext
+     c                   eval      sdtek2 = *blank
+     c                   eval      sdkpri = *blank
+     c                   eval      sdkmva = 0
+      *
+     c                   eval      sdanta = 1
+     c                   eval      sdoppr = 0
+     c                   eval      sdsapr = w_geby
+     c                   eval      sdkopr = w_geby
+     c                   eval      sdrab1 = 0
+     c                   eval      sdrab2 = 0
+      *
+     c                   eval      sdsalg = w_geby
+     c                   eval      sdkost = w_geby
+      *
+     c                   eval      sdrkr1 = 0
+     c                   eval      sdrkr2 = 0
+     c                   eval      sdrkro = 0
+      *
+     c                   if        bomkod = 1
+     c                   eval      sdkmva = 1
+     c                   endif
+6.24 c                   if        bomkod = 1
+6.24 c                   eval      sdomva = '4'
+6.24 c                   else
+6.24 c                   eval      sdomva = '3'
+6.24 c                   endif
+      *
+3.35  * Snu fortegn ved kreditnota
+      *
+     c                   if        p_tnim < 0
+3.35 c                   eval      sdanta = sdanta * -1
+3.35 c                   eval      sdsalg = sdsalg * -1
+3.35 c                   eval      sdrkr1 = sdrkr1 * -1
+3.35 c                   eval      sdrkr2 = sdrkr2 * -1
+3.35 c                   eval      sdbrk1 = sdbrk1 * -1
+3.35 c                   eval      sdbrk2 = sdbrk2 * -1
+3.35 c                   eval      sdrkro = sdrkro * -1
+3.35 c                   eval      sdkost = sdkost * -1
+     c                   endif
+      *
+     c                   write     sodtlur
+      *
+      * Oppdaterer bong hode
+      *
+     c     bohelu_key    chain     bohelu
+     c                   if        %found
+6.36 c                   eval      boresk = w_totb
+6.36 c                   if        p_tnim < 0
+6.36 c                   eval      boresk = boresk * -1
+6.36 c                   endif
+     c                   eval      bototb = w_totb
+6.11 c                   eval      botots = w_salp
+6.11 c                   eval      bototk = w_kstp
+6.10 c                   time                    boedat
+6.10 c                   time                    boetim
+6.10 c                   eval      boeusr = l_user
+     c                   update    bohelur
+     c                   endif
+      *
+      * Legger ut gebyrlinje på bong-linje
+      *
+     c                   eval      w_line = bdline + 10
+     c     bodtlu_key    chain     bodtlu
+     c                   if        not %found
+      *
+     c                   eval      bdline = w_line
+     c                   eval      bdltyp = fgltyp
+     c                   eval      bdvare = fgvare
+     c                   eval      bdenh1 = *blank
+     c                   eval      bdtek1 = fgtext
+     c                   eval      bdtek2 = *blank
+     c                   eval      bdanta = 1
+     c                   eval      bdoppr = w_geby
+     c                   eval      bdsapr = w_geby
+     c                   eval      bdkopr = w_geby
+     c                   eval      bdselk = w_geby
+     c                   eval      bdsums = w_geby
+     c                   eval      bdsumk = w_geby
+6.34 c                   eval      bdsumi = w_gebm
+6.34 c                   eval      bdsumo = 0
+6.37 c                   eval      bdsuki = w_gebm
+6.37 c                   eval      bdsuok = 0
+6.37 c                   eval      bdgmva = w_geby
+6.37 c                   eval(h)   bdbmva = w_gebm - w_geby
+6.37 c                   eval      bdfmva = 0
+6.37 c                   eval      bdalme = 0
+6.37 c                   if        w_mvpr <> 0
+6.37 c                   eval      bdsmva = w_mvpr/100
+6.37 c                   else
+6.37 c                   eval      bdsmva = 0
+6.37 c                   endif
+6.11  *
+6.11  * NB Sjekke hva som må gjøres her
+6.11  *
+     c                   if        bomkod = 1
+     c                   eval      bdkmva = '4'
+     c                   else
+6.12 c**                 eval      bdkmva = '1'
+6.12 c                   eval      bdkmva = '3'
+     c                   endif
+      *
+     c                   eval      bdkpri = *blank
+     c                   eval      bdrab1 = 0
+     c                   eval      bdrab2 = 0
+6.31 c*                  eval      bdsumr = 0
+     c                   eval      bdkamp = *blank
+     c                   eval      bdogrp = 0
+     c                   eval      bdhgrp = 0
+     c                   eval      bdugrp = 0
+     c                   eval      bdlvre = 0
+     c                   eval      bdnobb = 0
+     c                   eval      bdldor = 0
+     c                   eval      bdlvar = *blank
+     c                   eval      bdbrr1 = 0
+     c                   eval      bdbrr2 = 0
+     c                   eval      bdorab = 0
+      *
+6.10 c                   time                    bdodat
+6.10 c                   time                    bdotim
+6.10 c                   eval      bdousr = l_user
+6.10 c                   time                    bdedat
+6.10 c                   time                    bdetim
+6.10 c                   eval      bdeusr = l_user
+      *
+     c                   write     bodtlur
+     c                   endif
+      *
+     c     end_geb       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_aarr
+     c                   parm                    p_wsid
+     c                   parm                    p_bong
+     c                   parm                    p_tnim
+     c                   parm                    COMFLAG
+      *
+      * Key for oppslag på bong-hode
+      *
+     c     bohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_wsid
+     c                   kfld                    w_bong
+      *
+      * Key for les på bong-linje
+      *
+     c     bodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_wsid
+     c                   kfld                    w_bong
+      *
+      * Key for oppslag på Vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for file : KUNDE-REGISTER
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for les av GEBYR-REGISTER
+      *
+     c     fgebl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fgebl1_otyp
+     c                   kfld                    fgebl1_kkat
+      *
+      * Key for oppdatering av ButikkHode
+      *
+     c     bohelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_wsid
+     c                   kfld                    w_bong
+      *
+      * Key for oppdatering av ButikkLinje
+      *
+     c     bodtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_wsid
+     c                   kfld                    w_bong
+     c                   kfld                    w_line
+6.20  *
+6.20  * Key for file : Kort-register
+6.20  *
+6.20 c     rukrlr_key    klist
+6.20 c                   kfld                    w_firm
+6.20 c                   kfld                    rukrlr_kkun
+6.20  *
+6.20  * Key for file : Kort-transaksjoner
+6.20  *
+6.20 c     bokkl4_key    klist
+6.20 c                   kfld                    w_firm
+6.20 c                   kfld                    bokkl4_ktyp
+6.20 c                   kfld                    bokkl4_kund
+6.20 c                   kfld                    bokkl4_binr
+      *
+      * Henter inn parametre
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      w_aarr = p_aarr
+     c                   eval      w_wsid = p_wsid
+     c                   eval      w_bong = p_bong
+      *
+     c                   endsr

@@ -1,0 +1,235 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASNAVIOKO
+      * Program . . . . : IT122R
+      * Beskrivelse . . : Oppdaterer valutakurser fra NAV
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       021220 ask  Nytt program
+7.01  * 7.01  010321 ask  Oppdaterer bare valutakurser som allerede finnes,
+7.01  *                   Status = 9 settes for å unngå unødvendig logging
+7.02  * 7.02  020321 ask  Lagt inn oppdatering av historisk valutaregister
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fra16lu    uf a e           k disk    rename(ra16pfr:ra16lur)
+      *
+      * Parameter-inn
+      *
+     d p_firm          s                   like(rapfir)
+     d p_comd          s             20
+     d p_parm          s           2048
+     d p_user          s             10
+     d p_stat          s              1
+      *
+      * Definering av variabler i nøkler
+      *
+     d ra16lu_pkod     s                   like(rapkod)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(rapfir)
+     d w_gkod          s                   like(rapkod)
+     d w_text          s                   like(rapmna)
+     d w_dal10         s             10
+     d w_dal8          s              8
+     d w_datn          s              8  0
+     d w_dato          s                   like(rapkda)
+     d w_date          s               d   datfmt(*iso)
+     d w_time          s               t   timfmt(*iso)
+     d w_tegn          s              1
+     d w_decp          s              3  0
+     d w_posn          s              3  0
+     d w_kurs          s             10  6
+     d w_khel          s             11
+     d w_hlen          s              2  0
+7.02  *
+7.02 C/Exec SQL
+7.02 C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR,
+7.02 C+             commit=*none
+7.032C/End-Exec
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Hovedprogram - oppdaterer informasjon på gkod., setter statusflagg
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Redigerer parameterdata før behandling
+      *
+     c                   exsr      red_flt
+      *
+      * Velger oppdatering avhengig av kommando
+      *
+     c                   select
+     c                   when      p_comd = 'INSERT'
+     c                   exsr      nyrec
+     c                   when      p_comd = 'UPDATE'
+     c                   exsr      oppdrec
+     c                   when      p_comd = 'DELETE'
+     c                   exsr      sletrec
+     c                   endsl
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     slutt         tag
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Opprette kodepost
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     nyrec         begsr
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      ra16lu_pkod = w_gkod
+     c     ra16lu_key    chain     ra16lur
+     c                   if        not %found
+     c                   eval      rapfir = w_firm
+     c                   eval      rapkod = w_gkod
+     c                   eval      rapmna = w_text
+     c                   eval      rapkda = w_dato
+     c                   eval      rapmkg = rapmku
+     c                   eval      rapmku = w_kurs
+     c                   eval      rapdat = w_date
+     c                   eval      raptim = w_time
+     c                   eval      rapusr = p_user
+     c                   write     ra16lur
+     c                   eval      p_stat = '1'
+7.02 c                   exsr      val_hist
+     c                   else
+     c                   exsr      oppdrec
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppdatere kodepost
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppdrec       begsr
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      ra16lu_pkod = w_gkod
+     c     ra16lu_key    chain     ra16lu
+     c                   if        %found
+     c                   eval      rapmna = w_text
+     c                   eval      rapkda = w_dato
+     c                   eval      rapmkg = rapmku
+     c                   eval      rapmku = w_kurs
+     c                   eval      rapdat = w_date
+     c                   eval      raptim = w_time
+     c                   eval      rapusr = p_user
+     c                   update    ra16lur
+     c                   eval      p_stat = '1'
+7.02 c                   exsr      val_hist
+     c                   else
+7.01 c*                  exsr      nyrec
+7.01 c                   eval      p_stat = '9'
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Slett kodepost
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sletrec       begsr
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      ra16lu_pkod = w_gkod
+     c     ra16lu_key    chain     ra16lur
+     c                   if        %found
+     c                   delete    ra16lur
+     c                   eval      p_stat = '1'
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Redigerer felter fra parameter streng
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     red_flt       begsr
+      *
+     c                   eval      w_gkod = %subst(p_parm:59:3)
+     c                   eval      w_text = %subst(p_parm:62:20)
+     c                   eval      w_dal10 = %subst(p_parm:40:10)
+     c                   eval      w_dal8 = %trim(%scanrpl('-':'':w_dal10))
+     c                   eval      w_datn = %dec(w_dal8:8:0)
+     c                   eval      w_dato = %date(%dec(w_dal8:8:0) : *iso)
+      *
+     c                   eval      w_decp = %scanr(',' : p_parm)
+     c                   eval      w_posn = w_decp
+     c                   dou       w_tegn = ' '
+     c                   eval      w_posn = w_posn -1
+     c                   eval      w_tegn = %subst(p_parm : w_posn : 1)
+     c                   enddo
+     c                   eval      w_posn = w_posn +1
+     c                   eval      w_hlen = w_decp - w_posn + 7
+     c                   eval      w_khel = %subst(p_parm : w_posn : w_hlen)
+     c                   eval      w_kurs = %dec(w_khel:10:6)
+      *
+     c     end_flt       endsr
+7.02  *
+7.02  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.02  * Oppdatering av historisk valutaregister
+7.02  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.02  *
+7.02  /Free
+7.02   begsr val_hist;
+7.02
+7.02        exec sql
+7.02        insert into ra61st
+7.02          (rvhfir,rvhval,rvhnku,
+7.02           rvhgku,rvheus)
+7.02        values(:w_firm,:w_gkod,:rapmku,
+7.02               :rapmkg,'N_SYST');
+7.02
+7.02   endsr;
+7.02  /END-FREE
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+     c                   eval      p_stat = ' '
+     c                   eval      *inlr = *on
+     c                   return
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_comd
+     c                   parm                    p_parm
+     c                   parm                    p_user
+     c                   parm                    p_stat
+      *
+      * Key for posisjonering på valgt kode
+      *
+     c     ra16lu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra16lu_pkod
+      *
+      * Setter "timestamp" for postoppdateringer
+      *
+     c                   time                    w_date
+     c                   time                    w_time
+      *
+     c                   endsr
+

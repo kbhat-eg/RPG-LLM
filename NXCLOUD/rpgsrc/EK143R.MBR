@@ -1,0 +1,588 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : EK143R
+      * Beskrivelse . . : Generere ordre fra bonusgrunnlag
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       251013 bsa  Nytt program
+9.01  *       160114 bsa  Henter selger fra kunde
+8.01  *PRG2   210622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+     ffusrl1    if   e           k disk    rename(fusrpfr:fusrl1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     fnohelu    uf   e           k disk    rename(nohepfr:nohelur)
+     ffohelu    uf a e           k disk    rename(fohepfr:fohelur)
+     ffodtl1    if   e           k disk    rename(fodtpfr:fodtl1r)
+     ffodtlu    uf   e           k disk    rename(fodtpfr:fodtlur)
+     febkrl1    if   e           k disk    rename(ebkrpfr:ebkrl1r)
+     febkslr    if   e           k disk    rename(ebkspfr:ebkslrr)
+      *
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(nofirm)
+     d p_fsys          s                   like(nofsys)
+     d p_tell          s                   like(notell)
+     d p_vare          s                   like(fdvare)
+     d p_stat          s              2
+     d p_besk          s             35
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_avde                947    950  0
+     d l_lagr               1001   1002  0
+      *
+      * Definering av variabler i nøkler
+      *
+     d fusrl1_user     s                   like(fbuser)
+     d rkunl1_kund     s                   like(rkkund)
+     d fohelu_numm     s                   like(fonumm)
+     d fohelu_suff     s                   like(fosuff)
+     d fodtl1_numm     s                   like(fdnumm)
+     d fodtl1_suff     s                   like(fdsuff)
+     d fodtl1_line     s                   like(fdline)
+     d fodtlu_numm     s                   like(fdnumm)
+     d fodtlu_suff     s                   like(fdsuff)
+     d fodtlu_line     s                   like(fdline)
+     d ebkslr_skun     s                   like(ebskun)
+     d ebkslr_sbot     s                   like(ebsbot)
+      *
+      * Definering av variable
+      *
+     d b_sper          s              1    inz(*off)
+      *
+     d w_kode          s              1
+     d w_fast          s             10
+     d w_sald          s             11  2
+     d w_sal2          s             11  2
+     d w_tots          s             11  2
+     d w_totr          s             11  2
+     d w_totk          s             11  2
+     d w_tota          s             11  2
+     d w_totn          s             11  2
+     d w_tot1          s             11  2
+     d w_tot2          s             11  2
+     d w_fell          s              6
+     d w_valg          s              2  0
+     d w_text          s             70
+     d w_nref          s              6  0
+     d w_pnum          s              9  0
+     d w_lety          s              1  0
+      *
+     d w_firm          s                   like(fofirm)
+     d w_numm          s                   like(fonumm)
+     d w_suff          s                   like(fosuff)
+     d w_otyp          s                   like(footyp)
+     d w_line          s                   like(fdline)
+     d w_onum          s              2
+     d w_type          s              2
+     d w_tbot          s              2
+     d w_vare          s              8
+      *
+      * Parametre til RS205R - hent mva %
+      *
+     d w_stat          s              1
+     d w_mvak          s              1
+     d w_mvtx          s             30
+     d w_mvas          s              6  2
+     d w_mvat          s              5  4
+     d w_mvaf          s             10  9
+     d w_bpro          s              5  2
+     d w_date          s               d   datfmt(*iso)
+     d w_gral          s                   like(rkgral)
+     d w_anta          s             11  3
+     d w_enhe          s              3
+     d w_ltyp          s              1  0
+      *
+     d p_skun          s              6  0
+     d p_numm          s              6  0
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B1 Behandle åpningsbildet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+      * Hent ordretype
+      *
+     c                   if        w_otyp = *blank
+     c                   eval      w_otyp = faaot8
+     c                   endif
+     c                   if        w_otyp = *blank
+     c                   eval      w_otyp = faaot2
+     c                   endif
+      *
+      * I verste fall hardkodes ordretypen
+      *
+     c                   if        w_otyp = *blank
+     c                   eval      w_otyp = 'O'
+     c                   endif
+      *
+      * Les alle kalkulerte bonuser
+      *
+     c     ebkslr_key    setll     ebkslr
+     c     ebkslr_key2   reade     ebkslr
+     c                   dow       not %eof
+      *
+     c                   if        ebsbon <> 0
+     c                   if        p_skun <> ebskun
+      *
+      * Henter informasjon om kunde
+      *
+     c                   eval      p_skun = ebskun
+      *
+     c                   eval      rkunl1_kund = ebskun
+     c     rkunl1_key    chain     rkunl1
+      *
+      * Oppretter ordre-hode
+      *
+     c                   exsr      ordre_hode
+     c                   eval      p_numm = fonumm
+      *
+     c                   endif
+      *
+      * Oppretter ordre-linje
+      *
+     c                   exsr      ordre_linje
+      *
+      * Oppdater ordrehode og memosaldo med verdier fra ordrelinjer
+      *
+     c                   exsr      oppdat_ordre
+      *
+     c                   endif
+      *
+     c     ebkslr_key2   reade     ebkslr
+     c                   enddo
+      *
+     c*                  eval      p_besk = rknavn
+     c*                  eval      p_stat = 'OK'
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppretter ordre-hode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     ordre_hode    begsr
+      *
+      * Hent neste ledig nummer i.h.t. ordretype
+      *
+     c                   exsr      hent_nummer
+      *
+      * Initierer fil
+      *
+     c                   clear                   fohelur
+      *
+     c                   eval      fofirm = ebsfir
+     c                   eval      fonumm = w_numm
+     c                   eval      footyp = w_otyp
+     c                   eval      fosuff = 00
+     c                   eval      fomkod = 0
+     c                   eval      fobind = 'N'
+      *
+     c                   eval      fokund = rkkund
+     c                   eval      fonavn = rknavn
+     c                   eval      foadr1 = rkgate
+     c                   eval      foadr2 = rkadr2
+     c                   eval      fosted = %char(rkponr) + ' ' + rksted
+      *
+     c                   eval      fobetb = rkbetb
+     c                   eval      fodist = rkdist
+     c                   eval      folmat = 99
+     c                   eval      folbet = rklbet
+     c                   eval      fovalk = rkvalk
+     c                   eval      forkat = rkrabk
+     c                   eval      fosped = rksped
+     c                   eval      fokjor = rkkjØr
+     c                   eval      fomkod = rkmkod
+     c                   eval      fokobk = rkordb
+     c                   eval      fokgfa = rkfagb
+     c                   eval      fokgfr = rkfrgb
+     c                   eval      fokgek = rkekgb
+     c                   eval      forabp = rkorab
+     c                   eval      foneto = rkneto
+     c                   eval      fofaty = rkfaty
+     c                   eval      foselg = rkslgr
+     c**                 eval      foavde = l_avde
+     c                   eval      foavde = rkavde
+     c**                 eval      folage = l_lagr
+     c                   eval      folage = rklagr
+      *
+     c                   time                    foldat
+     c                   time                    fobdat
+      *
+      * Hent brukerinformasjon
+      *
+     c                   eval      fusrl1_user = l_user
+     c     fusrl1_key    chain     fusrl1
+     c                   if        %found
+     c                   eval      fovref = fbvref
+9.01 c**                 eval      foselg = fbselg
+     c                   endif
+      *
+      * Skriver til fil
+      *
+     c                   time                    fodate
+     c                   time                    fotime
+     c                   eval      fooous = l_user
+     c                   time                    foedat
+     c                   time                    foetim
+     c                   eval      foeusr = l_user
+     c                   write     fohelur
+      *
+     c                   eval      w_line = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppretter ordre-linje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     ordre_linje   begsr
+      *
+      * Dersom det ligger melding på ekstern ordre-hode, splittes denne og
+      * legges ut som tekstlinjer
+      *
+     c                   if        %trim(ebktx1) <> *blank
+     c                   eval      w_text = %trim(ebktx1)
+     c                   eval      w_line = w_line + 10
+     c                   call      'FD111R'
+     c                   parm                    w_firm
+     c                   parm                    fonumm
+     c                   parm                    fosuff
+     c                   parm                    w_line
+     c                   parm                    faatty
+     c                   parm                    w_text
+     c                   endif
+      *
+     c                   if        %trim(ebktx2) <> *blank
+     c                   eval      w_text = %trim(ebktx2)
+     c                   eval      w_line = w_line + 10
+     c                   call      'FD111R'
+     c                   parm                    w_firm
+     c                   parm                    fonumm
+     c                   parm                    fosuff
+     c                   parm                    w_line
+     c                   parm                    faatty
+     c                   parm                    w_text
+     c                   endif
+      *
+     c                   if        %trim(ebktx3) <> *blank
+     c                   eval      w_text = %trim(ebktx3)
+     c                   eval      w_line = w_line + 10
+     c                   call      'FD111R'
+     c                   parm                    w_firm
+     c                   parm                    fonumm
+     c                   parm                    fosuff
+     c                   parm                    w_line
+     c                   parm                    faatty
+     c                   parm                    w_text
+     c                   endif
+      *
+     c                   if        %trim(ebktx4) <> *blank
+     c                   eval      w_text = %trim(ebktx4)
+     c                   eval      w_line = w_line + 10
+     c                   call      'FD111R'
+     c                   parm                    w_firm
+     c                   parm                    fonumm
+     c                   parm                    fosuff
+     c                   parm                    w_line
+     c                   parm                    faatty
+     c                   parm                    w_text
+     c                   endif
+      *
+      * Leser alle ekstern ordre-linjer, og legger disse ut som ordre-linjer
+      *
+     c                   eval      w_kode = *blank
+     c                   eval      w_line = w_line + 10
+     c                   eval      w_anta = 1
+     c                   eval      w_lety = 0
+     c                   eval      w_enhe = 'STK'
+     c                   movel     ebkvar        p_vare
+      *
+     c                   if        p_vare <> *blank
+      *
+     c                   call      'EK144R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    fonumm
+     c                   parm                    fosuff
+     c                   parm                    w_line
+     c                   parm                    faalty
+     c                   parm                    w_lety
+     c                   parm                    p_vare
+     c                   parm                    w_anta
+     c                   parm                    w_enhe
+     c                   parm                    foldat
+      * Les ordrelinje igjen, og juster med pris fra bonusgrunnlag
+     c                   eval      fodtlu_numm = fonumm
+     c                   eval      fodtlu_suff = fosuff
+     c                   eval      fodtlu_line = w_line
+     c     fodtlu_key    chain     fodtlu
+     c                   if        %found
+     c                   eval      fdsapr = ebsbon
+     c                   eval      fdsums = ebsbon
+     c                   update    fodtlur
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Henter inn ordrenummer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_nummer   begsr
+      *
+     c                   eval      w_kode = '0'
+     c                   eval      w_fell = faaork
+     c                   eval      w_fast = l_wsid
+     c                   eval      w_type = w_otyp
+      *
+      * Hente inn eventuell overstyrt
+      * ordretype for nummerserie
+      *
+     c                   call      'VA752R'
+     c                   parm                    w_firm
+     c                   parm                    w_otyp
+     c                   parm                    w_onum
+      *
+     c                   if        w_onum <> *blank
+     c                   eval      w_type = w_onum
+     c                   endif
+      *
+      * Kaller subprogram for henting av nummer fra nummer-register
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_numm
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Oppdaterer ordre og memosaldo
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppdat_ordre  begsr
+      *
+      * Henter ordretotal
+      *
+     c                   eval      w_tots = 0
+     c                   eval      w_totr = 0
+     c                   eval      w_totk = 0
+     c                   eval      w_tota = 0
+     c                   eval      w_totn = 0
+     c                   eval      w_tot1 = 0
+     c                   eval      w_tot2 = 0
+      *
+     c                   eval      fodtl1_numm = fonumm
+     c                   eval      fodtl1_suff = fosuff
+     c     fodtl1_key2   setll     fodtl1
+     c     fodtl1_key2   reade     fodtl1
+     c                   dow       not %eof
+     c                   eval      w_tots = w_tots + fdsums
+     c                   eval      w_totr = w_totr + fdsumr
+     c                   eval      w_totk = w_totk + fdsumk
+      *
+     c                   eval      w_totn = fdsums
+     c                   eval      w_tot1 = 0
+     c                   eval      w_tot2 = 0
+      *
+     c                   if        fdrab1 <> 0
+     c                   eval      w_tot1 = w_totn * fdrab1 / 100
+     c                   eval      w_totn = w_totn - w_tot1
+     c                   endif
+      *
+     c                   if        fdrab2 <> 0
+     c                   eval      w_tot2 = w_totn * fdrab2 / 100
+     c                   eval      w_totn = w_totn - w_tot2
+     c                   endif
+      *
+      * NB!  w_tot1
+      * og   w_tot2 brukes om
+      * igjen og null-stilles
+      *
+     c                   eval      w_tot1 = 0
+     c                   eval      w_tot2 = 0
+      *
+     c                   if        fdbrr1 <> 0
+     c                   eval      w_tot1 = w_totn * fdbrr1 / 100
+     c                   eval      w_totn = w_totn - w_tot1
+     c                   endif
+      *
+     c                   if        fdbrr2 <> 0
+     c                   eval      w_tot2 = w_totn * fdbrr2 / 100
+     c                   eval      w_totn = w_totn - w_tot2
+     c                   endif
+      *
+     c                   eval      w_tota = w_tota + w_tot1
+     c                   eval      w_tota = w_tota + w_tot2
+      *
+     c     fodtl1_key2   reade     fodtl1
+     c                   enddo
+      *
+      * Beregner justeringsbeløp, og oppdaterer memosaldo
+      *
+     c                   eval      w_kode = *blank
+     c                   eval      w_sald = w_tots - w_totr
+      *
+     c                   eval      w_sal2 = w_tota
+      *
+     c                   call      'FA922R'
+     c                   parm                    w_firm
+     c                   parm                    footyp
+     c                   parm                    fokund
+     c                   parm                    w_sald
+     c                   parm                    w_sal2
+      *
+      * Oppdaterer ordre-hode med ny saldo
+      *
+     c                   eval      fohelu_numm = fonumm
+     c                   eval      fohelu_suff = fosuff
+     c     fohelu_key    chain     fohelur
+      *
+     c                   eval      fotots = w_tots
+     c                   eval      fototr = w_totr
+     c                   eval      fototk = w_totk
+     c                   eval      fobrra = w_tota
+      *
+     c                   time                    foedat
+     c                   time                    foetim
+     c                   eval      foeusr = l_user
+     c                   update    fohelur
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c**   *entry        plist
+     c**                 parm                    p_fsys
+      *
+      * Key for oppslag på par ved kjøring
+      *
+     c     ebkrl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på par ved kjøring
+      *
+     c     ebkslr_key2   klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på par ved kjøring
+      *
+     c     ebkslr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ebkslr_skun
+     c                   kfld                    ebkslr_sbot
+      *
+      * Key for oppslag på ordre-status
+      *
+     c     fstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på ordre-bruker
+      *
+     c     fusrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fusrl1_user
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for oppdatering av ordre-hode
+      *
+     c     fohelu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohelu_numm
+     c                   kfld                    fohelu_suff
+      *
+      * Key for oppslag på ordre-linje
+      *
+     c     fodtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtlu_numm
+     c                   kfld                    fodtlu_suff
+     c                   kfld                    fodtlu_line
+      *
+      * Key for oppslag på ordre-linje
+      *
+     c     fodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtl1_numm
+     c                   kfld                    fodtl1_suff
+     c                   kfld                    fodtl1_line
+      *
+     c     fodtl1_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtl1_numm
+     c                   kfld                    fodtl1_suff
+      *
+      *
+      * Henter firma fra parameter
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Henter informasjon fra ordre-status
+      *
+     c     fstsl1_key    chain     fstsl1
+      *
+      * Hent mva % for beregning av memosaldo inkl. mva
+      *
+     c                   eval      w_stat = *blank
+     c                   eval      w_mvak = '3'
+     c                   time                    w_date
+      *
+     c                   call      'RS205R'
+     c                   parm                    w_stat
+     c                   parm                    w_mvak
+     c                   parm                    w_mvtx
+     c                   parm                    w_date
+     c                   parm                    w_mvas
+     c                   parm                    w_mvat
+     c                   parm                    w_mvaf
+     c                   parm                    w_bpro
+      *
+      * Hent inn parametere benyttet ved kjøring
+      *
+     c     ebkrl1_key    chain     ebkrl1
+     c                   eval      w_tbot = ebkbot
+     c                   eval      w_vare = ebkvar
+     c                   eval      w_otyp = ebkoty
+      *
+     c                   eval      ebkslr_skun = 0
+     c                   eval      ebkslr_sbot = *blanks
+     c                   eval      p_skun = 0
+      *
+     c                   endsr

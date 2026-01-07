@@ -1,0 +1,481 @@
+      /title  ASLAGR Håndterminal ordre-linje, vise m/hode-detaljer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : HD520R
+      * Beskrivelse . . : Håndterminal ordre-linje, vise m/hode-detaljer
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       131000 HKO  Nytt program
+      *       131200 HKO  Lagt inn kundeprosjekt
+      *       210301 HKO  Lagt inn lev.adr, kundens ref. og rekvisisjonsnr.
+6.20  * 6.20  300511 bsa  Gir mulighet for sjekk mot historisk lagerbok og
+6.20  *                   statistikk.
+6.21  * 6.20  011111 bsa  Tar med lagernummer fra selger. Henter via FUSR og
+6.21  *                   AUSR.
+6.22  * 6.20  130312 nho  Henter lager utifra bruker når LH502R kalles
+6.23  * 6.20  180712 ask  Bruker transaksjonsdato mot historisk lagerbok
+7.xx  * 7.xx  200516 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = avslutt
+      *       10 = Roll
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       16 = Readc 16 on, no more records
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fhodtl1    if   e           k disk    rename(hodtpfr:hodtl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fhohel1    if   e           k disk    rename(hohepfr:hohel1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     ffkprl1    if   e           k disk    rename(fkprpfr:fkprl1r)
+6.21 ffusrl2    if   e           k disk    rename(fusrpfr:fusrl2r)
+6.21 fausrl1    if   e           k disk    rename(ausrpfr:ausrl1r)
+      *
+     fhd520d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Definering parametre
+      *
+     d p_firm          s                   like(hdfirm)
+     d p_refn          s                   like(hdrefn)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+6.22 d l_user                911    920
+     d l_fnav                951    980
+      *
+      * Definering av variabler i nøkler
+      *
+     d hodtl1_refn     s                   like(hdrefn)
+     d vvarl1_vare     s                   like(vvvare)
+     d hohel1_refn     s                   like(horefn)
+     d rkunl1_kund     s                   like(rkkund)
+     d fkprl1_kund     s                   like(flkund)
+     d fkprl1_kpro     s                   like(flkpro)
+6.21 d fusrl2_selg     s                   like(fbselg)
+6.21 d ausrl1_user     s                   like(abuser)
+      *
+      * Definering av variable
+      *
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(hdfirm)
+     d w_vare_alf      s                   like(vvvare)
+6.20 d w_lag_alf       s              2
+6.22 d w_lag_al1       s              2
+6.20 d w_dato          s                   like(vvedat)
+6.20 d w_valg          s              1  0
+6.20 d w_vare          s                   like(vvvare)
+6.20 d w_year          s              4  0
+6.21 d w_lagr          s                   like(ablagr)
+6.22 d w_lag1          s                   like(ablagr)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(11)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_srrn - Relativt recordnummer i subfile
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste  recordnummer på siden
+      * w_virn - Vis den side som inneholder denne record.
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_pgm
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+6.20  *
+6.20  * Behandling av subfile
+6.20  *
+6.20 c                   exsr      subfile
+6.20  *
+6.20 c                   goto      b2taga
+6.20  *
+      * Avslutt program
+      *
+     c     end_pgm       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  * Subrutine for behandling av subfile
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  *
+6.20 c     subfile       begsr
+6.20  *
+6.20 c                   eval      b_forn = *off
+6.20  *
+6.20  * Beholder eksisterende posisjonering i subfilen
+6.20  *
+6.20 c                   if        w_curn > 0
+6.20 c                   eval      w_virn = w_curn
+6.20 c                   endif
+6.20  *
+6.20  * Leser og behandler subfile
+6.20  *
+6.20 c                   do        w_ssrn
+6.20 c                   readc     b1sfl                                  16
+6.20  *
+6.20 c                   if        *in16
+6.20 c                   leave
+6.20 c                   endif
+6.20  *
+6.20 c                   eval      w_virn = w_srrn
+6.20  *
+6.20  * Se på lagerbok
+6.20  *
+6.20 c                   if        b1valg = 6
+6.20 c                   exsr      xb6win
+6.20 c                   eval      b1valg = 0
+6.20 c                   update    b1sfl
+6.20 c                   iter
+6.20 c                   endif
+6.20  *
+6.20  * Se på statistikk
+6.20  *
+6.20 c                   if        b1valg = 7
+6.20 c                   exsr      xb7win
+6.20 c                   eval      b1valg = 0
+6.20 c                   update    b1sfl
+6.20 c                   iter
+6.20 c                   endif
+6.20  *
+6.20 c                   enddo
+6.20  *
+6.20 c**                 if        b_forn = *on
+6.20 c**                 exsr      forny
+6.20 c**                 endif
+6.20  *
+6.20 c     end_subfile   endsr
+6.20  *
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  * Subrutine for å se på historisk lagerbok
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  *
+6.20 c     xb6win        begsr
+6.20  *
+6.21 c                   if        w_lag_alf = '00'
+6.21 c                   eval      w_lag_alf = *blanks
+6.21 c                   endif
+6.20  *
+6.22 c                   eval      ausrl1_user = l_user
+6.22 c     ausrl1_key    chain     ausrl1                             92
+6.22 c                   if        *in90 = *off
+6.22 c                   eval      w_lag1 = ablagr
+6.22 c                   movel     w_lag1        w_lag_al1
+6.22 c                   else
+6.22 c                   eval      w_lag_al1 = *blank
+6.22 c                   endif
+      *
+6.23  *  Legger inn trans dato
+6.20  *
+6.23 c                   eval      w_dato = hodato
+6.20 c                   eval      w_valg = 1
+6.20 c                   eval      w_vare = *blanks
+6.20 c                   movel     b1vare        w_vare
+6.20  *
+6.20 c                   call      'LH502R'
+6.20 c                   parm                    w_firm
+6.20 c                   parm                    w_vare
+6.22 c***                parm                    w_lag_alf
+6.22 c                   parm                    w_lag_al1
+6.20 c                   parm                    w_dato
+6.20 c                   parm                    w_valg
+6.20  *
+6.20 c                   endsr
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  * Subrutine for å se på statistikk
+6.20  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.20  *
+6.20 c     xb7win        begsr
+6.20  *
+6.20 c                   eval      w_lag_alf = *blanks
+6.20  *
+6.20  *  Legger inn dagens dato
+6.20  *
+6.20 c                   time                    w_dato
+6.20 c                   eval      w_year = *year
+6.20 c                   eval      w_vare = *blanks
+6.20 c                   movel     b1vare        w_vare
+6.20  *
+6.20 c                   call      'SF502R'
+6.20 c                   parm                    w_firm
+6.20 c                   parm                    w_year
+6.20 c                   parm                    w_vare
+6.20 c                   parm                    hokund
+6.20 c                   parm                    hokpro
+6.20 c                   parm                    w_dato
+6.20  *
+6.20 c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c     hodtl1_key    reade     hodtl1                                 15
+      *
+     c                   if        *in15
+     c                   goto      end_crt
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b1vare = hdvare
+     c                   eval      b1tek1 = *blank
+     c                   eval      b1enhe = hdenhe
+     c                   eval      b1anta = hdanta
+     c                   eval      b1dato = 0
+     c                   eval      b1time = 0
+      *
+     c***                eval      vvarl1_vare = hdvare
+     c                   movel     hdvare        vvarl1_vare
+     c     vvarl1_key    chain     vvarl1                             92
+     c                   if        *in92 = *off
+     c                   eval      b1tek1 = vvtek1
+     c                   endif
+      *
+     c                   if        hddato <> *loval
+     c     *dmy          move      hddato        b1dato
+     c                   endif
+      *
+     c                   if        hdtime <> *loval
+     c     *hms          move      hdtime        b1time
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c     end_crt       tag
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+     c                   eval      *in22 = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_refn
+      *
+      * Key for les på ordre-linje
+      *
+     c     hodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    hodtl1_refn
+      *
+      * Key for oppslag på vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for oppslag på ordre-hode
+      *
+     c     hohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    hohel1_refn
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for oppslag på kundeprosjekt
+      *
+     c     fkprl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fkprl1_kund
+     c                   kfld                    fkprl1_kpro
+6.21  *
+6.21  * Key for oppslag på brukerregister - FUSR
+6.21  *
+6.21 c     fusrl2_key    klist
+6.21 c                   kfld                    w_firm
+6.21 c                   kfld                    fusrl2_selg
+6.21  *
+6.21  * Key for oppslag på brukerregister - AUSR
+6.21  *
+6.21 c     ausrl1_key    klist
+6.21 c                   kfld                    ausrl1_user
+      *
+      * Legger inn startverdier
+      *
+     c                   eval      w_firm = p_firm
+      *
+     c                   eval      *in22 = *on
+      *
+      * Henter hodeopplysninger
+      *
+     c                   eval      hohel1_refn = p_refn
+     c     hohel1_key    chain     hohel1                             90
+      *
+     c                   eval      b2refn = horefn
+     c                   eval      b2kund = hokund
+     c                   eval      b2kpro = hokpro
+     c                   eval      b2selg = hoselg
+     c                   eval      b2navn = honavn
+     c                   eval      b2dref = hodref
+     c                   eval      b2rekv = horekv
+     c                   eval      b2stat = hostat
+      *
+     c                   eval      rkunl1_kund = hokund
+     c     rkunl1_key    chain     rkunl1                             90
+     c                   if        *in90 = *off
+     c                   eval      b2knav = rknavn
+     c                   else
+     c                   eval      b2knav = 'Ukjent kunde'
+     c                   endif
+      *
+     c                   eval      fkprl1_kund = hokund
+     c                   eval      fkprl1_kpro = hokpro
+     c     fkprl1_key    chain     fkprl1                             90
+     c                   if        *in90 = *off
+     c                   eval      b2pnav = flnavn
+     c                   endif
+      *
+     c                   if        hodato <> *loval
+     c     *dmy          move      hodato        b2dato
+     c                   endif
+      *
+     c                   if        hotime <> *loval
+     c     *hms          move      hotime        b2time
+     c                   endif
+6.21  * Henter lagernummer fra selgerkoden
+6.21 c                   eval      w_lagr = *zero
+6.21 c                   eval      fusrl2_selg = hoselg
+6.21 c     fusrl2_key    chain     fusrl2                             90
+6.21 c                   if        *in90 = *off
+6.21 c                   eval      ausrl1_user = fbuser
+6.21 c     ausrl1_key    chain     ausrl1                             90
+6.21 c                   if        *in90  = *off
+6.21 c                   eval      w_lagr = ablagr
+6.21 c                   endif
+6.21 c                   endif
+6.21 c                   movel     w_lagr        w_lag_alf
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      hodtl1_refn = p_refn
+     c     hodtl1_key    setll     hodtl1
+      *
+     c                   eval      w_seqe = ' '
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *

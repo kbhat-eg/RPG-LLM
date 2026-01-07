@@ -1,0 +1,3762 @@
+      /TITLE  GL105R Overføring av utbetalingsforslag til AU-filer.
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      * System  . . . . : ASOKON                                        *
+      * Program . . . . : GL105R                                        *
+      * Beskrivelse . . : Overføring av utbetalingsforslag til AU-filer *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      * Spesialversjon. :                                               *
+      * Tilpasset for . :                                               *
+      *                                                                 *
+      * Referanse  Dato   Endringsbeskrivelse                      Sign.*
+      * --------- ------  ----------------------------------------------*
+      *           101194  Nytt program november-1994               RH   *
+      *           160998  Fjernet test på om det finnes batch(er)  RH   *
+      *                   med annen bankforbindelse i samlefile.        *
+      *                                                                 *
+      * 30049     300499  Legger inn "/" først i mottakers kto.    RH   *
+      *                   nummer (BETFOR03) dersom Fokus Bank.     RH   *
+      *                                                                 *
+      * 30049     300499  Dersom SWIFTADRESSE er utfylt skal       RH   *
+      *                   det ikke være noe krav at også           RH   *
+      *                   adresse 1, 2 og 3 må være utfylt.        RH   *
+      *                                                                 *
+      * 12059     120599  Dersom utenalndsk leverandør, så er      RH   *
+      *                   det ikke behov for å fylle ut postnr.    RH   *
+      *                                                                 *
+      * 12059     120599  Enten SWIFT eller kontonummer må være    RH   *
+      *                   utfylt, samt kun adresselinje 1.         RH   *
+      *                                                                 *
+      * 19010     190100  Dersom "tekst" i KID-feltet, så skal     RH   *
+      *                   denne høyrejusteres.                     RH   *
+      *                                                                 *
+T5.00 * V5.00     151002  Endring i datofelt og key-felt.          HFL  *
+      *                                                                 *
+T5.01 * V5.01     140103  Postgironummer er borte i ny versj.      RHO  *
+      *                   For å unngå å skrive om testen, så må    RHO  *
+      *                   feltet likevel defineres med en dummy    RHO  *
+      *                   verdi, dvs "0".                          RHO  *
+      *                                                                 *
+19024 * 19024     190204  Tatt vekk mulighet for å sende HELE      RHO  *
+      *                   forslaget på nytt, i de tilfeller det    RHO  *
+      *                   inneholder BÅDE 1.- og feilreturer.      RHO  *
+      *                   Dersom hele forslaget skal sendes på     RHO  *
+      *                   nytt, så MÅ først forslaget "åpnes".     RHO  *
+      *                                                                 *
+T5.02 * V5.02     270903  Legger ut "UTENLANDS" dersom "0000" i    RHO  *
+      *                   postnummer.                              RHO  *
+      *                                                                 *
+T5.03 * V5.03     270903  Legger ut "UTENLANDS" dersom "0000" i    RHO  *
+      *                   postnummer, KUN for bank lik "KK"!       RHO  *
+      *                                                                 *
+23086 * 23086     230806  Nytt Telepayformat - Versjon 2.01        RHO  *
+10106 * 10016     101006  Nytt Telepayformat - Vers.kode 2 mangler RHO  *
+      *                                                                 *
+25017 * 25017     250107  Legger ut "Timestamp" på RLTRPF for      RHO  *
+      *                   overføringstidspunktet.                  RHO  *
+      *                                                                 *
+16077 * 16077     160707  Lev.fakt.nr skal hentes fra feltet       RHO  *
+      *                   GALFAK på GUBFPF, og ikke fra RLTRPF.    RHO  *
+      *                                                                 *
+20028 * 20028     200208  Legger ut "*" i KID-feltet dersom Lev.-  RHO  *
+      *                   fakturanumemr er utfylt, dvs på samme    RHO  *
+      *                   måte som KID.                            RHO  *
+      *                                                                 *
+6.10  *           101010  Endret test på om lev.faktnr skal leg-   NHO  *
+      *                   gesut                                    NHO  *
+6.nu  *           270515  Nummerutvidelse                          NHO  *
+7.01  *           280524  FOR TEST VEDR ANTALL TRANSAKSJONER            *
+7.02  *           051224  Sjekk om det finnes poster uten          MST  *
+7.02  *                   KID eller leverandørens fakt.nr          MST  *
+7.02a *                   Kontroll ved hver les                    MST  *
+7.02b *                   7.02 Er satt på vent foreløbig           MST  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      *  BRUK AV INDIKATORER                                            *
+      *                                                                 *
+      *       KC = F3  = Exit                                           *
+      *       KE = F5  = Forny                                          *
+      *       KL = F12 = Annuller                                       *
+      *                                                                 *
+      *       LR = Avslutt program                                      *
+      *       30 = Overflow i rapport.                                  *
+      *    31-55 = Brukes til meldinger.                                *
+      *    60-69 = Fileindikatorer chain etc.                           *
+      *    70-79 = Arbeidsindikatorer i sub-rutiner                     *
+      *    80-89 = Arbeidsindikatorer ordinære                          *
+      *    90-99 = Benyttes ved std. sub-rutiner                        *
+      *                                                                 *
+      * D1DET  - detalj  D1 på rapport
+      * T1TOTA - Total   pr. leverandør/forfallsdato.
+      * T2TOTA - Meldinger
+      * T2GIRO - Meldinger
+      * U2GIRO - Meldinger
+      * T1TOTC - Meldinger
+      * T1TOTD - Meldinger
+      * T2LEV  - Feilmelding på leverandør.
+      * T2TOT  - Total   pr. leverandør.
+      * T3TOT  - Total   på rapport
+      *                                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     fgl105d    cf   e             workstn
+     fafirl1    if   e           k disk
+     frlevpf    if   e           k disk
+     frlbapf    if   e           k disk
+23086f*rltrld    if   e           k disk
+25017frltrld    uf   e           k disk    rename(rltrpfr:rltrpfd)
+     fgavtl1    uf a e           k disk
+      *
+     fgubfl3    if   e           k disk
+     f                                     rename(gabfpfr:gabfpf3)
+      *
+      * GUBFL1 og GUBFL4 brukes ved overføring av hele forslaget.
+      *
+     fgubfl1    uf   e           k disk
+     f                                     rename(gabfpfr:gabfpf1)
+     fgubfl4    uf   e           k disk
+     f                                     rename(gabfpfr:gabfpf4)
+      *
+      * GUBFL5 og GUBFL6 brukes ved overføring av kun poster hvor
+      * det er mottatt feilretur.
+      *
+     fgubfl5    uf   e           k disk
+     f                                     rename(gabfpfr:gabfpf5)
+     fgubfl6    uf   e           k disk
+     f                                     rename(gabfpfr:gabfpf6)
+      *
+     fra16pf    if   e           k disk
+     fgfaspf    if   e           k disk
+     fgudkpf    if   e           k disk
+     fgu00l1    if   e           k disk
+     f                                     rename(gu00pfr:gu00pf1)
+      *Remitteringsfiler
+     fgu00pf    o  a e             disk
+     f                                     rename(gu00pfr:gu00pff)
+     fgu01pf    o  a e             disk
+     fgu02pf    o  a e             disk
+     fgu03pf    o  a e             disk
+     fgu04pf    o  a e             disk
+     fgu21pf    o  a e             disk
+     fgu22pf    o  a e             disk
+     fgu23pf    o  a e             disk
+     fgu99pf    o  a e             disk
+      *Rapport som viser poster som VIL bli overført.
+     fgl105pj   o    e             printer
+      *Rapport som viser poster som IKKE VIL bli overført.
+     fgl105pn   o    e             printer
+      *Rapport som viser lønnstransaksjoner som blir overført:
+     fgl105pl   o    e             printer
+      *
+     d txt             s             16    dim(1) ctdata perrcd(1)
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Kommentarer til program.                                        *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      * Datastruktur for forfallsdato på forslagfile (ÅMD)
+      *
+     d                 ds
+     d gaforf                         8  0
+     d  gaforÅ                        4  0 overlay(gaforf)
+     d  gaform                        2  0 overlay(gaforf:5)
+     d  gaford                        2  0 overlay(gaforf:7)
+      *
+      * Datastruktur for rabattdato-1 (DMÅ)
+      * Brukes i rapporten.
+      *
+     d                 ds
+     d d1rad1                         8  0
+     d  gardd1                        2  0 overlay(d1rad1)
+     d  gardm1                        2  0 overlay(d1rad1:3)
+     d  gardÅ1                        4  0 overlay(d1rad1:5)
+      *
+      * Datastruktur for rabattdato-2 (DMÅ)
+      * Brukes i rapporten.
+      *
+     d                 ds
+     d d1rad2                         8  0
+     d  gardd2                        2  0 overlay(d1rad2)
+     d  gardm2                        2  0 overlay(d1rad2:3)
+     d  gardÅ2                        4  0 overlay(d1rad2:5)
+      *
+      * Datastruktur for rabattdato-3 (DMÅ)
+      * Brukes i rapporten.
+      *
+     d                 ds
+     d d1rad3                         8  0
+     d  gardd3                        2  0 overlay(d1rad3)
+     d  gardm3                        2  0 overlay(d1rad3:3)
+     d  gardÅ3                        4  0 overlay(d1rad3:5)
+      *
+      * Datastruktur for forfallsdato (hjelpefelt) (ÅMD)
+      *
+     d                 ds
+     d wpforf                         8  0
+     d  wpforÅ                        4  0 overlay(wpforf)
+     d  wpform                        2  0 overlay(wpforf:5)
+     d  wpford                        2  0 overlay(wpforf:7)
+      *
+      * Datastruktur for betalingsdato/Forfall ut på "DIRADD" (ÅMD)
+      *
+     d                 ds
+     d gdbetd                         6  0
+     d  gdbeÅr                        2  0 overlay(gdbetd)
+     d  gdbemn                        2  0 overlay(gdbetd:3)
+     d  gdbeda                        2  0 overlay(gdbetd:5)
+      *
+      * Datastruktur for betalingsdato/Forfall ut på "DIRADD" (DMÅ)
+      *
+     d                 ds
+     d aufotd                         6  0
+     d  aufoda                        2  0 overlay(aufotd)
+     d  aufomn                        2  0 overlay(aufotd:3)
+     d  aufoÅr                        2  0 overlay(aufotd:5)
+      *
+      * Datastruktur for bilagsdato ut på "DIRADD".
+      *
+     d                 ds
+     d gdbitd                         6  0
+     d  gdbida                        2  0 overlay(gdbitd)
+     d  gdbimn                        2  0 overlay(gdbitd:3)
+     d  gdbiÅr                        2  0 overlay(gdbitd:5)
+      *
+T5.00 * Datastruktur for bilagsdato ut på liste GL105PN
+      *
+T5.00d                 ds
+T5.00d d1bdat                         6  0
+T5.00d  d1bild                        2  0 overlay(d1bdat)
+T5.00d  d1bilm                        2  0 overlay(d1bdat:3)
+T5.00d  d1bilÅ                        2  0 overlay(d1bdat:5)
+      *
+      * Datastruktur for oppdatering av BETFOR23.
+      *
+     d                 ds
+     d ds023a                       120
+     d  dstxta                       10    overlay(ds023a)
+     d  rlnavn                       30    overlay(ds023a:11)
+     d  dstxtb                        9    overlay(ds023a:41)
+     d  dsbda1                        6  0 overlay(ds023a:50)
+     d  dstxtc                        1    overlay(ds023a:56)
+     d  dstxtd                       20    overlay(ds023a:57)
+     d  dstxte                       12    overlay(ds023a:77)
+     d  dsbla1                        1    overlay(ds023a:89)
+     d  dsfda1                        6  0 overlay(ds023a:90)
+     d  dstxtf                        1    overlay(ds023a:96)
+6.nu d* dsbil1                        6  0 overlay(ds023a:97)
+6.nu d  dsbil1                        8  0 overlay(ds023a:97)
+6.nu d* dstxtg                       18    overlay(ds023a:103)
+6.nu d  dstxtg                       16    overlay(ds023a:105)
+      *
+      * Datastruktur for oppdatering av BETFOR23.
+      *
+     d                 ds
+     d ds023b                       120
+     d  dstxth                       10    overlay(ds023b)
+     d  dsbla2                        1    overlay(ds023b:11)
+     d  dsbda2                        6  0 overlay(ds023b:12)
+     d  dstxti                        1    overlay(ds023b:18)
+     d  dstxtj                       20    overlay(ds023b:19)
+     d  dstxtk                       12    overlay(ds023b:39)
+     d  dsbla3                        1    overlay(ds023b:51)
+     d  dsfda2                        6  0 overlay(ds023b:52)
+     d  dstxtl                        1    overlay(ds023b:58)
+6.nu d* dsbil2                        6  0 overlay(ds023b:59)
+6.nu d  dsbil2                        8  0 overlay(ds023b:59)
+6.nu d* dstxtm                       56    overlay(ds023b:65)
+6.nu d  dstxtm                       54    overlay(ds023b:67)
+23086 *
+23086 * Datastruktur for oppdatering av felt i BETFOR23:
+23086 *
+23086d                 ds
+23086d dslre2                        24
+23086d  dsslko                        1    overlay(dslre2:1)
+23086d  dskunu                       15    overlay(dslre2:2)
+23086d  dsfada                        8    overlay(dslre2:17)
+      *
+23086d w_dato          s               d   datfmt(*iso)
+23086d w_dato_8        s              8  0
+      *
+      * Henter firmanavn.
+      *
+     d                uds
+25017d l_user                911    920
+     d dsfgrp                931    933
+     d dsfirm                944    946  0
+     d dsfnav                951    980
+      *
+     d k2forÅ          s                   like(gaforÅ)
+     d k2ford          s                   like(gaford)
+     d k2form          s                   like(gaform)
+T5.00d k2fdat          s                   like(gafdat)
+     d k2kids          s                   like(gakids)
+     d k2levr          s                   like(galevr)
+     d k2navn          s                   like(ganavn)
+     d k2valk          s                   like(gavalk)
+     d k3forÅ          s                   like(gaforÅ)
+     d k3ford          s                   like(gaford)
+     d k3form          s                   like(gaform)
+T5.00d k3fdat          s                   like(gafdat)
+     d k3kids          s                   like(gakids)
+     d k3levr          s                   like(galevr)
+     d k3navn          s                   like(ganavn)
+     d k3valk          s                   like(gavalk)
+     d t2valb          s             11  2
+     d u3belØ          s             11  2
+     d u3inne          s             11  2
+     d u3uten          s             11  2
+     d w_arow          s              2  0
+     d w_acol          s              3  0
+     d wantpo          s              3  0
+     d wovrfl          s              1  0
+     d wpaf01          s              1
+     d wpaf34          s             34
+     d wpalfa          s             16
+     d wpbein          s              2
+     d wpbeut          s              2
+     d wpbfnr          s              3
+     d wpfeil          s              1
+     d wpfirm          s              3  0
+     d wpfore          s              1
+     d wpfor1          s              8  0
+     d wpfret          s              1
+     d wpgiro          s             35
+     d wpinti          s              5  0
+     d wpintu          s              5  0
+     d wpkids          s                   like(gakids)
+     d wpkont          s             11  0
+     d wplevr          s                   like(galevr)
+     d wplev1          s                   like(galevr)
+     d wpnavn          s                   like(ganavn)
+     d wpnav1          s                   like(ganavn)
+     d wpnett          s             11  2
+     d wpnul3          s              3  0
+     d wpover          s              1
+     d wprabb          s             11  2
+     d wprabn          s              9  2
+     d wprabv          s              9  2
+     d wpsekv          s              4  0
+     d wpsfif          s              8  0
+     d wpsfuf          s              8  0
+     d wpskif          s              1
+     d wpskuf          s              1
+     d wpslav          s              6  0
+     d wpslgo          s              6  0
+     d wpslif          s              6  0
+     d wpsluf          s              6  0
+     d wpsvuf          s              3
+     d wpvalk          s                   like(gavalk)
+     d wp1ret          s              1
+     d wp999i          s              3  0
+     d wp999u          s              3  0
+T5.00d w_fdat          s                   like(gafdat)
+T5.01d rlpgir          s             11  0
+      *
+25017d w_foda          s               d   datfmt(*iso)
+25017d w_ftim          s               t
+25017d w_fsig          s             10
+7.02 d w_ufeil         s              1
+      /eject
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Registrer utbetalingsforslagsnummer som skal overføres.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     a1tag         tag
+      *
+      * WPBFNR er kun utfylt dersom rutine for overføring kalles
+      * opp i fra GL104R - Vedlikehold av betalingsforslag:
+      *
+     c                   if        wpbfnr = *blanks
+     c                   exfmt     a1bld
+     c                   endif
+      *
+      * Avslutt program ved F03 eller F12.                              .
+      *
+     c     *inkc         cabeq     *on           xslutt
+      *
+      * Avslutt program dersom det finnes data på samlefile med annet   .
+      * foretaksnummer, d.v.s. det benyttes annen bankforbindelse:      .
+      *
+     c                   if        wpfore = '1'
+     c                   eval      w_arow = w_arow + 2
+     c                   eval      w_acol = w_acol - 4
+     c                   exfmt     g1win
+     c                   goto      xslut2
+     c                   endif
+7.02 c                   move      ' '           w_ufeil
+      *
+      * Kontroll på om forslag finnes:
+      *
+     c     key05         setll     gubfl3
+     c     key05         reade     gubfl3                                 62
+      *
+      * Forslag finnes ikke.                                            .
+      *
+     c     *in62         cabeq     *on           a1tag
+      *
+T5.00c                   exsr      xgubfpf
+7.02  * Kontroll på om det finnes poster uten KID og lev.fakt.nr
+7.02 c                   if        gakidi = *blanks
+7.02 c                             and galfak = *blanks
+7.02bc*                  move      '1'           w_ufeil
+7.02 c                   endif
+      *
+      * Kontroll på om forslag er overført tidligere (WPOVER), og
+      * om det da er mottatt 1.gangsretur (WP1RET) og/eller feilretur
+      * (WPFRET) på forslaget:
+      *
+     c                   eval      wpover = *blank
+     c                   eval      wp1ret = *blank
+     c                   eval      wpfret = *blank
+      *
+     c                   dow       *in62 = *off
+      *                                                        .
+     c                   if        gastat = 'G'
+     c                             or gastat = 'U'
+     c                   move      '1'           wpover
+     c                   endif
+      *                                                        .
+     c                   if        gareko = '1'
+     c                   move      '1'           wp1ret
+     c                   endif
+      *                                                        .
+     c                   if        gareko = 'F'
+     c                   move      '1'           wpfret
+     c                   endif
+      *                                                        .
+     c     key05         reade     gubfl3                                 62
+T5.00c                   exsr      xgubfpf
+7.02a * Kontroll på om det finnes poster uten KID og lev.fakt.nr
+7.02ac                   if        gakidi = *blanks
+7.02ac                             and galfak = *blanks
+7.02bc*                  move      '1'           w_ufeil
+7.02ac                   endif
+     c                   enddo
+      *
+      * Dersom forslag er overført tidligere uten at retur er mottatt,  .
+      * ELLER at 1.gangsretur allerede er mottatt ELLER at feilretur    .
+      * er mottatt, så må det sendes opp vindu for å bekrefte hva som   .
+      * skal overføres på nytt:                                         .
+      *
+     c                   if        wpover = '1'
+     c                             or wp1ret = '1'
+     c                             or wpfret = '1'
+      *                                                          .
+     c                   eval      w_arow = 4
+     c                   eval      w_acol = 39
+      *                                                          .
+      * Det må trykkes F6 for å overføre forslaget på nytt:      .
+      *                                                          .
+     c                   dow       *inkf = *off
+7.02  *                                                        . .
+7.02  * Forslaget inneholder en eller flere poster             . .
+7.02  * uten KID eller lev.fakt.nr                             . .
+7.02  *                                                        . .
+7.02bc*                  if        w_ufeil = '1'
+7.02 c*                             and wp1ret = *blank
+7.02 c*                             and wpfret = *blank
+7.02bc*                  exfmt     d1winx
+7.02bc*                  goto      a1tag
+7.02bc*                  endif
+      *                                                        . .
+      * Forslaget er overført tidligere, men IKKE mottatt      . .
+      * retur.  "Skal det overføres på nytt ?":                . .
+      *                                                        . .
+     c                   if        wpover = '1'
+     c                             and wp1ret = *blank
+     c                             and wpfret = *blank
+     c                   exfmt     d1win
+     c                   endif
+      *                                                        . .
+      * Forslaget er overført tidligere, OG KUN mottatt        . .
+      * 1.gangsretur, IKKE feilretur.  "Skal det overføres     . .
+      * på nytt ?":                                            . .
+      *                                                        . .
+     c                   if        wp1ret = *blank
+     c                             and wpfret <> *blank
+     c                   exfmt     d1win
+     c                   endif
+      *                                                        . .
+      * Forslaget er overført tidligere, OG KUN mottatt        . .
+      * feilretur, og IKKE 1. gangsretur.  "Skal det overføres . .
+      * på nytt ?":                                            . .
+      *                                                        . .
+     c                   if        wp1ret <> *blank
+     c                             and wpfret = *blank
+     c                   exfmt     d1win
+     c                   endif
+      *                                                        . .
+      * Forslaget er overført tidligere, OG det er mottatt     . .
+      * BÅDE 1.gangsretur OG feilretur.  "Skal ALT overføres   . .
+      * ELLER kun feilreturer ?":                              . .
+      *                                                        . .
+     c                   if        wp1ret <> *blank
+     c                             and wpfret <> *blank
+19024c                   eval      d2fret = 'F'
+     c                   exfmt     d2win
+19024c                   eval      d2fret = 'F'
+     c                   endif
+      * F3=Gå ut                                               . .
+     c                   if        *inkc = *on
+     c                   eval      d2fret = *blank
+     c                   move      *off          *in62
+     c                   move      *off          *in63
+     c     wpbfnr        cabne     *blanks       xslut2
+     c                   goto      a1tag
+     c                   endif
+      *                                                        . .
+     c                   enddo
+      *                                                          .
+     c                   endif
+      *
+      * *****     *****     *****     *****     *****     *****     ***
+      * Dersom D2FRET har verdien "F", så skal kun feilreturer for
+      * forslaget overføres til banken.  Da leses GUBFL5 og GUBFL6.
+      * ved overføring av hele forslaget leses kun GUBFL1 og GUBFL4.
+      **     *****     *****     *****     *****     *****     *****
+      *
+      * Sender ut bilde som "teller" poster som overføres for           .
+      * hver 10. behandlet post:                                        .
+      *
+     c                   eval      w_arow = w_arow + 2
+     c                   eval      w_acol = w_acol - 4
+      * Fakturaer:
+S5.00c*                  if        gabild <> 0
+T5.00c                   if        gabdat <> *loval
+      *                                                        .
+      * Legger som gjelder Overføring på BETFOR21:             .
+      *                                                        .
+     c                   movel     'F'           gdjtty
+     c                   eval      gdjtko = 150
+      *                                                        .
+     c                   if        gefsam = 'J'
+     c                   write     b1win
+     c                   else
+     c                   write     e1win
+     c                   endif
+      * Lønn:                                                  .
+     c                   else
+      *                                                        .
+      * Legger som gjelder Lønn på BETFOR21:                   .
+      *                                                        .
+     c                   movel     'L'           gdjtty
+     c                   eval      gdjtko = 165
+      *                                                        .
+     c                   if        gefsam = 'J'
+     c                   write     f1win
+     c                   else
+     c                   write     f3win
+     c                   endif
+      *                                                        .
+     c                   endif
+      *
+      * Overføring til samlefile.  Spesiell behandling ved lønns-
+      * transaksjoner.  Dette identifiseres ved at bilagsdato ikke
+      * er utfylt:
+      *
+S5.00c*                  if        gabild <> 0
+T5.00c                   if        gabdat <> *loval
+     c                   exsr      xsamle
+     c                   else
+     c                   exsr      xsamll
+     c                   endif
+      *
+      * Ventebilde med tekst for "klargjøring" sendes opp dersom
+      * det IKKE er samlefile på firma.  Overføring til DIRREM
+      * starter umiddelbart:
+      *
+     c                   if        gefsam <> 'J'
+S5.00c*                            and gabild <> 0
+T5.00c                             and gabdat <> *loval
+     c                   eval      w_arow = w_arow + 2
+     c                   eval      w_acol = w_acol - 4
+     c                   write     e1win
+     c                   endif
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Avslutt program                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xslutt        tag
+      *
+      * Skriver ut BETFOR99 ên gang for innenlands og ên gang
+      * for utenlands dersom BETFOR00-transaksjon er lagt ut.
+      *
+     c                   if        wpbein = 'JA'
+     c                   movel     'TBII'        gdzrid
+     c                   movel     'Fakt.inn'    gdziuk
+     c                   move      'l.'          gdziuk
+     c                   eval      gdztot = u3inne
+     c                   exsr      xbe99
+     c                   endif
+     c                   if        wpbeut = 'JA'
+     c                   movel     'TBIU'        gdzrid
+     c                   movel     'Fakt.utl'    gdziuk
+     c                   move      '. '          gdziuk
+     c                   eval      gdztot = u3uten
+     c                   exsr      xbe99
+     c                   endif
+      *
+      *
+      * Det må trykkes Enter i "ventebildet" for å gå videre.
+      *
+      * PS!  bildet sendes kun opp dersom forslaget skal ligge
+      *      på samlefile.  Dersom dette ikke er tilfelle vil
+      *      overføring starte umiddelbart:
+      *
+     c                   if        gefsam = 'J'
+     c                   if        a1inav <> 0
+     c                             or a1ingo <> 0
+     c                             or a1utav <> 0
+     c                             or a1ingo <> 0
+     c                   eval      w_arow = w_arow + 2
+     c                   eval      w_acol = w_acol - 4
+     c                   exfmt     c1win
+     c                   endif
+     c                   endif
+      *
+      * Rutine for overføring (RL106) kalles opp dersom forslaget
+      * ikke skal bli liggende på samlefile:
+      *
+     c                   if        gefsam <> 'J'
+     c                             and *inkc = *off
+     c                   call      'GL106C'
+     c                   parm                    dsfgrp
+     c                   parm                    wpfirm
+     c                   parm                    a1bfnr
+     c                   endif
+      *
+     c     xslut2        tag
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Legger ut på samlefile + Skriver utbetalingsforslag.            *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xsamle        begsr
+      *
+      * Skriver ut heading på rapportene.
+      *
+     c                   write     a1hdr
+     c                   write     b1hdr
+      *
+      * Initierer nøkkel KEY04.
+      *
+     c                   eval      wpnavn = *blanks
+     c                   eval      wplevr = 0
+     c                   eval      wpford = 0
+     c                   eval      wpform = 0
+     c                   eval      wpforÅ = 0
+T5.00c                   eval      w_fdat = *loval
+      *
+      * WPKIDS og WPVALK vil inneholde verdi i fra foregående les post,
+      * men den første initielle verdien vil være henholdsvis "I" og
+      * "INI" (INItiell verdi).
+      *
+     c                   movel     'I'           wpkids
+     c                   movel     'INI'         wpvalk
+      *
+      * Initierer felt som vil inneholde informasjon om leverandørnr.
+      * og forfallsdato på sist leste post.
+      *
+     c                   eval      wpnav1 = *blanks
+     c                   eval      wplev1 = 0
+     c                   eval      wpfor1 = 0
+      *
+      * GUBFL1 velges v/sortering på lev.nr.
+      * GUBFL4 velges v/sortering på lev.navn.
+      *
+      * ALLE POSTER:
+      *
+     c                   if        d2fret <> 'F'
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c     key04         setll     gubfl1
+     c     key05         reade     gubfl1                                 60
+T5.00c                   exsr      xgubfpf
+     c                   else
+     c     key04b        setll     gubfl4
+     c     key05         reade     gubfl4                                 60
+T5.00c                   exsr      xgubfpf
+     c                   endif
+      *                                                        .
+      * KUN FEILRETURER:                                       .
+     c                   else
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c     key04         setll     gubfl5
+     c     key05         reade     gubfl5                                 60
+T5.00c                   exsr      xgubfpf
+     c                   else
+     c     key04b        setll     gubfl6
+     c     key05         reade     gubfl6                                 60
+T5.00c                   exsr      xgubfpf
+     c                   endif
+      *                                                        .
+     c                   endif
+      *
+     c     *in60         cabeq     *on           xendra
+      *
+      * Finner leverandørinformasjon.
+      *
+     c                   exsr      xlever
+      *
+      * Tester på leverandørinformasjon:
+      *
+     c                   exsr      xt2brk
+      *
+      * Status i feltet WPFEIL avgjør vilken heading som skal skrives.
+      * Her skrives det ut kun heading på feilrapport, fordi det er
+      * feil på leverandørinformasjon, d.v.s. alle poster som nå skal
+      * leses på denne leverandøren vil bli avvist.
+      *
+     c                   if        wpfeil = 'J'
+     c                   eval      wpslav = d1levr
+     c                   exsr      xhedd1
+     c                   endif
+      *
+      * Lese alle poster på file.
+      *
+     c                   dow       *in60 = *off
+      *                                                             .
+      * Tester om det er ny Leverandør ELLER ny Forfallsdato ELLER  .
+      * ny Valutakode ELLER ny KID-status.  I såfall må det skrives .
+      * ut totallinje for forfallsdato.                             .
+      *                                                             .
+     c                   if        wpfor1 <> gaforf
+     c                             and wpfor1 <> 0
+     c                             or wplev1 <> galevr
+     c                             and wplev1 <> 0
+     c                             or wpvalk <> gavalk
+     c                             and wpvalk <> 'INI'
+     c                             or wpkids <> gakids
+     c                             and wpkids <> 'I'
+      *                                                          .  .
+      * Test om det er meldinger som skal skrives ut             .  .
+      * ved brudd på Betalingsdato/Valutakode/KID-status.        .  .
+      *                                                          .  .
+     c                   exsr      xt1brk
+      *                                                          .  .
+      * PS!  WPFEIL er kun "J" dersom det er feil på leverandør- .  .
+      *      nivå, d.v.s. feil vedr. navn, adresse, bankinfo.    .  .
+      *      og utenlandsinformasjon.                            .  .
+      *                                                          .  .
+      * Alle poster på denne leverandøren vil i såfall bli       .  .
+      * avvist.  Dersom leverandør er OK, d.v.s. WPFEIL er       .  .
+      * "N", så vil rutinen XT1LES bli kalt opp hver gang det er .  .
+      * brudd på Forfallsdato, Valutakode eller KID-status.      .  .
+      * Totalsummen pr. bruddnivå vil alltid først bli beregnet  .  .
+      * før man hvet hvilken rapport postene skal skrives ut på. .  .
+      *                                                          .  .
+     c                   if        wpfeil = 'N'
+     c                   exsr      xt1les
+     c                   goto      xleave
+     c                   endif
+      *                                                          .  .
+      * Skriver ev. rabattpost + totalsum ved brudd på dato.     .  .
+      *                                                          .  .
+     c                   exsr      xrabb
+      *                                                          .  .
+      * Skriver ut ev. meldinger ved brudd på betalingsdato.     .  .
+      *                                                          .  .
+     c                   exsr      xerrt1
+      *                                                          .  .
+      * Skriver en "dummy" linje for å gi mer luft i rapporten.  .  .
+      * Linjen blir alltid skrevet ut før ny detaljlinje dersom  .  .
+      * det har vært brudd på betalingsdato, valutakode eller    .  .
+      * KID-status.  Linjen skrives IKKE ut ved brudd på ny      .  .
+      * leverandør.                                              .  .
+      *                                                          .  .
+     c                   if        wplev1 = galevr
+     c                   write     d1luft                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      *                                                          .  .
+     c                   endif
+      *                                                             .
+      * Tester om det er ny leverandør.  I såfall må det skrives    .
+      * ut ny "header" for leverandør.                              .
+      *                                                             .
+     c                   if        wplev1 <> galevr
+     c                             and wplev1 <> 0
+      *                                                           . .
+      * Test om det er meldinger som skal skrives ut              . .
+      * ved brudd på leverandør.                                  . .
+      *                                                           . .
+     c                   exsr      xt2brk
+      *                                                           . .
+      * Skriver ut ev. meldinger ved brudd på leverandør.         . .
+      *                                                           . .
+     c                   exsr      xerrt2
+      *                                                           . .
+      * Nullstiller indikatorer ved ny leverandør.                . .
+      *                                                           . .
+     c                   exsr      xnulin
+      *                                                           . .
+     c                   eval      t2belØ = 0
+      * Henter leverandørinformasjon                              . .
+     c                   exsr      xlever
+      *                                                           . .
+      * Tester på informasjon fra leverandørregister:             . .
+      *                                                           . .
+     c                   exsr      xt2brk
+      *                                                           . .
+      * Status i feltet WPFEIL avgjør vilken heading som          . .
+      * skal skrives.                                             . .
+     c                   if        wpfeil = 'J'
+     c                   eval      wpslav = d1levr
+     c                   exsr      xhedd1
+     c                   endif
+      *                                                           . .
+     c                   endif
+      *                                                             .
+      * Legger over sist leste leverandørnummer og forfallsdato     .
+      * til hjelpefelter.                                           .
+      *                                                             .
+     c                   movel     ganavn        wpnav1
+     c                   eval      wplev1 = galevr
+     c                   eval      wpfor1 = gaforf
+     c                   movel     gakids        wpkids
+     c                   movel     gavalk        wpvalk
+      *                                                             .
+      * Lagrer sist leste nøkkel.                                   .
+      *                                                             .
+     c                   exsr      xkey20
+      *                                                             .
+      * Overføre data i fra file til prt.felter                     .
+      *                                                             .
+     c                   exsr      xoverf
+      *                                                             .
+      * Sum betalingsdato (T1).                                     .
+      *                                                             .
+     c                   eval      t1belØ = t1belØ + gabelØ
+     c                   eval      t1valb = t1valb + gavalb
+     c                   eval      t2valb = t2valb + gavalb
+      *                                                             .
+      * Kaller opp utskriftsrutine avhengig av status på WPFEIL.    .
+      *                                                             .
+     c                   if        wpfeil = 'J'
+     c                   exsr      xwritj
+     c                   endif
+      *                                                             .
+     c     xleave        tag
+      *                                                             .
+      * Tester på om forslagsfile skal leses sortert på lev.nr.     .
+      * (GUBFL1) eller på lev.navn (GUBFL4).                        .
+      *                                                             .
+      * ALLE POSTER:                                                .
+     c                   if        d2fret <> 'F'
+      *                                                        .    .
+     c                   if        gefsbf = 'N'
+     c     key05         reade     gubfl1                                 60
+T5.00c                   exsr      xgubfpf
+     c                   else
+     c     key05         reade     gubfl4                                 60
+T5.00c                   exsr      xgubfpf
+     c                   endif
+      * KUN FEILRETURER:                                       .    .
+     c                   else
+      *                                                        .    .
+     c                   if        gefsbf = 'N'
+     c     key05         reade     gubfl5                                 60
+T5.00c                   exsr      xgubfpf
+     c                   else
+     c     key05         reade     gubfl6                                 60
+T5.00c                   exsr      xgubfpf
+     c                   endif
+      *                                                        .    .
+     c                   endif
+      *                                                             .
+     c                   enddo
+      *
+      * Alle poster på forslagsfilen er nå lest.  Skriver videre
+      * totalsummer for både Forfall/Valuta/Kid-status (XT1LES)
+      * og for leverandør (XT2BRK/XERRT2).
+      *
+      * PS!  WPFEIL er kun "J" her dersom det er feil på leverandør-
+      *      nivå, d.v.s. feil vedr. navn, adresse, bankinformasjon
+      *      og utenlandsinformasjon.
+      *
+     c                   if        *in60 = *on
+      *                                                             .
+      * Test om det er meldinger som skal skrives ut                .
+      * ved brudd på Betalingsdato/Valutakode/KID-status.           .
+      *                                                             .
+     c                   exsr      xt1brk
+      *                                                             .
+     c                   if        wpfeil = 'N'
+     c                   exsr      xt1les
+      *                                                        .    .
+     c                   else
+      *                                                        .    .
+      * Skriver ev. rabattpost + totalsum ved brudd på dato.   .    .
+      *                                                        .    .
+     c                   exsr      xrabb
+      *                                                        .    .
+      * Skriver ut ev. meldinger ved brudd på betalingsdato.   .    .
+      *                                                        .    .
+     c                   exsr      xerrt1
+      *                                                        .    .
+     c                   endif
+      *                                                             .
+      * Test om det er meldinger som skal skrives på leverandør.    .
+      *                                                             .
+     c                   exsr      xt2brk
+      *                                                             .
+      * Skriver ut ev. meldinger på leverandør.                     .
+      *                                                             .
+     c                   exsr      xerrt2
+      *                                                             .
+      * Skriver ut totalsum.                                        .
+      *                                                             .
+     c                   write     t3tot                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+      *                                                             .
+     c                   write     u3tot                                30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+      *                                                             .
+     c                   endif
+      *
+     c     xendra        tag
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Legger ut på lønnstransaksjoner på samlefile +                  *
+      * Skriver ut rapportn med transaksjoner som overføres:            *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xsamll        begsr
+      *
+      * Skriver ut heading på rapportene.
+      *
+     c                   write     c1hdr
+      *
+      * Initierer nøkkel KEY04.
+      *
+     c                   eval      wpnavn = *blanks
+     c                   eval      wpford = 0
+     c                   eval      wpform = 0
+     c                   eval      wpforÅ = 0
+T5.00c                   eval      w_fdat = *loval
+      *
+      * GUBFL1 velges v/sortering på lønnsnr (ligger i lev.nr.feltet):
+      *
+     c     key05         setll     gubfl1
+     c     key05         reade     gubfl1                                 60
+      *
+     c     *in60         cabeq     *on           xendlØ
+      *
+T5.00c                   exsr      xgubfpf
+      *
+      * Legger ut BETFOR00:
+      *
+     c                   movel     'TBII'        gdhrid
+     c                   exsr      xbe00
+      *
+      * Legger ut BETFOR21:
+      *
+     c                   eval      wpinti = wpinti + 1
+     c                   movel     'TBII'        gdjrid
+     c                   eval      gdjmok = *zeros
+     c                   exsr      xbe21
+      *
+      * Oppdaterer alle poster for valgt forslagsnummer:
+      *
+     c                   dow       *in60 = *off
+      *                                                             .
+      * Post er godkjent "G" for overføring:                        .
+      *                                                             .
+     c                   move      'G'           gastat
+      *                                                             .
+      * Felt GAREKO vil ved mottak av returer bli oppdatert med     .
+      * "1" eller "F", avhengig av om det er 1.gangsretur eller     .
+      * feilretur.  Feltet blir her blanket ved overføring:         .
+      *                                                             .
+     c                   eval      gareko = *blank
+      *                                                             .
+      * Legger inn default "Nei" i feltet som forteller om det er   .
+      * valutakonto som blir belastet.  Dette feltet blir kun brukt .
+      * i forbindelse med fakturaer i fremmed valuta:               .
+      *                                                             .
+     c                   movel     'N'           gabeva
+      *                                                             .
+     c                   update    gabfpf1
+      *                                                             .
+      * Sender info-bilde:                                          .
+      *                                                             .
+     c                   eval      f1lØnn = f1lØnn + 1
+      *                                                             .
+     c                   if        gefsam = 'J'
+     c                   write     f1win
+     c                   else
+     c                   write     f3win
+     c                   endif
+      *                                                             .
+      * Legger ut BETFOR22:                                         .
+      *                                                             .
+     c                   exsr      xbe22
+      *                                                             .
+      * Overfører verdier til rapport:                              .
+      *                                                             .
+     c                   eval      l1lØnr = galevr
+     c                   movel     ganavn        l1navn
+     c                   eval      l1giro = gabgir
+     c                   eval      l1belØ = gabelØ
+     c                   eval      l1ford = gaford
+     c                   eval      l1form = gaform
+E5.00c                   z-add     gaforÅ        l1forÅ
+     c                   eval      l1bfli = gabfli
+      * Akkumulerer totaler:                                        .
+     c                   eval      l1lØnn = l1lØnn + gabelØ
+     c                   eval      u3inne = u3inne + gabelØ
+      *                                                             .
+      * Skriver ut detaljlinje:                                     .
+      *                                                             .
+     c                   write     l1det                                30
+      *                                                             .
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+      *                                                             .
+      * Leser neste post:                                           .
+      *                                                             .
+     c     key05         reade     gubfl1                                 60
+T5.00c                   exsr      xgubfpf
+      *                                                             .
+      * Legger ut BETFOR99 + Skriver totaler på rapport ved EOF:    .
+      *                                                             .
+     c                   if        *in60 = *on
+      *                                                        .    .
+      * Legger ut BETFOR99:                                    .    .
+      *                                                        .    .
+     c                   movel     'TBII'        gdzrid
+     c                   eval      gdziuk = *blanks
+     c                   movel     'Lønn'        gdziuk
+     c                   eval      gdztot = u3inne
+     c                   exsr      xbe99
+      *                                                        .    .
+      * Skriver totaler:                                       .    .
+      *                                                        .    .
+     c                   write     l1tota                               30
+     c                   if        *in30 = *on
+     c                   write     c1hdr
+     c                   endif
+      *                                                        .    .
+     c                   write     l1totb                               30
+     c                   if        *in30 = *on
+     c                   write     c1hdr
+     c                   endif
+      *                                                        .    .
+     c                   write     l1totc                               30
+     c                   if        *in30 = *on
+     c                   write     c1hdr
+     c                   endif
+      *                                                        .    .
+      * Sender info-bilde dersom samlefile:                    .    .
+      *                                                        .    .
+     c                   if        gefsam = 'J'
+     c                   eval      w_arow = w_arow + 2
+     c                   eval      w_acol = w_acol - 4
+     c                   exfmt     f2win
+     c                   endif
+      *                                                        .    .
+     c                   endif
+      *                                                             .
+     c                   enddo
+      *
+     c     xendlØ        tag
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Når denne rutinen kalles opp er det brudd på enten leverandør,
+      * betalingsdato, valutakode eller KID-status.  Det må testes på
+      * de poster som allerede er lest inn før brudd (på KEY20) hvilken
+      * behandling de skal ha.  Skal de avvises eller godkjennes?
+      * Kriteriet for å kalle opp denne rutinen er at WPFEIL = "NEI".
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xt1les        begsr
+      *
+      * Lagrer nåværende nøkkel.
+      *
+     c                   exsr      xkey30
+      *
+      * Transaksjonene skal avvises dersom negativ utbetaling på
+      * betalingsdato eller ugyldig valutatype (*IN35).
+      *
+     c                   if        t1belØ < 0
+     c                             or *in35 = *on
+     c                   move      'J'           wpfeil
+     c                   endif
+      *                                                              .
+      * Transaksjonene skal avvises dersom postgironummer skal       .
+      * brukes OG dette er på 7 posisjoner OG kid-feltet ikke        .
+      * er utfylt.                                                   .
+      *                                                              .
+     c                   if        rlbetm = 2
+     c                             or rlbetm = 4
+     c                             or rlbetm = 6
+     c                             or rlbetm = 8
+S5.00c*                  if        rlpgir <= 9999999
+S5.00c*                            and rlpgir >= 1000000
+S5.00c*                            and wpkids = *blanks
+S5.00c*                  move      'J'           wpfeil
+S5.00c*                  endif
+     c                   endif
+      *                                                              .  .
+     c                   if        rlbetm = 0
+     c                             and rlbgir = 0
+E5.01c                             and rlpgir <= 9999999
+E5.01c                             and rlpgir >= 1000000
+     c                             and wpkids = *blanks
+     c                   move      'J'           wpfeil
+     c                   endif
+      *
+      * Det blir her testet på om en NO leverandør skal ha betaling
+      * i fremmed valuta.  i såfall må utenlands bankinformasjon være
+      * utfylt.
+      *
+      * *IN40 forteller at det finnes ikke post for utenlandsk
+      *  bankinformasjon.
+      * *IN41 forteller at SWIFT er blank.  Fordyrer.
+      * *IN42 forteller at bankadresse MÅ utfylles v/fremmed
+      *  valuta/landkode.
+      *
+     c                   if        wpvalk <> *blanks
+     c                             and wpvalk <> 'NOK'
+     c                   exsr      xswift
+     c                   if        *in40 = *on
+     c                             or *in41 = *on
+     c                             or *in42 = *on
+     c                   move      'J'           wpfeil
+     c                   endif
+     c                   endif
+      *
+      * Nullstiller teller.
+     c                   eval      t1belØ = 0
+     c                   eval      t1valb = 0
+      *
+      * Leser alle transaksjonene på nytt.
+      * Tester på om forslagsfile skal leses sortert på lev.nr.
+      * (GUBFL1) eller på lev.navn (GUBFL4):
+      *
+      * ALLE POSTER:
+     c                   if        d2fret <> 'F'
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c     key20         setll     gubfl1
+     c     key20         reade     gubfl1                                 60
+T5.00c                   exsr      xgubfpf
+     c                   else
+     c     key20b        setll     gubfl4
+     c     key20b        reade     gubfl4                                 60
+T5.00c                   exsr      xgubfpf
+     c                   endif
+      *                                                        .
+      * KUN FEILRETURER:                                       .
+     c                   else
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c     key20         setll     gubfl5
+     c     key20         reade     gubfl5                                 60
+T5.00c                   exsr      xgubfpf
+     c                   else
+     c     key20b        setll     gubfl6
+     c     key20b        reade     gubfl6                                 60
+T5.00c                   exsr      xgubfpf
+     c                   endif
+      *                                                        .
+     c                   endif
+      *
+     c                   dow       *in60 = *off
+      *                                                              .
+     c                   movel     gakids        wpkids
+     c                   movel     gavalk        wpvalk
+     c                   eval      t1belØ = t1belØ + gabelØ
+     c                   eval      t1valb = t1valb + gavalb
+     c                   eval      t2valb = t2valb + gavalb
+      *                                                              .
+      * Tester på om det skal skrives totalsummer på leverandør.     .
+      * Samtidig må det legges ut ny leverandørheader.  Det må i     .
+      * tillegg testes på om totalsum skal skrives på BEGGE listene! .
+      * Det kan være tilfelle at en leverandør har både godkjente og .
+      * avviste poster.  GALEVR er leverandørnummer fra file.        .
+      * D1LEVR er sist skrevne leverandørnummer i heading og WPSLAV  .
+      * og WPSLGO er sist behandlet leverandørnummer på henholdsvis  .
+      * rapport for Avviste poster og Godkjente poster.              .
+      *                                                              .
+      * Rapport - Header - Avviste poster:                           .
+      *                                                              .
+     c                   if        galevr <> wpslav
+      * Skriver ny leverandørheader, og oppdaterer samtidig      .   .
+      * hjelpefeltet WPSLAV.                                     .   .
+     c                   if        wpfeil = 'J'
+     c                   eval      wpslav = galevr
+     c                   exsr      xhedd1
+     c                   endif
+     c                   endif
+      *                                                              .
+      * Rapport - Header - Godkjente poster:                         .
+      *                                                              .
+     c                   if        galevr <> wpslgo
+      *                                                          .   .
+      * Skriver ny leverandørheader, og oppdaterer samtidig      .   .
+      * hjelpefeltet WPSLGO.                                     .   .
+     c                   if        wpfeil = 'N'
+     c                   eval      wpslgo = galevr
+     c                   write     e1hed1                               30
+     c                   write     e1hed2                               30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+     c                   endif
+      *                                                              .
+      * Samlefile: Godkjente poster:                                 .
+      *                                                              .
+     c                   if        wpfeil = 'N'
+      *                                                            . .
+      * Legger ut BETFOR01, BETFOR02 og BETFOR03 ved Ny            . .
+      * leverandør ELLER Ny betalingsdato ELLER Ny KID-            . .
+      * status ELLER Ny valutakode/Landkode:                       . .
+      *                                                            . .
+      * BETFOR01 - Overførselstransaksjon utenlands                . .
+      * BETFOR02 - Bankforbindelsestrans. utenlands                . .
+      * BETFOR03 - Mottakertransaksjon utenlands                   . .
+      *                                                            . .
+     c                   if        rlland <> *blanks
+     c                             and rlland <> 'NO'
+     c                             or gavalk <> *blanks
+     c                             and gavalk <> 'NOK'
+     c                   if        galevr <> wpsluf
+     c                             or gaforf <> wpsfuf
+     c                             or gakids <> wpskuf
+     c                             or gavalk <> wpsvuf
+     c                   eval      wpsluf = galevr
+     c                   eval      wpsfuf = gaforf
+     c                   movel     gakids        wpskuf
+     c                   movel     gavalk        wpsvuf
+     c                   eval      wpintu = wpintu + 1
+     c                   eval      wp999u = 0
+     c                   exsr      xbe01
+     c                   endif
+      *                                                          . . .
+      * Legger ut BETFOR21 ved Ny leverandør ELLER Ny            . . .
+      * betalingsdato ELLER Ny KID-status:                       . . .
+      *                                                          . . .
+      *                                                          . . .
+     c                   else
+     c                   if        galevr <> wpslif
+     c                             or gaforf <> wpsfif
+     c                             or gakids <> wpskif
+     c                   eval      wpslif = galevr
+     c                   eval      wpsfif = gaforf
+     c                   movel     gakids        wpskif
+     c                   eval      wpinti = wpinti + 1
+     c                   eval      wp999i = 0
+      *                                                        . . . .
+      * Kontonummer på DIRREM skal være 19 på dersom dette     . . . .
+      * ikke er utfylt på mottaker.                            . . . .
+      *                                                        . . . .
+     c                   if        wpkont = 0
+     c                   eval      gdjmok = *zeros
+     c                   move      '19'          gdjmok
+     c                   else
+     c                   movel     wpkont        gdjmok
+     c                   endif
+      *                                                        . . . .
+     c                   exsr      xbe21
+     c                   endif
+     c                   endif
+     c                   endif
+      *                                                              .
+      * Rapport - fakturalinjer - Avviste poster:                    .
+      *                                                              .
+     c                   if        wpfeil = 'J'
+      *                                                        .     .
+     c                   exsr      xwritj
+      *                                                        .     .
+     c                   else
+      *                                                        .     .
+      * Rapport - fakturalinjer - Godkjente poster:            .     .
+      *                                                        .     .
+     c                   exsr      xwritn
+      *                                                        .     .
+      * Legger ut BETFOR23 - Fakturatransaksjon innenlands     .     .
+      * ELLER                                                  .     .
+      *           BETFOR04 - Fakturatransaksjon utenlands      .     .
+      *                                                        .     .
+      * Utenlands?                                             .     .
+     c                   if        rlland <> *blanks
+     c                             and rlland <> 'NO'
+     c                             or gavalk <> *blanks
+     c                             and gavalk <> 'NOK'
+      *                                                      . .     .
+      * Skriver ut BETFOR00 ên gang for utenlands.           . .     .
+      *                                                      . .     .
+     c                   if        wpbeut = *blanks
+     c                   movel     'TBIU'        gdhrid
+     c                   exsr      xbe00
+     c                   movel     'JA'          wpbeut
+     c                   move      *on           *in50
+     c                   endif
+      *                                                      . .     .
+     c                   exsr      xbe04
+      *                                                      . .     .
+     c                   else
+      * Innenlands                                           . .     .
+      *                                                      . .     .
+      * Skriver ut BETFOR00 ên gang for innenlands.          . .     .
+      *                                                      . .     .
+     c                   if        wpbein = *blanks
+     c                   movel     'TBII'        gdhrid
+     c                   exsr      xbe00
+     c                   movel     'JA'          wpbein
+     c                   endif
+      *                                                      . .     .
+     c                   exsr      xbe23
+     c                   endif
+      *                                                        .     .
+     c                   endif
+      *                                                              .
+      * Sender ut bilde som "teller" poster for hver 10, lest        .  .
+      *                                                              .
+     c                   eval      wantpo = wantpo + 1
+      *                                                              .
+     c                   if        wantpo = 10
+     c                   eval      wantpo = 0
+     c                   if        gefsam = 'J'
+     c                   write     b1win
+     c                   else
+     c                   write     e1win
+     c                   endif
+     c                   endif
+      *                                                              .
+      * ALLE POSTER:                                                 .
+      *                                                              .
+     c                   if        d2fret <> 'F'
+      *                                                        .     .
+     c                   if        gefsbf = 'N'
+     c     key20         reade     gubfl1                                 60
+T5.00c                   exsr      xgubfpf
+     c                   else
+     c     key20b        reade     gubfl4                                 60
+T5.00c                   exsr      xgubfpf
+     c                   endif
+      *                                                        .     .
+      * KUN FEILRETURER:                                       .     .
+      *                                                        .     .
+     c                   else
+      *                                                        .     .
+     c                   if        gefsbf = 'N'
+     c     key20         reade     gubfl5                                 60
+T5.00c                   exsr      xgubfpf
+     c                   else
+     c     key20b        reade     gubfl6                                 60
+T5.00c                   exsr      xgubfpf
+     c                   endif
+      *                                                        .     .
+     c                   endif
+      *                                                              .
+     c                   enddo
+      *
+      * Skriver ut totalsum på rabatt + totalsum på Forfall/Valutakode/
+      * KID-status.
+      *
+     c                   exsr      xrabb
+      *
+      * Henter/skriver ut meldinger ved brudd på Forfall/Valuta
+      * KID-status.
+      *
+     c                   exsr      xt1brk
+     c                   exsr      xerrt1
+      *
+      * Skriver en "dummy" linje for å gi mer luft i rapporten.
+      * Linjen blir alltid skrevet ut før ny detaljlinje dersom
+      * det har vært brudd på betalingsdato, valutakode eller
+      * KID-status.  Linjen skrives IKKE ut ved brudd på ny
+      * leverandør.
+      *
+     c                   if        k2levr = k3levr
+     c                   if        wpfeil = 'J'
+     c                   write     d1luft                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      *                                                          .
+     c                   if        wpfeil = 'N'
+     c                   write     e1luft                               30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+      * Henter/skriver ut meldinger dersom brudd på leverandør.
+      * Dersom det finnes FEIL i leverandørinformasjon, så blir
+      * heading på rapport for avviste poster lagt ut, d.v.s.
+      * alle poster for denne leverandøren blir avvist.
+      * Er leverandørinformasjon OK vil alle poster "senere" bli
+      * testet i DENNE subrutinen for å avgjøre hvilken rapport
+      * de skal legges ut på.
+      *
+     c                   if        k2levr <> k3levr
+     c                   exsr      xt2brk
+     c                   exsr      xerrt2
+     c                   exsr      xnulin
+      * Initierer nytt leverandørnummer, og hent informasjon.    .
+     c                   eval      galevr = k3levr
+     c                   eval      t2belØ = 0
+     c                   eval      u2belØ = 0
+     c                   exsr      xlever
+      *                                                          .
+      * Tester på informasjon fra leverandørregister:            .
+      *                                                          .
+     c                   exsr      xt2brk
+      *                                                          .
+     c                   if        wpfeil = 'J'
+     c                   eval      wpslav = d1levr
+     c                   exsr      xhedd1
+     c                   endif
+      *                                                          .
+     c                   endif
+      *
+      * Initierer nøkkel på for les på GUBFL1 eller GUBFL4:
+      *
+      * ALLE POSTER:
+      *
+     c                   if        d2fret <> 'F'
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c     key30         setll     gubfl1
+     c     key05         reade     gubfl1                                 60
+T5.00c                   exsr      xgubfpf
+     c                   else
+     c     key30b        setll     gubfl4
+     c     key05         reade     gubfl4                                 60
+T5.00c                   exsr      xgubfpf
+     c                   endif
+      *                                                        .
+      * KUN FEILRETURER:                                       .
+      *                                                        .
+     c                   else
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c     key30         setll     gubfl5
+     c     key05         reade     gubfl5                                 60
+T5.00c                   exsr      xgubfpf
+     c                   else
+     c     key30b        setll     gubfl6
+     c     key05         reade     gubfl6                                 60
+T5.00c                   exsr      xgubfpf
+     c                   endif
+      *                                                        .
+     c                   endif
+      *
+      * Lagrer leverandørnummer, forfallsdato, kid-status og valuta-
+      * kode i hjelpevariablene som forteller om brudd.  Dette gjøres
+      * for å unngå brudd ved 1. les av GUBFL1 etter retur i fra denne
+      * subrutinen.
+      *
+     c                   if        *in60 = *off
+     c                   movel     ganavn        wpnav1
+     c                   eval      wplev1 = galevr
+     c                   eval      wpfor1 = gaforf
+     c                   movel     gakids        wpkids
+     c                   movel     gavalk        wpvalk
+     c                   endif
+      *
+      * Gjør klar for videre les av utbetalingsforslag.
+      *
+      * ALLE POSTER:
+      *
+     c                   if        d2fret <> 'F'
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c     key30         setll     gubfl1
+     c                   else
+     c     key30b        setll     gubfl4
+     c                   endif
+      *                                                        .
+      * KUN FEILRETURER:                                       .
+      *                                                        .
+     c                   else
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c     key30         setll     gubfl5
+     c                   else
+     c     key30b        setll     gubfl6
+     c                   endif
+      *                                                        .
+     c                   endif
+      *
+      * Setter "av" WPFEIL flagget for å klargjøre til neste brudd.
+      * Dersom det er ny leverandør som skal leses inn blir dette
+      * ikke gjort, da den da allerede er gitt verdi i fra subrutinen
+      * "XLEVER" som ble kalt opp ovenfor.
+      *
+     c                   if        k2levr = k3levr
+     c                   movel     'N'           wpfeil
+     c                   endif
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Skriver ut totalsum på rabatt + totalsum på Forfall/Valutakode/
+      * KID-status.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xrabb         begsr
+      *
+      * *IN49 settes på dersom det er eller har vært utbetaling i
+      *       fremmed valuta på leverandøren.
+      * *IN49 settes av før les av poster på ny leverandør.
+      *
+     c                   if        t1valb <> 0
+     c                   move      *on           *in49
+     c                   endif
+      *
+     c                   if        wpfeil = 'J'
+      *                                                           .
+     c                   if        t1rabb <> 0
+     c                   write     t1rab                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      *                                                           .
+     c                   write     t1tota                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+      *                                                           .
+     c                   endif
+      *
+     c                   if        wpfeil = 'N'
+      *                                                           .
+     c                   if        u1rabb <> 0
+     c                   write     u1rab                                30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+      *                                                           .
+     c                   write     u1tota                               30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+      *
+      * Nullstiller rabattfelt.
+      *
+     c                   eval      t1rabb = 0
+     c                   eval      u1rabb = 0
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Oppdatering av file GU00PF, d.v.s. BETFOR00 "DIRADD".
+      * (Identifikasjonstransaksjon)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xbe00         begsr
+      *
+     c                   movel     'BETFOR00'    gdhb00
+     c                   eval      gdhfor = geffin
+     c                   movel     gefdiv        gdhdiv
+***  c                   eval      gdhre1 = *blanks
+     c                   movel     umonth        gdhpro
+     c                   move      uday          gdhpro
+***  c                   movel     gefpwd        gdhpwd
+     c                   movel     'VERSJON'     gdhrve
+     c                   move      '002'         gdhrve
+      *
+      * Tester på om det er Fokus Bank:
+      *
+     c                   if        gefban = 'FK'
+     c                   move      '001'         gdhrve
+     c                   endif
+      *
+***  c                   eval      gdhnpw = *blanks
+     c                   movel     gefope        gdhopn
+***  c                   eval      gdhsib = *blanks
+***  c                   eval      gdhsid = 0
+***  c                   eval      gdhsin = 0
+***  c                   eval      gdhsih = *blanks
+***  c                   eval      gdhre2 = *blanks
+***  c                   eval      gdhaeb = *blanks
+***  c                   eval      gdhre3 = *blanks
+      *
+     c                   movel     dsfgrp        gdhfgr
+     c                   eval      gdhfir = dsfirm
+     c                   movel     a1bfnr        gdhubf
+      *
+     c                   write     gu00pff
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Oppdatering av file GU01PF, d.v.s. BETFOR01 "DIRADD".
+      * (Overførselstransaksjon - utenlands)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xbe01         begsr
+      * File BETFOR01
+      *
+      * Kontonummer:
+     c                   eval      gdakto = aafbgi
+      *
+      * Tester på om valutakonto skal brukes:
+      *
+      * - Feltet "Belaste valutakonto" må være "J" på leverandør.
+      * - Feltet "Valutakonto" på forslaget må være "J".
+      * - Valutakode mår finnes i valutaregister (*IN62=*OFF)
+      * - Valutakontonummer for denne valutatypen må være utfylt.
+      *
+     c                   if        rvhbvk = 'J'
+     c                             and gabeva = 'J'
+     c     key06         chain     ra16pf                             62
+     c                   if        *in62 = *off
+     c                             and rapbkt <> 0
+     c                   eval      gdakto = rapbkt
+     c                   endif
+     c                   endif
+      *
+     c                   movel     'BETFOR01'    gdab01
+     c                   eval      gdafor = geffin
+FEIL c                   eval      gdaref = *blanks
+     c                   move      gaforÅ        gdbeÅr
+     c                   movel     gaform        gdbemn
+     c                   movel     gaford        gdbeda
+     c                   eval      gdabet = gdbetd
+      *
+      * Egenref.oppdrag
+     c                   movel     wpvalk        gdaval
+     c                   eval      gdaeg1 = *blanks
+     c                   movel     dsfgrp        gdafgr
+     c                   eval      gdaeg2 = *blanks
+     c                   eval      gdafir = dsfirm
+     c                   if        rlfact <> 0
+     c                   eval      gdalev = rlfact
+     c                   else
+     c                   eval      gdalev = d1levr
+     c                   endif
+      *
+     c                   eval      gdabev = *blanks
+     c                   movel     wpvalk        gdafav
+      *
+      * Blank i valutakode indikerer lokal valuta ==> NOK legges ut.
+      *
+     c                   if        gdafav = *blanks
+     c                   movel     'NOK'         gdafav
+     c                   endif
+      *
+     c                   if        rvhbku = 'O'
+     c                   move      'OUR'         gdaout
+     c                   else
+     c                   move      'BEN'         gdaout
+     c                   endif
+      *
+     c                   if        rvhbki = 'B'
+     c                   move      'BEN'         gdaono
+     c                   else
+     c                   move      'OUR'         gdaono
+     c                   endif
+      *
+     c                   eval      gdavaa = *blanks
+     c                   eval      gdahas = *blanks
+      *  Avtalt kurs / Avtalt med:
+     c                   move      gaavtk        gdaavt
+     c                   movel     gaavtm        gdaavm
+      *  Terminkontraktsnummer / - T.kurs:
+     c                   move      gatenr        gdatnr
+     c                   move      gateku        gdatku
+      *
+     c                   eval      gdasje = *blanks
+     c                   eval      gdare1 = *blanks
+     c                   eval      gdarek = 0
+     c                   eval      gdare2 = *blanks
+     c                   eval      gdasje = *blanks
+     c                   eval      gdabbe = 0
+     c                   eval      gdaobe = 0
+     c                   eval      gdare3 = *blanks
+     c                   eval      gdaeff = 0
+     c                   eval      gdasle = *blanks
+     c                   eval      gdasbp = *blanks
+     c                   eval      gdavko = 0
+     c                   eval      gdapro = 0
+     c                   eval      gdakmn = 0
+     c                   eval      gdare4 = *blanks
+      *
+     c                   eval      gdaubf = a1bfnr
+     c                   eval      gdatel = wpintu
+      *
+     c                   write     gu01pfr
+      *
+      * Oppdaterer bankforbindelse.
+      *
+     c                   exsr      xbe02
+      *
+      * Oppdaterer mottakertransaksjon.
+      *
+     c                   exsr      xbe03
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Oppdatering av file GU02PF, d.v.s. BETFOR02 "DIRADD".
+      * (Bankforbindelsestransaksjon - utenlands)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xbe02         begsr
+      *
+      * Kontonummer (legger over det som brukes i BETFOR01):
+      *
+     c                   eval      gdbkto = gdakto
+      *
+      ***                  Z-ADDAAFBGI    GDBKTO
+      ***        KEY06     CHAINRA16PF               62
+      ***        *IN62     IFEQ *OFF                       ...
+      ***        RAPBKT    ANDNE0                            .
+      ***                  Z-ADDRAPBKT    GDBKTO             .
+      ***                  ENDIF                           ...
+      *
+     c                   movel     'BETFOR02'    gdbb02
+     c                   eval      gdbfor = geffin
+FEIL c                   eval      gdbref = *blanks
+     c                   movel     rvhswa        gdbswi
+     c                   movel     rvhba1        gdbbna
+     c                   movel     rvhba2        gdbba1
+     c                   movel     rvhba3        gdbba2
+     c                   movel     rvhba4        gdbba3
+     c                   eval      gdbsrb = *blanks
+     c                   eval      gdbmlk = *blanks
+     c                   eval      gdbre1 = *blanks
+      *
+     c                   movel     dsfgrp        gdbfgr
+     c                   eval      gdbfir = dsfirm
+     c                   eval      gdbubf = a1bfnr
+     c                   eval      gdbtel = wpintu
+      *
+     c                   write     gu02pfr
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Oppdatering av file GU03PF, d.v.s. BETFOR03 "DIRADD".
+      * (Mottakertransaksjon - utenlands)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xbe03         begsr
+      *
+      * Kontonummer (legger over det som brukes i BETFOR01):
+      *
+     c                   eval      gdckto = gdakto
+      *
+      ***                  Z-ADDAAFBGI    GDCKTO
+      ***        KEY06     CHAINRA16PF               62
+      ***        *IN62     IFEQ *OFF                       ...
+      ***        RAPBKT    ANDNE0                            .
+      ***                  Z-ADDRAPBKT    GDCKTO             .
+      ***                  ENDIF                           ...
+      *
+     c                   movel     'BETFOR03'    gdcb03
+     c                   eval      gdcfor = geffin
+FEIL c                   eval      gdcref = *blanks
+     c                   if        rvhbko <> *blanks
+      *                                                           .
+      * Tester på om det er Fokus Bank:                           .
+      *                                                           .
+30049c                   if        gefban = 'FK'
+30049c                   movel     '/'           gdcmko
+30049c                   movel     rvhbko        wpaf34
+30049c                   move      wpaf34        gdcmko
+      *                                                       .   .
+30049c                   else
+      *                                                       .   .
+30049c                   movel     rvhbko        gdcmko
+30049c                   endif
+      *                                                           .
+     c                   endif
+      *
+     c                   movel     rlnavn        gdcmna
+     c                   movel     rlgate        gdcma1
+      *
+     c                   eval      gdcma2 = *blanks
+     c                   eval      gdcma3 = *blanks
+      *
+      * Tester på om kontonummer er utfylt.
+     c                   if        rvhbko <> *blanks
+     c                   move      rlsted        gdcma2
+     c                   movel     rlponr        gdcma2
+      *                                                      .
+     c                   else
+     c                   movel     rladr2        gdcma2
+     c                   move      rlsted        gdcma3
+     c                   movel     rlponr        gdcma3
+     c                   endif
+      *
+     c                   movel     rlland        gdcmla
+      *
+     c                   movel     dsfgrp        gdcfgr
+     c                   eval      gdcfir = dsfirm
+     c                   eval      gdcubf = a1bfnr
+     c                   eval      gdctel = wpintu
+      *
+     c                   write     gu03pfr
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Oppdatering av file GU04PF, d.v.s. BETFOR04 "DIRADD".
+      * (Fakturatransaksjon - utenlands)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xbe04         begsr
+      *
+      * Dersom det må skrives mer enn 999 BETFOR04-poster pr.
+      * BETFOR01, så må BETFOR01 legges ut på nytt.
+      *
+     c                   if        wp999u = 999
+     c                   eval      wp999u = 0
+     c                   eval      wpintu = wpintu + 1
+     c                   exsr      xbe01
+     c                   endif
+      *
+      * Telleren økes med 1 for hver fakturapost, og blir nullstil ved
+      * ny BETFOR01-transaksjon.
+      *
+     c                   eval      wp999u = wp999u + 1
+      *
+      * Kontonummer (legger over det som brukes i BETFOR01):
+      *
+     c                   eval      gddkto = gdakto
+      *
+      ***                  Z-ADDAAFBGI    GDDKTO
+      ***        KEY06     CHAINRA16PF               62
+      ***        *IN62     IFEQ *OFF                       ...
+      ***        RAPBKT    ANDNE0                            .
+      ***                  Z-ADDRAPBKT    GDDKTO             .
+      ***                  ENDIF                           ...
+      *
+     c                   movel     'BETFOR04'    gddb04
+     c                   eval      gddfor = geffin
+FEIL c                   eval      gddref = *blanks
+      *
+      * Legger bilagsdato og forfallsdato over på DMÅ, 6,0.
+      *
+     c                   movel     gaford        aufoda
+     c                   movel     gaform        aufomn
+     c                   move      gaforÅ        aufoÅr
+S5.00c*                  movel     gabild        gdbida
+S5.00c*                  movel     gabilm        gdbimn
+S5.00c*                  move      gabilÅ        gdbiÅr
+T5.00c     *dmy          move      gabdat        gdbitd
+      *
+      * Mottaker ref. faktura.
+      *
+     c                   movel     'REF:'        gddmt1
+     c                   movel     gatext        gddmbt
+     c                   movel     'DAT:'        gddmt2
+     c                   eval      gddmbd = gdbitd
+      *
+      * Egenreferanse.
+      *
+     c                   eval      gddeva = 0
+      *
+      * *IN35 forteller at valutakode er ukjent.
+      *
+      ****       WPVALK    IFNE *BLANKS
+      ****       WPVALK    ANDNE'NOK'                      .......
+      *                                                          .
+      ****       GAOPBV    SUB  GAVALB    WPRABV                 .
+      *                                                          .
+      ****       KEY06     CHAINRA16PF               62          .
+      ****       *IN62     IFEQ *OFF                       ..... .
+      *                                                        . .
+      ****       RAPMKU    IFEQ 0                          ... . .
+      ****                 Z-ADD0         WPRABN             . . .
+      ****                 ELSE                              . . .
+      ****       WPRABV    DIV  RAPMKU    WPRABN    H        . . .
+      ****                 ENDIF                           ... . .
+      *                                                        . .
+      ****       GABELØ    SUB  WPRABN    WPNETT               . .
+      *                                                        . .
+      ****                 ENDIF                           ..... .
+      *                                                          .
+      ****                 Z-ADDWPRABN    GDDEVA                 .
+      *                                                          .
+      ****                 ENDIF                           .......
+      *
+     c                   eval      gddeva = gaopbv - gavalb
+      *
+     c                   movel     gabelØ        gddebh
+     c                   eval      gddfir = dsfirm
+      *
+     c                   eval      gddeg1 = *blank
+     c                   move      gabelØ        gddebl
+      *
+     c                   if        gavalk = 'NOK'
+     c                             or gavalk = *blanks
+     c                   eval      gavalb = gabelØ
+     c                   endif
+      *
+     c                   move      gavalb        gddbel
+      *
+     c                   if        gddbel < 0
+     c                   eval      gddbel = gddbel * -1
+     c                   endif
+      *
+      * Debet/Kredit
+      *
+     c                   if        gavalb < 0
+     c                   movel     'K'           gdddbk
+     c                   else
+     c                   movel     'D'           gdddbk
+     c                   endif
+      *
+      *  Legger ut deklarasjonskode (betalingsartkode):
+      *
+     c                   movel     gadeck        gddbak
+     c                   eval      gddbgj = *blanks
+      *
+      *  Henter deklarasjonstekst:
+      *
+     c     gadeck        chain     gudkpf                             62
+     c                   if        *in62 = *off
+     c                   movel     gdrtx1        gddbgj
+     c                   move      gdrtx2        gddbgj
+     c                   endif
+      *
+     c                   eval      gddtek = *blank
+     c                   eval      gddre1 = *blank
+     c                   eval      gddre2 = 0
+      *
+     c                   eval      gddre3 = 0
+     c                   eval      gddre4 = *blanks
+FEIL c                   eval      gddlØp = 0
+     c                   eval      gddre5 = *blanks
+      *
+     c                   movel     dsfgrp        gddfgr
+     c                   eval      gddubf = a1bfnr
+     c                   eval      gddbfl = gabfli
+     c                   eval      gddtel = wpintu
+      *
+     c                   write     gu04pfr
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Oppdatering av file GU21PF, d.v.s. BETFOR21 "DIRADD".
+      * (Overførselstransaksjon)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xbe21         begsr
+      * File BETFOR21
+      *
+     c                   movel     'BETFOR21'    gdjb21
+     c                   eval      gdjfor = geffin
+     c                   eval      gdjref = *blanks
+     c                   move      gaforÅ        gdbeÅr
+     c                   movel     gaform        gdbemn
+     c                   movel     gaford        gdbeda
+     c                   eval      gdjbet = gdbetd
+      *
+      * Egenref.oppdrag
+     c                   eval      gdjkod = 23
+     c                   eval      gdjeg1 = *blanks
+     c                   movel     dsfgrp        gdjfgr
+     c                   eval      gdjeg2 = *blanks
+     c                   eval      gdjfir = dsfirm
+     c                   if        rlfact <> 0
+     c                   eval      gdjlev = rlfact
+     c                   else
+     c                   eval      gdjlev = d1levr
+     c                   endif
+      *
+     c                   eval      gdjre1 = *blanks
+     c                   movel     rlnavn        gdjmon
+     c                   movel     rlgate        gdjad1
+     c                   movel     rladr2        gdjad2
+     c                   eval      gdjpnr = rlponr
+     c                   movel     rlsted        gdjpos
+E5.02c                   if        gdjpnr = 0
+E5.03c                             and gefban = 'KK'
+E5.02c                   movel     'UTENLANDS'   gdjpos
+E5.02c                   endif
+     c                   eval      gdjbeg = 0
+     c                   eval      gdjsle = *blank
+     c                   eval      gdjtot = 0
+     c                   eval      gdjre2 = 0
+     c                   eval      gdjvad = 0
+     c                   eval      gdjre3 = *blanks
+      *
+     c                   eval      gdjubf = a1bfnr
+     c                   eval      gdjtel = wpinti
+      *
+     c                   write     gu21pfr
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Oppdatering av file GU22PF, d.v.s. BETFOR22 "DIRADD".
+      * (Fakturatransaksjon)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xbe22         begsr
+      *
+      * Dersom det må skrives mer enn 999 BETFOR22-poster pr.
+      * BETFOR21, så må BETFOR21 legges ut på nytt:
+      *
+     c                   if        wp999i = 999
+     c                   eval      wp999i = 0
+     c                   eval      wpinti = wpinti + 1
+     c                   exsr      xbe21
+     c                   endif
+      *
+      * Telleren økes med 1 for hver fakturapost, og blir nullstilt
+      * ved ny BETFOR21-transaksjon.
+      *
+     c                   eval      wp999i = wp999i + 1
+      *
+      * Sekvensteller ut på BETFOR
+      *
+     c                   movel     'BETFOR22'    gdkb22
+     c                   eval      gdkfor = geffin
+     c                   eval      gdktel = wpinti
+     c                   eval      gdkbel = *zeros
+     c                   move      gabelØ        gdkbel
+     c                   eval      gdkmok = *zeros
+     c                   move      gabgir        gdkmok
+     c                   movel     ganavn        gdkmon
+     c                   eval      gdkref = *blanks
+     c                   movel     a1bfnr        gdkubf
+     c                   eval      gdkbfl = gabfli
+     c                   eval      gdklØp = 0
+     c                   movel     dsfgrp        gdkfgr
+     c                   eval      gdkfir = dsfirm
+      *
+     c                   write     gu22pfr
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Oppdatering av file GU23PF, d.v.s. BETFOR23 "DIRADD".
+      * (Fakturatransaksjon)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xbe23         begsr
+      *
+      * Dersom det må skrives mer enn 999 BETFOR23-poster pr.
+      * BETFOR21, så må BETFOR21 legges ut på nytt.
+      *
+7.01 c*                  if        wp999i = 999
+7.01 c                   if        wp999i >= 4
+     c                   eval      wp999i = 0
+     c                   eval      wpinti = wpinti + 1
+      *                                                        .
+      * Kontonummer på DIRREM skal være 19 på dersom dette     .
+      * ikke er utfylt på mottaker.                            .
+      *                                                        .
+     c                   if        wpkont = 0
+     c                   eval      gdjmok = *zeros
+     c                   move      '19'          gdjmok
+     c                   else
+     c                   movel     wpkont        gdjmok
+     c                   endif
+      *                                                        .
+     c                   exsr      xbe21
+     c                   endif
+      *
+      * Telleren økes med 1 for hver fakturapost, og blir nullstil ved
+      * ny BETFOR21-transaksjon.
+      *
+     c                   eval      wp999i = wp999i + 1
+      *
+      * Sekvensteller ut på BETFOR
+      *
+     c                   movel     'BETFOR23'    gdlb23
+     c                   eval      gdlfor = geffin
+     c                   eval      gdlref = *blanks
+      *
+      * Legger bilagsdato og forfallsdato over på DMÅ, 6,0.
+      *
+     c                   movel     gaford        aufoda
+     c                   movel     gaform        aufomn
+     c                   move      gaforÅ        aufoÅr
+S5.00c*                  movel     gabild        gdbida
+S5.00c*                  movel     gabilm        gdbimn
+S5.00c*                  move      gabilÅ        gdbiÅr
+T5.00c     *dmy          move      gabdat        gdbitd
+      *
+     c                   eval      ds023a = *blanks
+     c                   eval      ds023b = *blanks
+     c                   eval      gdlmf1 = *blanks
+      *
+      * Leverandørnavn blir blanket når DS023A blir blanket ovenfor.
+      * Leverandørnavn ELLER navn på factoringselskapet må defor
+      * legges tilbake:
+      *
+     c                   if        rlfact <> 0
+     c                   movel     d1fana        rlnavn
+     c                   else
+     c                   movel     d1navn        rlnavn
+     c                   endif
+      *
+      * Egen behandling dersom KID-felt ikke er utfylt, og
+      * factoring er utfylt på leverandør.
+      *
+     c                   if        gakids = *blanks
+     c                             and rlfact <> 0
+      *                                                      .
+     c                   movel     'LEV.NAVN'    dstxta
+     c                   move      ': '          dstxta
+     c                   movel     'LEV.REF:'    dstxtb
+     c                   eval      dsbda1 = gdbitd
+     c                   movel     '-'           dstxtc
+     c                   if        gakidi <> *blanks
+19010c                   move      gakidi        dstxtd
+     c                   else
+     c                   movel     gatext        dstxtd
+     c                   endif
+     c                   move      'VÅR.REF:'    dstxte
+     c                   eval      dsfda1 = aufotd
+     c                   movel     '-'           dstxtf
+     c                   eval      dsbil1 = gabiln
+     c                   eval      dstxtg = *blanks
+      * Legger over datastruktur                             .
+     c                   movel     ds023a        gdlmf1
+      *                                                      .
+     c                   endif
+      *
+      * Egen behandling dersom KID-felt ikke er utfylt, og
+      * factoring er blank på leverandør.
+      *
+     c                   if        gakids = *blanks
+     c                             and rlfact = 0
+      *                                                      .
+     c                   movel     'DERES RE'    dstxth
+     c                   move      'F:'          dstxth
+     c                   eval      dsbda2 = gdbitd
+     c                   movel     '-'           dstxti
+     c                   if        gakidi <> *blanks
+19010c                   move      gakidi        dstxtj
+     c                   else
+     c                   movel     gatext        dstxtj
+     c                   endif
+     c                   move      'VÅR.REF:'    dstxtk
+     c                   eval      dsfda2 = aufotd
+     c                   movel     '-'           dstxtl
+     c                   eval      dsbil2 = gabiln
+     c                   eval      dstxtm = *blanks
+      * Legger over datastruktur                             .
+     c                   movel     ds023b        gdlmf1
+      *                                                      .
+     c                   endif
+      *
+      * Kun utfylling av KID-felt.
+      *
+     c                   eval      gdlkid = *blanks
+      *
+     c                   if        gakids = '*'
+     c                   movel     gakidi        gdlkid
+     c                   endif
+      * Beregner rabatt
+     c                   eval      gdlrab = gaopbn - gabelØ
+     c                   move      gdbitd        gdlbda
+     c                   eval      gdlfir = dsfirm
+      * Fjerner fortegn på beløp som legges ut på file.
+     c                   eval      gdlbel = *zeros
+     c                   move      gabelØ        gdlbel
+      *
+     c                   if        gdlbel < 0
+     c                   eval      gdlbel = gdlbel * -1
+     c                   endif
+      *
+      * Debet/Kredit
+      *
+     c                   if        gabelØ < 0
+     c                   movel     'K'           gdldbk
+     c                   else
+     c                   movel     'D'           gdldbk
+     c                   endif
+      *
+     c                   eval      gdlre1 = *blanks
+     c                   eval      gdllØp = 0
+     c                   eval      gdlre2 = *blanks
+      *
+25017 * Oppdaterer RLTRLD med "Timestamp" for overføring:
+      *
+25017C     key01         chain     rltrld                             62
+25017c                   if        *in62 = *off
+25017c                   eval      rofoda = w_foda
+25017c                   eval      roftim = w_ftim
+25017c                   eval      rofsig = w_fsig
+25017c                   update    rltrpfd
+25017c                   endif
+      *
+23086 * BLANKER FELTET "leverandørens fakturanummer". Feltet får verdi
+23086 * i påfølgende linjer, dersom KID ikke er i bruk, OG at
+23086 * "leverandørens fakturanummer" virkelig inneholder verdi.
+      *
+23086c                   movel     *blanks       rolfak
+23086c                   movel     *blanks       dslre2
+23086c                   movel     *blanks       gdlre2
+      *
+23086 * HENTER "leverandørens fakturanummer", hvis KID ikke er i bruk:
+      *
+6.10 c                   if        gakids <>'*'
+6.10 c****               if        gakids = '*'
+20038c****               if        gakids <>'*'
+16077c                             and galfak <> *blanks
+20038c                             and gakidi =  *blanks
+16077c     key01         chain     rltrld                             62
+16077c                   if        *in62 = *off
+      * Leverandørens fakturanummer:
+23086c                   movel     *blanks       gdlre1
+16077c                   movel     galfak        gdlre1
+      * "Fakturadato:"
+23086c     *ymd          move      robdat        w_dato_8
+23086c                   move      w_dato_8      dsfada
+23086c                   movel     '2'           dsfada
+      * Vårt kundenummer:
+23086c                   movel     *blanks       dskunu
+23086c                   movel     rlkunr        dskunu
+      * Oppdaterer felt med verdi fra datastruktur:
+23086c                   movel     dslre2        gdlre2
+      *
+16077c                   endif
+25017c                   unlock    rltrld
+23086c                   endif
+      *
+      * Hvis KID ikke er i bruk, OG LEVERANDØRENS KUNDENUMMER er
+      * utfylt, så skal egenref-felt tømmes. Da brukes i steden
+      * informasjonen om Lev.fakturanummer, Fakt.dato og Lev.kundenr.
+      *
+23086c                   if        gakids <>'*'
+16077c******                       and rolfak <> *blanks
+16077c                             and galfak <> *blanks
+23086c                   movel     *blanks       gdlmf1
+23086c                   endif
+      *
+20038c                   if        gakids = '*'
+20038c                             and galfak <> *blanks
+20038c                   movel     *blanks       gdlmf1
+20038c                   endif
+      *
+     c                   movel     dsfgrp        gdlfgr
+     c                   movel     a1bfnr        gdlubf
+     c                   eval      gdlbfl = gabfli
+     c                   eval      gdltel = wpinti
+      *
+     c                   write     gu23pfr
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Oppdatering av file GU99PF, d.v.s. BETFOR99 "DIRADD".
+      * (Avslutningstransaksjon)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xbe99         begsr
+      *
+      * File BETFOR99
+      *
+     c                   movel     'BETFOR99'    gdzb99
+     c                   eval      gdzfor = geffin
+     c                   eval      gdzre1 = *blanks
+     c                   eval      gdzre2 = *blanks
+     c                   movel     umonth        gdzpro
+      *
+      * Riktig format på GDZPRO (produksjonsdato) skal være MMDD, og
+      * ikke MMÅÅ:
+      *
+     c                   move      uday          gdzpro
+      *
+     c                   movel     dsfgrp        gdzfgr
+     c                   eval      gdzfir = dsfirm
+     c                   movel     a1bfnr        gdzubf
+      *
+      * Legger ut BETFOR99.
+      *
+     c                   write     gu99pfr
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * WPFEIL = JA   ---> AVVISTE POSTER.
+      * Subrutine for å skrive ut på rapport + oppdatering av file.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xwritj        begsr
+      *
+      * Teller post som blir avvist.                                    .
+      *
+      * Utenlands:
+     c                   if        rlland <> *blanks
+     c                             and rlland <> 'NO'
+     c                             or gavalk <> *blanks
+     c                             and gavalk <> 'NOK'
+     c                   move      *on           *in50
+     c                   eval      a1utav = a1utav + 1
+     c                   else
+      * Innenlands:                                          .
+     c                   eval      a1inav = a1inav + 1
+     c                   endif
+      *
+      * Overfør data i fra file til detaillinje.
+      *
+     c                   exsr      xoverf
+      *
+      * Beregn trukket rabatt.
+      *
+     c                   eval      t1rabb = t1rabb + gaopbn
+     c                   eval      t1rabb = t1rabb - gabelØ
+      * Sum pr. Leverandør (T2) og Totalt (T3)
+     c                   eval      t2belØ = t2belØ + gabelØ
+     c                   eval      t3belØ = t3belØ + gabelØ
+      *
+      * Fjerner rabatt på fakturabeløpet kun i forbindelse med
+      * utskrift på rapporten.
+      *
+     c                   eval      wprabb = gaopbn - gabelØ
+     c                   eval      d1belØ = gaopbn
+      *
+      * Skriv post.
+      *
+     c                   write     d1det                                30
+      * Overflow ?
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+      *
+      * Legger ut "U" (Utgår) i statusfelt på forslagsposten.
+      *
+     c                   move      'U'           gastat
+      *
+      * Legger inn default "Nei" i feltet som forteller om det er
+      * valutakonto som blir belastet.  Dette feltet blir kun brukt
+      * i forbindelse med fakturaer i fremmed valuta:
+      *
+      * ALLE POSTER:
+      *
+     c                   if        d2fret <> 'F'
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c                   update    gabfpf1
+     c                   else
+     c                   update    gabfpf4
+     c                   endif
+      *                                                        .
+      * KUN FEILRETURER:                                       .
+      *                                                        .
+     c                   else
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c                   update    gabfpf5
+     c                   else
+     c                   update    gabfpf6
+     c                   endif
+      *                                                        .
+     c                   endif
+      *
+     c                   eval      gastat = *blank
+     c                   eval      gareko = *blank
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * WPFEIL = NEI  ---> GODKJENTE POSTER.
+      * Subrutine for å akkumulere tellere.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xwritn        begsr
+      *
+      * Teller post som blir godkjent.                                  .
+      *
+      * Utenlands:
+     c                   if        rlland <> *blanks
+     c                             and rlland <> 'NO'
+     c                             or gavalk <> *blanks
+     c                             and gavalk <> 'NOK'
+     c                   eval      a1utgo = a1utgo + 1
+     c                   else
+      * Innenlands:                                          .
+     c                   eval      a1ingo = a1ingo + 1
+     c                   endif
+      *
+      * Overfør data i fra file til detaillinje.
+      *
+     c                   exsr      xoverf
+      *
+      * Beregn trukket rabatt.
+      *
+     c                   eval      u1rabb = u1rabb + gaopbn
+     c                   eval      u1rabb = u1rabb - gabelØ
+      * Sum pr. Leverandør (T2) og Totalt (T3)
+     c                   eval      u2belØ = u2belØ + gabelØ
+     c                   eval      u3belØ = u3belØ + gabelØ
+      * Akkumulerer utenlandstranser:
+     c                   if        rlland <> *blanks
+     c                             and rlland <> 'NO'
+     c                             or gavalk <> *blanks
+     c                             and gavalk <> 'NOK'
+     c                   eval      u3uten = u3uten + gabelØ
+     c                   else
+      * Akkumulerer innenlandstranser:                       .
+     c                   eval      u3inne = u3inne + gabelØ
+     c                   endif
+      *
+      * Fjerner rabatt på fakturabeløpet kun i forbindelse med
+      * utskrift på rapporten.
+      *
+     c                   eval      wprabb = gaopbn - gabelØ
+     c                   eval      d1belØ = gaopbn
+      *
+      * Skriv post.
+      *
+     c                   write     e1det                                30
+      * Overflow ?
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+      *
+      * Legger ut "G" (Godkjent) i statusfelt på forslagsposten.
+      *
+     c                   move      'G'           gastat
+      *
+      * Felt GAREKO vil ved mottak av returer bli oppdatert med
+      * "1" eller "F", avhengig av om det er 1.gangsretur eller
+      * feilretur.  Feltet blir her blanket ved overføring:
+      *
+     c                   eval      gareko = *blank
+      *
+      * Ved valuta må det testes på om det er valutakonto som
+      * skal belastes.  I tillegg må det testes på om valutakonto
+      * er utfylt.  Dette har konsekvenser på beregning av AGIO/
+      * DISAGIO ved 2. gangs retur:
+      *
+     c                   if        gavalk <> *blanks
+     c                             and gavalk <> 'NOK'
+      * Leser bankinfo. på leverandør for å se om valutakonto  .
+      * skal brukes:                                           .
+     c                   eval      rllevr = galevr
+     c     key07         chain     rlbapf                             40
+      * Leser valutaregister for å se om valutakonto er utfylt:.
+     c                   move      gavalk        t1valk
+     c     key06         chain     ra16pf                             62
+      * Tester:                                                .
+     c                   if        *in40 = *off
+     c                             and rvhbvk = 'J'
+     c                             and *in62 = *off
+     c                             and rapbkt <> 0
+     c                   endif
+      *                                                        .
+      * Dersom valutakonto skal brukes, så må record med dette .
+      * bankkontonummeret også finnes i avtaleregisteret:      .
+      *                                                        .
+     c                   if        gabeva = 'J'
+      *                                                      . .
+     c     rapbkt        chain     gavtl1                             62
+      *                                                      . .
+     c                   eval      gcbgir = rapbkt
+     c                   eval      gcpgir = 0
+     c                   movel     dsfgrp        gcfilg
+     c                   eval      gcfirm = dsfirm
+     c                   eval      gcdato = 0
+      *                                                      . .
+     c                   eval      gcavtn = 0
+     c                   eval      gclØpn = 0
+     c                   movel     txt(1)        wpalfa
+     c                   move      gavalk        wpalfa
+     c                   movel     wpalfa        gckomm
+      *                                                      . .
+     c                   if        *in62 = *on
+     c                   write     gavtpfr
+     c                   else
+     c                   unlock    gavtl1
+     c                   endif
+      *                                                      . .
+     c                   endif
+      *                                                        .
+     c                   endif
+      *
+      * ALLE POSTER:
+      *
+     c                   if        d2fret <> 'F'
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c                   update    gabfpf1
+     c                   else
+     c                   update    gabfpf4
+     c                   endif
+      *                                                        .
+      * KUN FEILRETURER:                                       .
+      *                                                        .
+     c                   else
+      *                                                        .
+     c                   if        gefsbf = 'N'
+     c                   update    gabfpf5
+     c                   else
+     c                   update    gabfpf6
+     c                   endif
+      *                                                        .
+     c                   endif
+      *
+     c                   eval      gastat = *blank
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for nullstilling av indikatorer som brukes v/melding
+      * på rapport.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xnulin        begsr
+     c                   move      *off          *in31
+     c                   move      *off          *in32
+     c                   move      *off          *in33
+     c                   move      *off          *in34
+     c                   move      *off          *in35
+     c                   move      *off          *in36
+     c                   move      *off          *in37
+     c                   move      *off          *in38
+     c                   move      *off          *in40
+     c                   move      *off          *in41
+     c                   move      *off          *in42
+     c                   move      *off          *in43
+     c                   move      *off          *in44
+     c                   move      *off          *in45
+     c                   move      *off          *in46
+     c                   move      *off          *in47
+     c                   move      *off          *in48
+     c                   move      *off          *in49
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine som tester på mangelfull informasjon, og skriver
+      * dette ut ved brudd på betalingsdato.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xt1brk        begsr
+      *
+      * Nullstiller indikatorer som blir brukt ved feilmeldinger.
+      *
+     c                   move      *off          *in31
+     c                   move      *off          *in32
+     c                   move      *off          *in33
+     c                   move      *off          *in34
+     c                   move      *off          *in35
+      *
+      * *IN31 forteller at postene er MED UTFYLT KID-FELT.
+      *
+     c                   if        wpkids = '*'
+     c                   move      *on           *in31
+     c                   endif
+      *
+      * *IN32 forteller at postene er i fremmed valuta.
+      *
+     c                   if        wpvalk <> *blanks
+     c                             and wpvalk <> 'NOK'
+     c                   move      *on           *in32
+     c                   move      *on           *in33
+     c                   endif
+      *
+      * *IN33 forteller "Til utbetaling utland".
+      *
+     c                   if        rlland <> *blanks
+     c                             and rlland <> 'NO'
+     c                   move      *on           *in33
+     c                   endif
+      *
+      * *IN35 forteller at valutakode er ukjent.
+      *
+     c                   if        wpvalk <> *blanks
+     c                             and wpvalk <> 'NOK'
+     c     key06         chain     ra16pf                             35
+     c                   endif
+      *
+      * *IN40 forteller at det finnes ikke post for utenlandsk
+      * bankinformasjon.
+      * *IN41 forteller at SWIFT er blank.  Fordyrer.
+      * *IN42 forteller at bankadresse MÅ utfylles v/fremmed
+      * valuta/landkode.
+      *
+     c                   if        rlland <> *blanks
+     c                             and rlland <> 'NO'
+     c                             or wpvalk <> *blanks
+     c                             and wpvalk <> 'NOK'
+     c                   exsr      xswift
+     c                   endif
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine som tester på mangelfull informasjon, og skriver
+      * dette ut ved brudd på leverandør.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xt2brk        begsr
+      *
+      * Nullstiller felt for gironummer.
+      *
+     c                   eval      wpgiro = *blanks
+S5.00c*                  eval      wpkont = *blanks
+T5.00c                   eval      wpkont = *zeros
+      *
+      * *IN36 forteller at ved betalingsmåte Bank eller Post
+      * OG Norge/NOK, så må gironummer være utfylt.
+      *
+     c                   if        rlbetm <> 0
+     c                             and rlbgir = 0
+S5.00c*                            and rlpgir = 0
+     c                   if        rlland = *blanks
+     c                             or rlland = 'NO'
+     c                   move      *on           *in36
+     c                   endif
+     c                   endif
+      *
+      * *IN36 forteller at både betalingsmåte, bankgiro- og
+      * postgironummer er blank:
+      *
+     c                   if        rlbetm = 0
+     c                             and rlbgir = 0
+S5.00c*                            and rlpgir = 0
+     c                   if        rlland = *blanks
+     c                             or rlland = 'NO'
+     c                   move      *on           *in36
+     c                   endif
+     c                   endif
+      *
+      * *IN37 forteller at Bankgironummer BØR utfylles.  Det er
+      * samtidig test på at det er "LOKAL" landkode/valuta.
+      *
+     c                   if        rlbetm = 1
+     c                             or rlbetm = 3
+     c                             or rlbetm = 5
+     c                             or rlbetm = 7
+     c                             or rlbetm = 9
+     c                   if        rlland = *blanks
+     c                             or rlland = 'NO'
+     c                   movel     rlbgir        wpgiro
+     c                   if        rlbgir = 0
+     c                   move      *on           *in37
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+      * *IN38 forteller at Postgironummer BØR utfylles.  Det er
+      * samtidig test på at det er "LOKAL" landkode/valuta.
+      *
+     c                   if        rlbetm = 2
+     c                             or rlbetm = 4
+     c                             or rlbetm = 6
+     c                             or rlbetm = 8
+     c                   if        rlland = *blanks
+     c                             or rlland = 'NO'
+S5.00c*                  movel     rlpgir        wpgiro
+S5.00c*                  if        rlpgir = 0
+S5.00c*                  move      *on           *in38
+S5.00c*                  endif
+     c                   endif
+     c                   endif
+      *
+      * *IN39 forteller at betalingsmåte er blank, postgiro er blank
+      * og bankgiro er utfylt:
+      *
+     c                   if        rlbetm = 0
+     c                             and rlbgir <> 0
+S5.00c*                            and rlpgir = 0
+     c                   if        rlland = *blanks
+     c                             or rlland = 'NO'
+     c                   movel     rlbgir        wpgiro
+     c                   endif
+     c                   endif
+      *
+      * *IN51 forteller at betalingsmåte er blank, bankgiro er blank
+      * og postgiro er utfylt:
+      *
+     c                   if        rlbetm = 0
+     c                             and rlbgir = 0
+S5.00c*                            and rlpgir <> 0
+     c                   if        rlland = *blanks
+     c                             or rlland = 'NO'
+S5.00c*                  movel     rlpgir        wpgiro
+     c                   endif
+     c                   endif
+      *
+      * *IN47 forteller at postnummer ikke er utfylt.
+      *
+12059c                   if        rlland = 'NO'
+12059c                             or rlland = *blanks
+     c                   if        rlponr = 0
+     c                   move      *on           *in47
+     c                   endif
+12059c                   endif
+      *
+      * *IN48 forteller at det ikke er samsvar mellom kontonummer
+      * og betalingsmåte ved norsk leverandør.
+      *
+      * TEST TATT BORT 10/12-95 (RH). P.G.A. AT LISTE BLIR "BLÅST OPP"
+      * UNØDVENDIG.  INGEN LEV. HAR KODEN FOR UTBET.MÅTE UTFYLT!
+      *
+      *
+     c                   if        rlbetm = 0
+     c                   if        rlland = *blanks
+     c                             or rlland = 'NO'
+S5.00c*                  if        rlpgir <> 0
+S5.00c*                            or rlbgir <> 0
+     c                   if        rlbgir <> 0
+     c                   movel     rlbgir        wpgiro
+S5.00c*                  else
+S5.00c*                  movel     rlpgir        wpgiro
+     c                   endif
+HER!  ****                 MOVE *ON       *IN48              . . .
+S5.00c*                  endif
+     c                   endif
+     c                   endif
+      *
+      * Legger kontonummer for norsk leverandør over fra 35A til 11S
+      *
+     c                   if        rlland = 'NO'
+     c                             or rlland = *blanks
+     c                   movel     wpgiro        wpkont
+     c                   endif
+      *
+      * *IN40 forteller at det finnes ikke post for utenlandsk
+      * bankinformasjon.
+      * *IN41 forteller at SWIFT er blank.  Fordyrer.
+      * *IN42 forteller at bankadresse MÅ utfylles v/fremmed
+      * valuta/landkode.
+      *
+     c                   if        rlland <> *blanks
+     c                             and rlland <> 'NO'
+     c                             or t2valb <> 0
+     c                   exsr      xswift
+     c                   endif
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for å hente opp leverandør-/factoringinformasjon.     *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xlever        begsr
+      *
+      * Blanker utenlandsinformasjon fra foregående leverandør:
+      *
+     c                   eval      rvhswa = *blanks
+     c                   eval      rvhba1 = *blanks
+     c                   eval      rvhba2 = *blanks
+     c                   eval      rvhba3 = *blanks
+     c                   eval      rvhba4 = *blanks
+      *
+      * Blanker annen informasjon fra foregående leverandør:
+      *
+     c                   eval      t2valb = 0
+     c                   eval      d1levr = galevr
+     c                   eval      d1sald = 0
+S5.00c*                  eval      rlpgir = 0
+     c                   eval      rlbgir = 0
+     c                   eval      wpgiro = *blanks
+     c                   eval      d1navn = *blanks
+     c                   eval      d1fana = *blanks
+     c                   eval      rlnavn = *blanks
+     c                   eval      rlgate = *blanks
+     c                   eval      rladr2 = *blanks
+     c                   eval      rlsted = *blanks
+      *
+     c     key02         chain     rlevpf                             61
+      * Navn er ikke utfylt.
+     c                   if        rlnavn = *blanks
+     c                   move      *on           *in43
+     c                   endif
+      * Blank i gate, adresse2 og poststed.                ...
+     c                   if        rlgate = *blanks
+     c                             and rladr2 = *blanks
+     c                             and rlsted = *blanks
+     c                   move      *on           *in44
+     c                   endif
+      *
+     c                   if        *in61 = *off
+     c                   movel     rlnavn        d1navn
+     c                   eval      d1sald = rlsald
+     c                   eval      d1fanr = rlfact
+     c                   eval      d1fana = *blanks
+      * Henter factoringinformasjon.                            .
+     c                   if        rlfact <> 0
+S5.00c*                  eval      rlpgir = 0
+     c                   eval      rlbgir = 0
+     c                   eval      wpgiro = *blanks
+     c                   eval      rlnavn = *blanks
+     c                   eval      rlgate = *blanks
+     c                   eval      rladr2 = *blanks
+     c                   eval      rlsted = *blanks
+     c     key03         chain     rlevpf                             61
+      * Navn er ikke utfylt.                                  . .
+     c                   if        rlnavn = *blanks
+     c                   move      *on           *in45
+     c                   endif
+      * Blank i gate, adresse2 og poststed.                .. . .
+     c                   if        rlgate = *blanks
+     c                             and rladr2 = *blanks
+     c                             and rlsted = *blanks
+     c                   move      *on           *in46
+     c                   endif
+      * RLFACT skal inneholde factoringnr.                    . .
+     c                   if        *in61 = *off
+     c                   movel     rlnavn        d1fana
+     c                   eval      rlfact = d1fanr
+     c                   endif
+      *                                                       . .
+     c                   endif
+      *                                                         .
+     c                   endif
+      *
+      * Dersom *IN40 <-> *IN46 er *ON, så skal poster på denne
+      * leverandør avvises.
+      *
+     c                   move      'N'           wpfeil
+     c                   if        *in40 = *on
+     c                             or *in41 = *on
+     c                             or *in42 = *on
+     c                             or *in43 = *on
+     c                             or *in44 = *on
+     c                             or *in45 = *on
+     c                             or *in46 = *on
+     c                   move      'J'           wpfeil
+     c                   endif
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for å skrive feilmelding ved brudd på leverandør.     *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xerrt2        begsr
+      *
+      * Tester om det er på om det er rapport for AVVISTE eller
+      * GODKJENTE poster det skal skrives ut på.
+      *
+     c                   if        wpfeil = 'J'
+     c                             or wpslav = d1levr
+      *                                                           .
+      * Skriver ut kontonummer.                                   .
+      *                                                           .
+     c                   write     t2tota                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+      *                                                           .
+      * Skifter fortegn i D1SALD:                                 .
+      *                                                           .
+     c                   eval      d1sald = d1sald * -1
+      *                                                           .
+      * Skriver ut dummylinje:                                    .
+      *                                                           .
+     c                   if        *in36 = *on
+     c                             or u2belØ > d1sald
+     c                             or *in37 = *on
+     c                             or *in38 = *on
+     c                             or *in41 = *on
+     c                             or *in42 = *on
+     c                             or *in43 = *on
+     c                             or *in44 = *on
+     c                             or *in45 = *on
+     c                             or *in46 = *on
+     c                             or *in47 = *on
+     c                   write     d1luft                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      *                                                           .
+      * Skriver ut melding vedr. gironummer:                      .
+      *                                                           .
+     c                   if        *in36 = *on
+     c                             or *in48 = *on
+     c                   write     t2giro                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      *                                                           .
+      * Overskridelse av saldo.                                   .
+      *                                                           .
+     c                   if        t2belØ > d1sald
+     c                   write     t2over                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+     c                   eval      d1sald = d1sald * -1
+      * Feil vedr. Bank-/Postgironummer                           .
+     c                   if        *in37 = *on
+     c                             or *in38 = *on
+     c                   write     t2bapo                               30
+     c                   endif
+      *                                                           .
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+      * Feil vedr. navn på leverandør:                            .
+     c                   if        rlfact = *zeros
+     c                             and *in43 = *on
+     c                   write     t2nav                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      * Feil vedr. adr. på leverandør:                            .
+     c                   if        rlfact = *zeros
+     c                             and *in44 = *on
+     c                   write     t2adr                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      * Feil vedr. navn og adresse på factoringselskap            .
+     c                   if        rlfact <> *zeros
+     c                   if        *in45 = *on
+     c                             or *in46 = *on
+     c                   write     t2fac                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+     c                   endif
+      * Feil vedr. utenlandsinfo på leverandør - Swift            .
+     c                   if        *in41 = *on
+     c                   write     t2uts                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      * Feil vedr. utenlandsinfo på leverandør - Adresse          .
+     c                   if        *in42 = *on
+     c                   write     t2uta                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      * Feil vedr. postnummer på leverandør.                      .
+     c                   if        *in47 = *on
+     c                   write     t2fel                                30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      *                                                           .
+     c                   write     t2tot                                30
+      * Sum leverandør.                                           .
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      *
+      * WPFEIL='N' (Nei)
+      *
+     c                   if        wpfeil = 'N'
+     c                             or wpslgo = d1levr
+      *                                                           .
+      * Skriver ut kontonummer.                                   .
+      *                                                           .
+     c                   write     u2tota                               30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+      *                                                           .
+      * Skifter fortegn i D1SALD:                                 .
+      *                                                           .
+     c                   eval      d1sald = d1sald * -1
+      *                                                           .
+      * Skriver ut dummylinje:                                    .
+      *                                                           .
+     c                   if        *in36 = *on
+     c                             or u2belØ > d1sald
+     c                             or *in37 = *on
+     c                             or *in38 = *on
+     c                             or *in43 = *on
+     c                             or *in44 = *on
+     c                             or *in45 = *on
+     c                             or *in46 = *on
+     c                             or *in47 = *on
+     c                   write     e1luft                               30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+      *                                                           .
+      * Skriver ut melding vedr. gironummer:                      .
+      *                                                           .
+     c                   if        *in36 = *on
+     c                             or *in48 = *on
+     c                   write     u2giro                               30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+      *                                                           .
+      * Overskridelse av saldo.                                   .
+      *                                                           .
+     c                   if        u2belØ > d1sald
+     c                   write     u2over                               30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+     c                   eval      d1sald = d1sald * -1
+      * Feil vedr. Bank-/Postgironummer                           .
+     c                   if        *in37 = *on
+     c                             or *in38 = *on
+     c                   write     u2bapo                               30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+      *                                                           .
+      * Feil vedr. navn på leverandør.                            .
+     c                   if        rlfact = *zeros
+     c                             and *in43 = *on
+     c                   write     u2nav                                30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+      * Feil vedr. adr. på leverandør.                            .
+     c                   if        rlfact = *zeros
+     c                             and *in44 = *on
+     c                   write     u2adr                                30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+      * Feil vedr. navn og adresse på factoringselskap            .
+     c                   if        rlfact <> *zeros
+     c                   if        *in45 = *on
+     c                             or *in46 = *on
+     c                   write     u2fac                                30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+     c                   endif
+      * Feil vedr. postnummer på leverandør.                      .
+     c                   if        *in47 = *on
+     c                   write     u2fel                                30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+      *                                                           .
+     c                   write     u2tot                                30
+      * Sum leverandør.                                           .
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+      *                                                           .
+     c                   endif
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for å skrive feilmelding ved brudd på betalingsdato.  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xerrt1        begsr
+      *
+      * Tester om det er på om det er rapport for AVVISTE eller
+      * GODKJENTE poster det skal skrives ut på.
+      *
+     c                   if        wpfeil = 'J'
+      *                                                             .
+      * Test mot leverandørinformasjon:                             .
+      * KID-felt må være utfylt dersom postgiro er utfylt med       .
+      * 7 posisjoner, og når feltet brukes.                         .
+      * Testen utføres dersom betalingsmåte "forteller" at de er    .
+      * postgiro som skal brukes, ELLER KUN når postgironummer er   .
+      * utfylt.  *IN31 er *OFF dersom KID ikke er utfylt.           .
+      *                                                             .
+     c                   if        rlbetm = 2
+     c                             or rlbetm = 4
+     c                             or rlbetm = 6
+     c                             or rlbetm = 8
+S5.00c*                  if        rlpgir <= 9999999
+S5.00c*                            and rlpgir >= 1000000
+S5.00c*                            and wpkids = *blanks
+     c                   write     t1kids                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+S5.00c*                  endif
+     c                   endif
+      *                                                             .   .
+     c                   if        rlbetm = 0
+     c                             and rlbgir = 0
+E5.00c                             and rlpgir <= 9999999
+E5.00c                             and rlpgir >= 1000000
+E5.00c                             and wpkids = *blanks
+     c                   write     t1kids                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      *                                                             .
+      * Ugyldig valutatype.                                         .
+      *                                                             .
+     c                   if        *in35 = *on
+     c                   write     t1valu                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      * Negativt beløp.                                             .
+     c                   if        t1belØ < 0
+     c                   write     t1totc                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endif
+      *                                                             .
+      * WPFEIL='N' (nei)                                            .
+      *                                                             .
+     c                   else
+      *                                                             .
+      * Ugyldig valutatype.                                         .
+      *                                                             .
+     c                   if        *in35 = *on
+     c                   write     u1valu                               30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+      * Negativt beløp.                                             .
+     c                   if        t1belØ < 0
+     c                   write     u1totc                               30
+     c                   if        *in30 = *on
+     c                   write     b1hdr
+     c                   endif
+     c                   endif
+      *                                                             .
+     c                   endif
+      *
+      * Nullstiller tellere for beløp i NOK og valuta.
+      *
+     c                   eval      t1belØ = 0
+     c                   eval      t1valb = 0
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av nøkkel                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xkey20        begsr
+      *
+      * Key20 inneholder nøkkel FØR BRUDD på enten betalingsdato/
+      * KID-status eller valutakode.
+      *
+     c                   movel     ganavn        k2navn
+     c                   eval      k2levr = galevr
+S5.00c*                  eval      k2forÅ = gaforÅ
+S5.00c*                  eval      k2form = gaform
+S5.00c*                  eval      k2ford = gaford
+T5.00c                   eval      k2fdat = gafdat
+     c                   movel     gavalk        k2valk
+     c                   movel     gakids        k2kids
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av nøkkel                              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xkey30        begsr
+      *
+      * Key30 inneholder nøkkel ETTER BRUDD på enten betalingsdato/
+      * KID-status eller valutakode.  Key30 brukes for å sette ny
+      * posisjonering i filen f.o.m. posten som forårsaket brudd.
+      *
+     c                   movel     ganavn        k3navn
+     c                   eval      k3levr = galevr
+S5.00c*                  eval      k3forÅ = gaforÅ
+S5.00c*                  eval      k3form = gaform
+S5.00c*                  eval      k3ford = gaford
+T5.00c                   eval      k3fdat = gafdat
+     c                   movel     gavalk        k3valk
+     c                   movel     gakids        k3kids
+      *
+     c                   endsr
+      *
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for overføring av data fra file til detailnivå.       *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xoverf        begsr
+     c                   eval      d1levr = galevr
+S5.00c*                  eval      d1bild = gabild
+S5.00c*                  eval      d1bilm = gabilm
+S5.00c*                  eval      d1bilÅ = gabilÅ
+T5.00c     *dmy          move      gabdat        d1bdat
+     c                   eval      d1ford = gaford
+     c                   eval      d1form = gaform
+E5.00c                   z-add     gaforÅ        d1forÅ
+     c                   eval      t1ford = gaford
+     c                   eval      t1form = gaform
+E5.00c                   z-add     gaforÅ        t1forÅ
+     c                   movel     gavalk        t1valk
+     c                   movel     gatext        d1text
+     c                   eval      d1biln = gabiln
+     c                   movel     gakids        d1kids
+     c                   eval      d1belØ = gabelØ
+     c                   eval      d1rbn1 = garbn1
+     c                   eval      d1rbn2 = garbn2
+     c                   eval      d1rbn3 = garbn3
+     c                   eval      d1betb = gabetb
+     c                   eval      d1bfli = gabfli
+      *
+      * Legger "/" ut i hjelpefelt, for å skille mellom rabattdato
+      * og rabattbeløp:
+      *
+     c                   eval      d1rab1 = *blank
+     c                   eval      d1rab2 = *blank
+     c                   eval      d1rab3 = *blank
+      *
+     c                   if        d1rbn1 <> 0
+     c                   movel     '/'           d1rab1
+     c                   endif
+      *
+     c                   if        d1rbn2 <> 0
+     c                   movel     '/'           d1rab2
+     c                   endif
+      *
+     c                   if        d1rbn3 <> 0
+     c                   movel     '/'           d1rab3
+     c                   endif
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for å skrive ny header - avviste poster               *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xhedd1        begsr
+     c                   write     d1hed1                               30
+     c                   write     d1hed2                               30
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+     c                   endsr
+      /eject
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for å hente opp utenlandsinfo på leverandør.          *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xswift        begsr
+      *
+      * *IN40 forteller at det finnes ikke post for utenlandsk
+      * bankinformasjon.
+      * *IN41 forteller at SWIFT er blank.  Fordyrer.
+      * *IN42 forteller at bankadresse MÅ utfylles v/fremmed
+      * valuta/landkode.
+      *
+     c                   if        rlland <> *blanks
+     c                             and rlland <> 'NO'
+     c                             or t2valb <> 0
+     c                   eval      rvhswa = *blanks
+     c                   eval      rvhba1 = *blanks
+     c                   eval      rvhba2 = *blanks
+     c                   eval      rvhba3 = *blanks
+     c                   eval      rvhba4 = *blanks
+     c     key07         chain     rlbapf                             40
+     c                   movel     rvhbko        wpgiro
+      * Bankforbindelse (SWIFT)                                    .
+     c                   if        rvhswa = *blanks
+12059c                             and rvhbko = *blanks
+     c                   move      *on           *in41
+     c                   endif
+      * Bankadresse                                                .
+30049c                   if        rvhswa = *blanks
+     c                   if        rvhba1 = *blanks
+12059 ****       RVHBA2    OREQ *BLANKS                      . .   .
+12059 ****       RVHBA3    OREQ *BLANKS                      . .   .
+     c                   move      *on           *in42
+     c                   endif
+      *                                                        .   .
+     c                   endif
+      *                                                            .
+     c                   endif
+      *
+     c                   endsr
+      /eject
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+T5.00 * Datofelt etter les av GUBFPF                                    *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+T5.00c     xgubfpf       begsr
+      *
+T5.00c                   move      gafdat        gaforf
+      *
+T5.00c                   if        garda1 = *loval
+T5.00c                   move      *zeros        d1rad1
+T5.00c                   else
+T5.00c                   move      garda1        d1rad1
+T5.00c                   endif
+      *
+T5.00c                   if        garda2 = *loval
+T5.00c                   move      *zeros        d1rad2
+T5.00c                   else
+T5.00c                   move      garda2        d1rad2
+T5.00c                   endif
+      *
+T5.00c                   if        garda3 = *loval
+T5.00c                   move      *zeros        d1rad3
+T5.00c                   else
+T5.00c                   move      garda3        d1rad3
+T5.00c                   endif
+T5.00c                   endsr
+      /eject
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     *inzsr        begsr
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+      *
+      * Legger over parameterverdien (utbetalingsforslagsnummer):
+      *
+     c                   parm                    wpbfnr
+     c                   move      wpbfnr        a1bfnr
+7.02ac                   move      ' '           w_ufeil
+      *
+     c                   if        wpbfnr = '000'
+     c                   eval      wpbfnr = *blanks
+     c                   endif
+      *
+      * Hjelpefelt for å "lage" tekstfelt ut på avtaleregister:
+      *
+     c                   eval      wpalfa = *blanks
+      *
+      * Hjelpefelt for å teste på om det som skal overføres også
+      * tidligere er overført.  I såfall må det bekreftes om det
+      * skal overføres ALT eller DELER av forslaget:
+      *
+     c                   eval      wpover = *blanks
+     c                   eval      wp1ret = *blanks
+     c                   eval      wpfret = *blanks
+      *
+      * Hjelpefelt for å lagre firmanummer:
+      *
+     c                   eval      wpfirm = dsfirm
+      *
+      * Hjelpefelt for å sende opp "ventebilde" for hver 10.
+      * ny post:
+      *
+     c                   eval      wantpo = 0
+      *
+      * Hjelpefelt for å ha sammenheng på hvilke poster som hører
+      * sammen i BETFOR-filene.  Feltet WPINTU (Internnummer Utland)
+      * økes med ên for hver ny BETFOR01-transaksjon, mens feltet
+      * WPINTI (Internnummer Innland) økes med ên for hver ny
+      * BETFOR21-transaksjon.
+      *
+     c                   eval      wpinti = 0
+     c                   eval      wpintu = 0
+      *
+      * Hjelpefelt for valutaberegning.
+      *
+     c                   eval      wprabv = 0
+     c                   eval      wprabn = 0
+     c                   eval      wpnett = 0
+      *
+      * Hjelpefelt i forbindelse med test på at det tillates kun 999
+      * BETFOR04-linjer pr. BETFOR01, og tilsvarende 999 BETFOR23-
+      * linjer pr. BETFOR21.
+      *
+     c                   eval      wp999i = 0
+     c                   eval      wp999u = 0
+      *
+      * WPAF34 er et hjelpefelt for å legge ut kun de 34 første
+      * posisjonene av kontonummer på BETFOR03.
+      *
+     c                   eval      wpaf34 = *blanks
+      *
+      * WPAF34 er et hjelpefelt for å legge ut kun det første feltet
+      * av kontonummer, for å teste på om "/" er lagt inn på lev.
+      *
+     c                   eval      wpaf01 = *blanks
+      *
+      * WPBEIN (innenlands) WPBEUT (utenlands) er hjelpefelt som
+      * brukes for å skrive ut BETFOR00 og BETFOR99 transaksjon.
+      * Dersom det finnes innenlands og/eller utenlandstransaksjoner,
+      * så blir feltet endret til "JA".
+      *
+     c                   eval      wpbein = *blanks
+     c                   eval      wpbeut = *blanks
+      *
+      * WPFILE har verdien "J" dersom post er avvist, og verdien
+      * "N" dersom posten er godkjent.
+      *
+     c                   move      'N'           wpfeil
+      *
+      * Nullstiller girofelt som blir brukt til å legge ut konto-
+      * nummer på BETFOR21.
+      *
+     c                   eval      wpkont = 0
+      *
+      * Sekvensteller.
+      *
+     c                   eval      wpsekv = 0
+      *
+      * Hjelpefelt som viser Sist Leverandørnummer som er skrevet
+      * ut som header, i rapporten for AVviste poster.
+      *
+     c                   eval      wpslav = 0
+      *
+      * Hjelpefelt som viser Sist Leverandørnummer som er skrevet
+      * ut som header, i rapporten for GOdkjente poster.
+      *
+     c                   eval      wpslgo = 0
+      *
+      * Utenlands:
+      * Hjelpefelt som viser Sist Leverandørnummer, Sist betalings-
+      * dato, Sist KID-status og Sist valutatype som er skrevet ut
+      * på BETFOR00:
+      *
+     c                   eval      wpsluf = 0
+     c                   eval      wpsfuf = 0
+     c                   eval      wpskuf = *blank
+     c                   eval      wpsvuf = *blank
+      *
+      * Innenlands:
+      * Hjelpefelt som viser Sist Leverandørnummer, Sist betalings-
+      * dato og Sist KID-status som er skrevet ut på BETFOR00:
+      *
+     c                   eval      wpslif = 0
+     c                   eval      wpsfif = 0
+     c                   eval      wpskif = *blank
+      *
+      * Initierer posisjonering av vindu.
+      *
+     c                   eval      w_arow = 2
+     c                   eval      w_acol = 43
+      *
+      * Variable som brukes i forbindelse med rapport.
+      *
+     c                   eval      wpnul3 = *zero
+     c                   eval      wpgiro = *blanks
+     c                   eval      wprabb = *zero
+     c                   eval      wpfor1 = *zero
+     c                   move      'I'           wpkids
+     c                   move      'INI'         wpvalk
+     c                   eval      wovrfl = *zero
+     c                   eval      t1belØ = *zero
+     c                   eval      t1valb = *zero
+     c                   eval      t2belØ = *zero
+     c                   eval      t3belØ = *zero
+     c                   eval      u2belØ = *zero
+     c                   eval      u3belØ = *zero
+     c                   eval      u3inne = *zero
+     c                   eval      u3uten = *zero
+     c                   eval      t2valb = *zero
+      *
+      * KEY20 (sortering på lev.nr.)
+      * KEY20B (sortering på lev.navn)
+      * KEY30 (sortering på lev.nr.)
+      * KEY30B (sortering på lev.navn)
+23086 *
+23086 * Key for RLTRLD (RLTRPF):
+23086 *
+23086c     key01         klist
+23086c                   kfld                    gafirm
+23086c                   kfld                    garaar
+23086c                   kfld                    gabfnr
+23086c                   kfld                    gabfli
+      *
+      * Key for RLEVPF
+      *
+     c     key02         klist
+     c                   kfld                    dsfirm
+     c                   kfld                    galevr
+      *
+      * Key for leverandørfile, henter opp factoringselskap.
+      *
+     c     key03         klist
+     c                   kfld                    rlfirm
+     c                   kfld                    rlfact
+      *
+      * Key for file "Utbetalingsforslag" GUBFL1/GUBFL5
+      *
+     c     key04         klist
+     c                   kfld                    dsfirm
+     c                   kfld                    a1bfnr
+     c                   kfld                    wplevr
+S5.00c*                  kfld                    wpforÅ
+S5.00c*                  kfld                    wpform
+S5.00c*                  kfld                    wpford
+T5.00c                   kfld                    w_fdat
+      *
+      * Key for file "Utbetalingsforslag" GUBFL4/GUBFL6
+      *
+     c     key04b        klist
+     c                   kfld                    dsfirm
+     c                   kfld                    a1bfnr
+     c                   kfld                    wpnavn
+S5.00c*                  kfld                    wpforÅ
+S5.00c*                  kfld                    wpform
+S5.00c*                  kfld                    wpford
+T5.00c                   kfld                    w_fdat
+      *
+      * Key for file "Utbetalingsforslag" GUBFL1/GUBFL5 og GUBFL4/
+      * GUBFL6, og brukes for å leses å¨Firma og forslagsnummer:
+      *
+     c     key05         klist
+     c                   kfld                    dsfirm
+     c                   kfld                    a1bfnr
+      *
+      * Key for å lese valutakode i fra file RA16PF.
+      *
+     c     key06         klist
+     c                   kfld                    dsfirm
+     c                   kfld                    t1valk
+      *
+      * Key for RLBAPF
+      *
+     c     key07         klist
+     c                   kfld                    dsfirm
+     c                   kfld                    rllevr
+      *
+      * Key20 inneholder nøkkel FØR BRUDD på enten betalingsdato/
+      * KID-status eller valutakode.  Til bruk for GUBFL1/GUBFL5:
+      *
+     c     key20         klist
+     c                   kfld                    dsfirm
+     c                   kfld                    a1bfnr
+     c                   kfld                    k2levr
+S5.00c*                  kfld                    k2forÅ
+S5.00c*                  kfld                    k2form
+S5.00c*                  kfld                    k2ford
+T5.00c                   kfld                    k2fdat
+     c                   kfld                    k2valk
+     c                   kfld                    k2kids
+      *
+      * Key20B inneholder nøkkel FØR BRUDD på enten betalingsdato/
+      * KID-status eller valutakode.  Til bruk for GUBFL4/GUBFL6:
+      *
+     c     key20b        klist
+     c                   kfld                    dsfirm
+     c                   kfld                    a1bfnr
+     c                   kfld                    k2navn
+S5.00c*                  kfld                    k2forÅ
+S5.00c*                  kfld                    k2form
+S5.00c*                  kfld                    k2ford
+T5.00c                   kfld                    k2fdat
+     c                   kfld                    k2valk
+     c                   kfld                    k2kids
+      *
+      * Key30 inneholder nøkkel ETTER BRUDD på enten betalingsdato/
+      * KID-status eller valutakode.  Til bruk for GUBFL1/GUBFL5:
+      *
+     c     key30         klist
+     c                   kfld                    dsfirm
+     c                   kfld                    a1bfnr
+     c                   kfld                    k3levr
+S5.00c*                  kfld                    k3forÅ
+S5.00c*                  kfld                    k3form
+S5.00c*                  kfld                    k3ford
+T5.00c                   kfld                    k3fdat
+     c                   kfld                    k3valk
+     c                   kfld                    k3kids
+      *
+      * Key30B inneholder nøkkel ETTER BRUDD på enten betalingsdato/
+      * KID-status eller valutakode.  Til bruk for GUBFL4/GUBFL6:
+      *
+     c     key30b        klist
+     c                   kfld                    dsfirm
+     c                   kfld                    a1bfnr
+     c                   kfld                    k3navn
+S5.00c*                  kfld                    k3forÅ
+S5.00c*                  kfld                    k3form
+S5.00c*                  kfld                    k3ford
+T5.00c                   kfld                    k3fdat
+     c                   kfld                    k3valk
+     c                   kfld                    k3kids
+      *
+      * Henter opp faste opplysninger.  Avslutter dersom post ikke
+      * finnes.
+      *
+     c     dsfirm        chain     gfaspf                             60
+     c     *in60         cabeq     *on           xslutt
+      *
+      * Ved overføring til samlefile må det kontrolleres om ev.
+      * overføringer som allerede ligger på samlefile har d.s.
+      * foretaksnummer som det som skal overføres.  Hvis det er
+      * forskjell, så må samlefile først overføres bank før DETTE
+      * forslaget kan legges ut.  Grunnen til dette er at bankfor-
+      * bindelsen er forskjellige for firmaene:
+      *
+     c                   read      gu00l1                                 60
+     c                   if        *in60 = *off
+     c                             and gdhfor <> geffin
+16098c                   movel     ' '           wpfore
+16098 ** FØR **            MOVEL'1'       WPFORE  1          .
+     c                   endif
+      *
+      *
+      * Henter bankkontonummer i fra firmaopplysninger.
+      *
+     c     dsfirm        chain     afirl1                             60
+     c     *in60         cabeq     *on           xslutt
+      *
+      * Initierer Header-delen som skal legges ut på hver BETFOR-
+      * postering.
+      *
+      * BETFOR00 - Identifikasjonstransaksjon
+      *
+     c                   movel     'AH'          gdhhid
+10016c                   eval      gdhver = 2
+     c                   eval      gdhret = 0
+     c                   movel     umonth        gdhtrd
+     c                   move      uday          gdhtrd
+     c                   eval      gdhtrs = 0
+     c                   eval      gdhtrk = *blanks
+     c                   eval      gdhbru = *zeros
+     c                   eval      gdhant = 4
+      *
+      * BETFOR01 - Overførselstransaksjon utenlands
+      *
+     c                   movel     'AH'          gdahid
+10106c                   eval      gdaver = 2
+     c                   eval      gdaret = 0
+     c                   movel     'TBIU'        gdarid
+     c                   movel     umonth        gdatrd
+     c                   move      uday          gdatrd
+     c                   eval      gdatrs = 0
+     c                   eval      gdatrk = *blanks
+     c                   eval      gdabru = *zeros
+     c                   eval      gdaant = 4
+      *
+      * BETFOR02 - Bankforbindelsestransaksjon utenlands
+      *
+     c                   movel     'AH'          gdbhid
+10106c                   eval      gdbver = 2
+     c                   eval      gdbret = 0
+     c                   movel     'TBIU'        gdbrid
+     c                   movel     umonth        gdbtrd
+     c                   move      uday          gdbtrd
+     c                   eval      gdbtrs = 0
+     c                   eval      gdbtrk = *blanks
+     c                   eval      gdbbru = *zeros
+     c                   eval      gdbant = 4
+      *
+      * BETFOR03 - Mottakertransaksjon utenlands
+      *
+     c                   movel     'AH'          gdchid
+10106c                   eval      gdcver = 2
+     c                   eval      gdcret = 0
+     c                   movel     'TBIU'        gdcrid
+     c                   movel     umonth        gdctrd
+     c                   move      uday          gdctrd
+     c                   eval      gdctrs = 0
+     c                   eval      gdctrk = *blanks
+     c                   eval      gdcbru = *zeros
+     c                   eval      gdcant = 4
+      *
+      * BETFOR04 - Fakturatransaksjon utenlands
+      *
+     c                   movel     'AH'          gddhid
+10106c                   eval      gddver = 2
+     c                   eval      gddret = 0
+     c                   movel     'TBIU'        gddrid
+     c                   movel     umonth        gddtrd
+     c                   move      uday          gddtrd
+     c                   eval      gddtrs = 0
+     c                   eval      gddtrk = *blanks
+     c                   eval      gddbru = *zeros
+     c                   eval      gddant = 4
+      *
+      * BETFOR21 - Overførselstransaksjon innenlands
+      *
+     c                   movel     'AH'          gdjhid
+10106c                   eval      gdjver = 2
+     c                   eval      gdjret = 0
+     c                   movel     'TBII'        gdjrid
+     c                   movel     umonth        gdjtrd
+     c                   move      uday          gdjtrd
+     c                   eval      gdjtrs = 0
+     c                   eval      gdjtrk = *blanks
+     c                   eval      gdjbru = *zeros
+     c                   eval      gdjant = 4
+     c                   eval      gdjkto = aafbgi
+      *
+      * BETFOR22 - Masseoverførselstransaksjon-innenlands
+      *
+     c                   movel     'AH'          gdkhid
+10106c                   eval      gdkver = 2
+     c                   eval      gdkret = 0
+     c                   movel     'TBII'        gdkrid
+     c                   movel     umonth        gdktrd
+     c                   move      uday          gdktrd
+     c                   eval      gdktrs = 0
+     c                   eval      gdktrk = *blanks
+     c                   eval      gdkbru = *zeros
+     c                   eval      gdkant = 4
+     c                   eval      gdkkto = aafbgi
+      *
+      * BETFOR23 - Fakturatransaksjon innenlands
+      *
+     c                   movel     'AH'          gdlhid
+10106c                   eval      gdlver = 2
+     c                   eval      gdlret = 0
+     c                   movel     'TBII'        gdlrid
+     c                   movel     umonth        gdltrd
+     c                   move      uday          gdltrd
+     c                   eval      gdltrs = 0
+     c                   eval      gdltrk = *blanks
+     c                   eval      gdlbru = *zeros
+     c                   eval      gdlant = 4
+     c                   eval      gdlkto = aafbgi
+      *
+      * BETFOR99 - Avslutningstransaksjon
+      *
+     c                   movel     'AH'          gdzhid
+10106c                   eval      gdzver = 2
+     c                   eval      gdzret = 0
+     c                   movel     umonth        gdztrd
+     c                   move      uday          gdztrd
+     c                   eval      gdztrs = 0
+     c                   eval      gdztrk = *blanks
+     c                   eval      gdzbru = *zeros
+     c                   eval      gdzant = 4
+      *
+      * Legger over firmanavn.
+      *
+     c                   movel     dsfnav        a1fnav
+      *
+25017c                   time                    w_foda
+25017c                   time                    w_ftim
+25017c                   eval      w_fsig = l_user
+      *
+     c                   endsr
+**
+VALUTAKONTO:

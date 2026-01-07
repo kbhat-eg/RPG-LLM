@@ -1,0 +1,273 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : VG800R
+      * Beskrivelse . . : Styreprogram for oppdatering av kostpris og posteringer
+      *                   ved varemottak
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       041218 ASK  Nytt program
+7.01  *K0000  220920 bsa  Hvis antaller 0 eller negativt, skal vi ikke beregne kostpris
+8.01  *       201021 ask  Lagt om rutinen slik at all kosprisberegning gjøres i VG702R
+      *                   Evt. kostprisføring i regnskap gjøres fortsat her
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flohelr    if   e           k disk    rename(lohepfr:lohelrr)
+     flodtl1    if   e           k disk    rename(lodtpfr:lodtl1r)
+     fvotylr    if   e           k disk    rename(votypfr:votylrr)
+     fvltyl1    if   e           k disk    rename(vltypfr:vltyl1r)
+     fvgkkir    if   e           k disk    rename(vgkkst:vgkkirr)
+     fvvarlr    if   e           k disk    rename(vvarpfr:vvarlrr)
+     fvvenlr    if   e           k disk    rename(vvenpfr:vvenlrr)
+      *
+      * Definering av parametre
+      *
+     d p_numm          s                   like(lonumm)
+     d p_suff          s                   like(losuff)
+     d p_line          s                   like(ldline)
+     d p_lage          s                   like(ldlage)
+     d p_biln          s              8  0
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_firm                944    946  0
+     d l_user                911    920
+      *
+      * Definering av variabler i nøkler
+      *
+     d lohelr_numm     s                   like(lonumm)
+     d lohelr_suff     s                   like(losuff)
+     d lodtl1_numm     s                   like(ldnumm)
+     d lodtl1_suff     s                   like(ldsuff)
+     d votylr_otyp     s                   like(vaotyp)
+     d vltyl1_ltyp     s                   like(valtyp)
+     d vvarlr_vare     s                   like(vvvare)
+     d vvenlr_vare     s                   like(vevare)
+     d vvenlr_enhe     s                   like(veenhe)
+
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(lofirm)
+     d w_fast          s             10
+     d w_fell          s              6
+     d w_kode          s              1
+     d w_type          s              2
+      *
+8.01 c/Exec SQL
+8.01 c+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR,
+8.01 c+             commit=*none
+8.01 c/End-Exec
+
+      *
+      * Hovedprogram - leser bestillingshode og sjekker om ordretype skal oppdatere kostpris
+      *
+     c                   eval      lohelr_numm = p_numm
+     c                   eval      lohelr_suff = p_suff
+     c     lohelr_key    chain     lohelr
+     c                   if        not %found(lohelr)
+     c                   goto      avslutt
+     c                   endif
+     c                   eval      votylr_otyp = lootyp
+     c     votylr_key    chain     votylr
+     c                   if        not %found(votylr)
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   if        vgoppd <> 'M'
+     c                             and vgoppd <> 'F'
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   if        vgoppd = 'M'
+     c                             and vaoakk <> 2
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   if        vgoppd = 'F'
+     c                             and vaoakk <> 3
+     c                   goto      avslutt
+     c                   endif
+8.01  *
+8.01  * Kaller program for oppdatering av kostpris på hele bestillingen
+8.01  *
+8.01 c                   call      'VG702R'
+8.01 c                   parm                    p_numm
+8.01 c                   parm                    p_suff
+      *
+      * Sjekker om kostpris posteringer skal gjøres
+      *
+     c                   if        vgkrgn <> 'J'
+     c                   goto      avslutt
+     c                   else
+     c                   exsr      hntnum
+     c                   endif
+      *
+      * Leser i gjennom bestilling og gjør posteringer
+      *
+     c                   eval      lodtl1_numm = p_numm
+     c                   eval      lodtl1_suff = p_suff
+     c     lodtl1_key    setll     lodtl1
+      *
+      *
+     c     lodtl1_key    reade     lodtl1
+     c                   dow       not %eof
+      *
+      * Direktelevert skal ikke oppdatere
+      *
+     c                   if        ldlety = 1
+     c                   goto      les_neste
+     c                   endif
+      *
+      * Hvis 0 eller negativt i antall, skal vi ikke oppdatere kostpris
+      *
+     c                   if        ldanta < 0,001
+     c                   goto      les_neste
+     c                   endif
+      *
+      * Sjekker om gyldig linjetype og behandler
+      *
+     c                   eval      vltyl1_ltyp = ldltyp
+     c     vltyl1_key    chain     vltyl1
+     c                   if        not %found(vltyl1)
+     c                             or vallag <> 1
+     c                   goto      les_neste
+     c                   endif
+      *
+     c                   eval      p_line = ldline
+     c                   call      'VG804R'
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+     c                   parm                    p_line
+     c                   parm                    p_biln
+     c                   parm                    p_lage
+      *
+      *
+     c     les_neste     tag
+      *
+     c     lodtl1_key    reade     lodtl1r
+     c                   enddo
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Henter/Oppdatering av NUMMER-REGISTER
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hntnum        begsr
+      *
+     c                   eval      w_fast = *blank
+     c                   eval      w_fell = vgkbis
+     c                   eval      w_type = *blank
+     c                   eval      w_kode = '0'
+      *
+      *  Kaller opp subprogram for henting av nummer fra NUMMER-REGISTER
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    p_biln
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+         exec sql
+           insert into vgkest
+              (vefirm,velage,vevare,veenhe,
+               vebest,vesuff,veinkp,vesumb,vesumh,
+               vebehl,veavpv,veavpp,veavpt,vepkod,
+               vegkpr,venkpr,vefeik,vefeil,vetype,
+               vebusr,vekalp)
+            values(:w_firm,'0',' ',' ',
+                   :p_numm,:p_suff,'0','0','0',
+                   '0','0','0','0',' ',
+                   '0','0','99','VG800R PSSR subrutine !!!','A',
+                   :l_user,'0');
+
+     c                   eval      *inlr = *on
+     c                   return
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+      *
+      * Key for kostpris parameter
+      *
+     c     vgkkir_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på bestilling-hode
+      *
+     c     lohelr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lohelr_numm
+     c                   kfld                    lohelr_suff
+      *
+      * Key for oppslag på bestilling-linje
+      *
+     c     lodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lodtl1_numm
+     c                   kfld                    lodtl1_suff
+      *
+      * Key for oppslag på ordretype
+      *
+     c     votylr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votylr_otyp
+      *
+      * Key for oppslag på linjetype
+      *
+     c     vltyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltyl1_ltyp
+      *
+      *  Key for oppdslag på vare
+      *
+     c     vvarlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarlr_vare
+      *
+      *  Key for oppdslag på vare/enhet
+      *
+     c     vvenlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenlr_vare
+     c                   kfld                    vvenlr_enhe
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Henter kode informasjon
+      *
+     c     vgkkir_key    chain     vgkkir
+      *
+     c                   endsr

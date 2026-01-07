@@ -1,0 +1,721 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASLAGR
+      * Program . . . . : LL101R
+      * Beskrivelse . . : Lager, vedlikehold
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       010704 bø   Nytt program
+5.60  *       050408 bø   Lagerenhet fra vare-register
+      * 6.10  260609 BSA  Oppdatert med sporingsinformasjon
+6.11  *       110409 bø   Lagt inn sperredato og abckoder som i vanlig vedl.
+6.13  * 6.10  041010 bof  Gir melding hvis vtyp endres fra L->S
+6.13  * 6.10              Danner også justering av lager til 0
+6.20  * 6.20  221110 bof  Utvidet med leverandør (sentrallager-løsning)
+6.21  * 6.20  231110 bof  Utvidet med utgått dato pr. lager
+6.22  * 6.20  070211 nho  Byttet ut fil mpspxx med vlagxx
+6.26  * 6.20  270511 bsa  Varsel og logg ved endring av varetype S->L
+6.28  * 6.20  050112 bof  Hvis varetype endres til S->L så beregn lager
+6.29  * 6.20  101111 bof  Generell opprydding i programmet
+6.2a  * 6.20  140312 bof  Viser også hoved.lev.nr, litt mer testing.
+6.2b  * 6.20  310812 bof  Nytt felt, endringsdato for faste data som vises
+6.2c  * 6.20  290715 bsa  Mangler oppslag mot statusregister. Fortsetter
+6.2c  *                   rettelse 6.13. Må også kunne endre varetypen selv
+6.2c  *                   beholdingstall er 0 fra før.
+6.nu  * 6.30  050614 bof  Endringer ihht. nummerutvidelse
+7.01  * K000  250121 bsa  Endret ledeteksten på Bestillingspunkt og mengde.
+7.01  * K000              Spesial fra Gipling.
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvlaglr    if   e           k disk    rename(vlagpfr:vlaglrr)
+     fvlaglu    uf a e           k disk    rename(vlagpfr:vlaglur)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+6.13 ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+6.2a frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+      *
+     fll101d    cf   e             workstn
+7.01  *
+7.01  * Definering av array's
+7.01  *
+7.01 d a_txt           s             32    dim(4) ctdata perrcd(1)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+7.01 d l_filg                931    933
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+6.13  *
+6.13  * Datastruktur for lageroppdatering
+6.13  *
+6.13 d                 ds
+6.nu d hlrec                        128
+6.13 d  hlvare                       15    overlay(hlrec)
+6.13 d  hllage                        2  0 overlay(hlrec:16)
+6.13 d  hldato                         d   overlay(hlrec:18) datfmt(*iso)
+6.13 d  hltime                         t   overlay(hlrec:28) timfmt(*iso)
+6.13 d  hlotyp                        2    overlay(hlrec:36)
+6.13 d  hlltyp                        2    overlay(hlrec:38)
+6.13 d  hlanta                       11  3 overlay(hlrec:40)
+6.13 d  hlkopr                        9  2 overlay(hlrec:51)
+6.13 d  hlrefr                       20    overlay(hlrec:60)
+6.13 d  hlsyst                        1    overlay(hlrec:80)
+6.13 d  hlaltk                        2    overlay(hlrec:81)
+6.13 d  hlrest                        1    overlay(hlrec:83)
+6.13 d  hltype                        1    overlay(hlrec:84)
+6.13 d  hlenhe                        3    overlay(hlrec:85)
+6.13 d  hlinlr                        1    overlay(hlrec:88)
+6.13 d  hllety                        1    overlay(hlrec:89)
+6.nu d  hlonum                        8  0 overlay(hlrec:90)
+6.nu d  hlolin                        4  0 overlay(hlrec:98)
+      *
+      * Definering av variabler i nøkler
+      *
+     d vlaglr_vare     s                   like(vlvare)
+     d vlaglr_lage     s                   like(vllage)
+     d vlaglu_vare     s                   like(vlvare)
+     d vlaglu_lage     s                   like(vllage)
+     d vvarl1_vare     s                   like(vvvare)
+6.2a d rlevl1_levr     s                   like(rllevr)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+6.13 d b_lagr          s              1    inz(*off)
+6.13 d b_endr_vtyp     s              1    inz(*off)
+6.13 d b_inlr          s              1    inz(*off)
+      *
+     d w_firm          s                   like(vlfirm)
+     d w_lage          s                   like(vllage)
+     d w_vare          s                   like(vvvare)
+     d w_tek1          s                   like(vvtek1)
+5.60 d w_enhl          s                   like(vvenhl)
+     d w_ltek          s             30
+6.29 d w_lbes          s             30
+      *
+     d p_lage          s                   like(vllage)
+     d p_vare          s                   like(vvvare)
+      *
+     d s_vare          s                   like(vlvare)
+     d s_lage          s                   like(vllage)
+6.13 d s_vtyp          s                   like(vlvtyp)
+6.21 d w_stat          s              1
+      *
+7.01   dcl-s co402_verdi1  char(1);
+7.01   dcl-s co402_verdi2  char(2048);
+7.01   DCL-PR CO402R EXTPGM('CO402R');
+7.01     p_filgrp            char(3)     const;
+7.01     p_firm              packed(3:0) const;
+7.01     p_lager             packed(2:0) const;
+7.01     p_nokkel            char(50)    const;
+7.01     p_verdi1            char(1);
+7.01     p_verdi2            char(2048);
+7.01   END-PR;
+7.01 d u_bpkt          s              1    inz(*off)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meldingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+      *
+     c                   exsr      xc2bld
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+6.13 c                   eval      s_vtyp = *blank
+7.01  *
+7.01 c                   if        u_bpkt = *off
+7.01 c                   eval      c2bptx = a_txt(1)
+7.01 c                   eval      c2bmtx = a_txt(2)
+7.01 c                   else
+7.01 c                   eval      c2bptx = a_txt(3)
+7.01 c                   eval      c2bmtx = a_txt(4)
+7.01 c                   endif
+      *
+     c                   eval      vlaglr_vare = w_vare
+     c                   eval      vlaglr_lage = w_lage
+     c     vlaglr_key    chain     vlaglr
+      *
+     c                   if        %found
+     c                   eval      c2plas = vlplas
+     c                   eval      c2plas = vlplas
+5.60 c*                  eval      c2enhl = vlenhl
+6.29 c                   eval      c2pla1 = vlpla1
+6.29 c                   eval      c2pla2 = vlpla2
+     c                   eval      c2mini = vlmini
+     c                   eval      c2maks = vlmaks
+     c                   eval      c2bmin = vlbmin
+     c                   eval      c2bpun = vlbpun
+     c                   eval      c2bmen = vlbmen
+     c                   eval      c2ltid = vlltid
+6.11 c                   eval      c2abck = vlkabc
+6.11 c                   eval      c2labc = vllabc
+5.70 c                   eval      c2vtyp = vlvtyp
+6.13 c                   eval      s_vtyp = vlvtyp
+6.29 c                   eval      c2abct = vltabc
+6.22 c                   if        vlstda <> *loval
+6.29 c     *dmy          move      vlstda        c2stda
+6.11 c                   else
+6.11 c                   eval      c2stda = 0
+6.11 c                   endif
+6.22 c                   if        vludat <> *loval
+6.22 c     *dmy          move      vludat        c2suda
+6.21 c                   else
+6.21 c                   eval      c2suda = 0
+6.21 c                   endif
+6.22 c                   eval      c2sldo = vlbldo
+6.29 c                   if        c2sldo <> 0
+      * prioritert leverandør
+6.2a c                   eval      rlevl1_levr = c2sldo
+5.2a c     rlevl1_key    chain     rlevl1
+5.2a c                   if        %found(rlevl1)
+5.2a c                   eval      c2lnav = rlnavn
+5.2a c                   else
+6.2a c                   eval      c2lnav = *blank
+6.2a c                   endif
+6.29 c                   eval      c2lnav = *blank
+6.29 c                   endif
+6.2b c                   if        vlfeda <> *loval
+6.2b c     *dmy          move      vlfeda        c2edat
+6.2b c                   else
+6.2b c                   eval      c2edat = 0
+6.2b c                   endif
+6.2b c                   eval      c2eusr = vlfeus
+     c                   else
+     c                   eval      c2plas = *blank
+6.29 c                   eval      c2pla1 = *blank
+6.29 c                   eval      c2pla2 = *blank
+     c                   eval      c2enhl = *blank
+     c                   eval      c2mini = 0
+     c                   eval      c2maks = 0
+     c                   eval      c2bmin = 0
+     c                   eval      c2bpun = 0
+     c                   eval      c2bmen = 0
+     c                   eval      c2ltid = 0
+6.11 c                   eval      c2stda = 0
+6.11 c                   eval      c2labc = 0
+6.11 c                   eval      c2abck = *blank
+6.29 c                   eval      c2abct = *blank
+6.29 c                   eval      c2vtyp = *blank
+6.20 c                   eval      c2sldo = 0
+6.21 c                   eval      c2suda = 0
+6.29 c                   eval      c2edat = 0
+6.29 c                   eval      c2eusr = *blank
+     c                   endif
+      *
+     c                   exsr      les_vare
+     c                   eval      c2tek1 = w_tek1
+5.60 c                   eval      c2enhl = w_enhl
+      *
+     c     c2taga        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      * Spørring
+      *
+6.29 c                   if        *inkd
+6.29 c                   if        w_afld = 'C2PLAS'
+6.29 c                   call      'MD510R'
+6.29 c                   parm                    w_firm
+6.29 c                   parm                    c1lage
+6.29 c                   parm                    c2plas
+6.29 c                   parm                    w_lbes
+6.29 c                   goto      c2taga
+6.29 c                   endif
+6.29 c                   if        *inkd   and
+6.29 c                             w_afld = 'C2SLDO'
+6.29 C                   call      'RL500R'
+6.29 C                   parm                    w_firm
+6.29 C                   parm                    c2sldo
+6.29 C                   parm                    c2lnav
+6.29 c                   goto      c2taga
+6.29 c                   endif
+6.29  *
+6.29 c                   if        w_afld = 'C2PLA1'
+6.29 c                   call      'MD510R'
+6.29 c                   parm                    w_firm
+6.29 c                   parm                    c1lage
+6.29 c                   parm                    c2pla1
+6.29 c                   parm                    w_lbes
+6.29 c                   goto      c2taga
+6.29 c                   endif
+6.29  *
+6.29 c                   if        w_afld = 'C2PLA2'
+6.29 c                   call      'MD510R'
+6.29 c                   parm                    w_firm
+6.29 c                   parm                    c1lage
+6.29 c                   parm                    c2pla2
+6.29 c                   parm                    w_lbes
+6.29 c                   goto      c2taga
+6.29 c                   endif
+6.29 c                   endif
+6.11  *
+6.11  * validering
+6.11 c                   if        c2stda <> 0
+6.11 c     *dmy          test(d)                 c2stda                 31
+6.11 c                   if        *in31 = *on
+6.11 c                   goto      c2taga
+6.11 c                   endif
+6.11 c                   endif
+      *
+6.29 c                   if        c2plas <> *blank
+6.29 c                   call      'MD710R'
+6.29 c                   parm                    w_stat
+6.29 c                   parm                    c1lage
+6.29 c                   parm                    c2plas
+6.29 c                   parm                    w_lbes
+6.29 c                   if        w_stat <> *blank
+6.29 c                   eval      *in32 = *on
+6.29 c                   goto      c2taga
+6.29 c                   endif
+6.29 c                   endif
+6.29  *
+6.29 c                   if        c2pla1 <> *blank
+6.29 c                   call      'MD710R'
+6.29 c                   parm                    w_stat
+6.29 c                   parm                    c1lage
+6.29 c                   parm                    c2pla1
+6.29 c                   parm                    w_lbes
+6.29 c                   if        w_stat <> *blank
+6.29 c                   eval      *in33 = *on
+6.29 c                   goto      c2taga
+6.29 c                   endif
+6.29 c                   endif
+6.29  *
+6.29 c                   if        c2pla2 <> *blank
+6.29 c                   call      'MD710R'
+6.29 c                   parm                    w_stat
+6.29 c                   parm                    c1lage
+6.29 c                   parm                    c2pla2
+6.29 c                   parm                    w_lbes
+6.29 c                   if        w_stat <> *blank
+6.29 c                   eval      *in34 = *on
+6.29 c                   goto      c2taga
+6.29 c                   endif
+6.29 c                   endif
+6.20  *
+6.20  *
+6.20 c                   if        c2sldo <> 0
+6.20 c                   call      'RS760R'
+6.20 c                   parm                    w_stat
+6.20 c                   parm                    c2sldo
+6.20 c                   parm                    c2lnav
+6.20 c                   if        w_stat <> *blank
+6.20 c                   eval      *in35 = *on
+6.20 c                   goto      c2taga
+6.20 c                   endif
+6.20 c                   endif
+6.21 c                   if        c2suda <> 0
+6.21 c     *dmy          test(d)                 c2suda                 36
+6.21 c                   if        *in36 = *on
+6.21 c                   goto      c2taga
+6.21 c                   endif
+6.21 c                   endif
+6.13  * Dersom varen endrer varetype fra lagervare, og varen har aktiv
+6.13  * lagerbeholdning, må brukeren bekrefte endring av varetype.
+6.13  *
+6.13 c                   if        faalag = 1 and
+6.13 c                             s_vtyp <> *blank and
+6.13 c                             s_vtyp <> c2vtyp and
+6.13 c                             s_vtyp =  'L'
+6.13 c                   eval      b_inlr = *off
+6.14 c                   call      'LL766R'
+6.13 c                   parm                    w_firm
+6.13 c                   parm                    w_vare
+6.14 c                   parm                    c1lage
+6.13 c                   parm                    b_inlr
+6.13 c                   parm                    b_lagr
+6.13 c**6.2c             if        b_lagr = *on
+6.13 c                   exsr      xc3msg
+6.13 c                   if        b_endr_vtyp = *off
+      * her ble det ingen endring, type settes tilbake,ellers oppdatering
+6.13 c                   eval      c2vtyp = s_vtyp
+6.13 c                   goto      c2taga
+6.13 c                   endif
+6.13 c**6.2c             endif
+6.13 c                   endif
+6.26  * Dersom varen endrer varetype til lagervare,
+6.26  * må brukeren bekrefte endring av varetype.
+6.26  *
+6.26 c                   if        s_vtyp <> *blank and
+6.26 c                             s_vtyp <> c2vtyp and
+6.26 c                             s_vtyp =  'S'
+6.26 c                   exsr      xc4msg
+6.26 c                   if        b_endr_vtyp = *off
+6.26  * her ble det ingen endring, type settes tilbake,ellers oppdatering
+6.26 c                   eval      c2vtyp = s_vtyp
+6.26 c                   goto      c2taga
+6.26 c                   endif
+6.26 c                   endif
+      *
+      *
+      * Oppdatering
+      *
+     c                   clear                   vlaglur
+      *
+     c                   eval      vlaglu_vare = c1vare
+     c                   eval      vlaglu_lage = c1lage
+     c     vlaglu_key    chain     vlaglur
+      *
+     c                   eval      vlplas = c2plas
+     c                   eval      vlmini = c2mini
+     c                   eval      vlmaks = c2maks
+     c                   eval      vlbmin = c2bmin
+     c                   eval      vlbpun = c2bpun
+     c                   eval      vlbmen = c2bmen
+     c                   eval      vlltid = c2ltid
+6.11 c                   eval      vlkabc = c2abck
+6.11 c                   eval      vllabc = c2labc
+6.2c c                   eval      vltabc = c2abct
+6.2c c                   eval      vlvtyp = c2vtyp
+6.29 c                   if        c2stda <> 0
+6.29 c     *dmy          move      c2stda        vlstda
+6.29 c                   else
+6.29 c                   eval      vlstda = *loval
+6.29 c                   endif
+6.29 c                   eval      vlbldo = c2sldo
+6.29 c                   if        c2suda <> 0
+6.29 c     *dmy          move      c2suda        vludat
+6.29 c                   else
+6.29 c                   eval      vludat = *loval
+6.29 c                   endif
+      *
+6.10 c                   time                    vledat
+6.10 c                   time                    vletim
+6.10 c                   eval      vleusr = l_user
+6.2b c                   time                    vlfeda
+6.2b c                   time                    vlfeti
+6.2b c                   eval      vlfeus = l_user
+      *
+     c                   if        %found
+     c                   update    vlaglur
+     c                   else
+     c                   eval      vlfirm = w_firm
+     c                   eval      vlvare = c1vare
+     c                   eval      vllage = c1lage
+6.10 c                   time                    vlodat
+6.10 c                   time                    vlotim
+6.10 c                   eval      vlousr = l_user
+     c                   write     vlaglur
+     c                   endif
+      *
+     c     end_c2bld     endsr
+6.26  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.26  * Subrutine for å bekrefte bytting av varetype  S->L
+6.26  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.26  *
+6.26 c     xc4msg        begsr
+6.26  *
+6.26 c                   eval      b_endr_vtyp = *off
+6.26  *
+6.26 c     c4tagm        tag
+6.26  *
+6.26 c                   exfmt     c4msg
+6.26  *
+6.26 c                   select
+6.26 c                   when      *inkc or *inkl
+6.26 c                   leavesr
+6.26 c                   when      *inkx
+6.26 c                   exsr      logg_lager
+6.26 c                   eval      b_endr_vtyp = *on
+6.26 c                   leavesr
+6.26 c                   endsl
+6.26  *
+6.26 c                   endsr
+6.26  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.26  * Subrutine for å hente å logge endring på lager
+6.26  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.26  *
+6.26 c     logg_lager    begsr
+6.26  *
+6.26 c                   move      w_vare        hlvare
+6.26 c                   move      c1lage        hllage
+6.26 c                   move      c2enhl        hlenhe
+6.26 c                   time                    hldato
+6.26 c                   time                    hltime
+6.26 c                   eval      hlotyp  = *blank
+6.26 c                   eval      hlltyp  = *blank
+6.26  *
+6.26 c                   eval      hlanta = 0
+6.26 c                   eval      hlkopr = 0
+6.26  *
+6.26 c                   eval      hlrefr = 'Vtyp endret S--> L '
+6.26 c                   move      'L'           hlsyst
+6.26 c                   eval      hlaltk = 'SL'
+6.26 c                   eval      hlrest = *blank
+6.26 c                   eval      hlonum = 0
+6.26 c                   eval      hlolin = 0
+6.26  *
+6.26 c                   eval      w_stat = *blank
+6.26  * Siden 'S' varer ikke lager poster i historisk register, lager vi postering
+6.26  * manulet herfra. Ingen god løsning.
+6.26 c                   call      'VL001R'
+6.26 c                   parm                    w_stat
+6.26 c                   parm                    hlrec
+6.28  *
+6.28  * Oppdaterer ordre-akkumulatorer
+6.28  *
+6.28 c                   call      'FO761R'
+6.28 c                   parm                    w_firm
+6.28 c                   parm                    w_vare
+6.28  *
+6.28  * Oppdaterer bestillings-akkumulatorer
+6.28  *
+6.28 c                   call      'LA921R'
+6.28 c                   parm                    w_firm
+6.28 c                   parm                    w_vare
+6.26  *
+6.26 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å finne varebeskrivelse
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     les_vare      begsr
+      *
+     c                   eval      b_feil = *off
+     c                   eval      vvarl1_vare = w_vare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+     c                   eval      w_tek1 = vvtek1
+5.60 c                   eval      w_enhl = vvenhl
+      * hovedlev.
+6.2a c                   eval      c2hlev = vvldor
+6.2a c                   eval      rlevl1_levr = c2hlev
+5.2a c     rlevl1_key    chain     rlevl1
+5.2a c                   if        %found(rlevl1)
+5.2a c                   movel     rlnavn        c2hlna
+5.2a c                   else
+6.2a c                   eval      c2hlna = *blank
+6.2a c                   endif
+     c                   else
+     c                   eval      b_feil = *on
+5.60 c                   eval      w_enhl = *blank
+     c                   endif
+      *
+     c                   endsr
+6.13  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.13  * Subrutine for å bekrefte bytting av varetype
+6.13  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.13  *
+6.13 c     xc3msg        begsr
+6.13  *
+6.13 c                   eval      b_endr_vtyp = *off
+6.14 c                   eval      c3vtyp = c2vtyp
+6.13  *
+6.13 c     c3tagm        tag
+6.13  *
+6.13 c                   exfmt     c3msg
+6.13  *
+6.13 c                   select
+6.13 c                   when      *inkc or *inkl
+6.13 c                   leavesr
+6.13 c                   when      *inkm
+6.13 c                   call      'LL502R'
+6.13 c                   parm                    w_firm
+6.13 c                   parm                    w_vare
+6.13 c                   goto      c3tagm
+6.13 c                   when      *inkx
+6.13 c                   exsr      oppd_lager
+6.13 c                   eval      b_endr_vtyp = *on
+6.13 c                   leavesr
+6.13 c                   endsl
+6.13  *
+6.13 c                   endsr
+      *
+6.13  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.13  * Subrutine for å hente å oppdatere lager
+6.13  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.13  *
+6.13 c     oppd_lager    begsr
+6.13  *
+6.13  *
+6.13 c                   move      w_vare        hlvare
+6.13 c                   move      c1lage        hllage
+6.13 c                   move      c2enhl        hlenhe
+6.13 c                   time                    hldato
+6.13 c                   time                    hltime
+6.13 c                   eval      hlotyp  = *blank
+6.13 c                   eval      hlltyp  = *blank
+6.13  *
+6.13 c                   eval      hlanta = 0
+6.13 c                   eval      hlkopr = 0
+6.13  *
+6.13 c                   eval      hlrefr = 'Vtyp endret L--> S '
+6.13 c                   move      'L'           hlsyst
+6.13 c                   eval      hlaltk = 'J '
+6.13 c                   eval      hlrest = *blank
+6.13 c                   eval      hlonum = 0
+6.13 c                   eval      hlolin = 0
+6.13  *
+6.13  *
+6.13 c                   eval      w_stat = *blank
+6.13  *
+6.13 c                   call      'VL001R'
+6.13 c                   parm                    w_stat
+6.13 c                   parm                    hlrec
+6.13  *
+6.13 c     end_oppd      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_vare
+     c                   parm                    p_lage
+      *
+      * Key for les på lager
+      *
+     c     vlaglr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlaglr_vare
+     c                   kfld                    vlaglr_lage
+      *
+      * Key for oppdatering av lager
+      *
+     c     vlaglu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vlaglu_vare
+     c                   kfld                    vlaglu_lage
+      *
+      *  Key for les av VARE
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+6.2a  *
+6.2a  *  Key for les av leverandør
+6.2a  *
+6.2a c     rlevl1_key    klist
+6.2a c                   kfld                    w_firm
+6.2a c                   kfld                    rlevl1_levr
+6.2c  *
+6.2c  * Key for oppslag på kode/status
+6.2c  *
+6.2c c     fstsl1_key    klist
+6.2c c                   kfld                    w_firm
+      *
+      *
+      * Henter verdier fra LDA, og initierer skjermbildet
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      w_vare = p_vare
+     c                   eval      w_lage = p_lage
+     c                   eval      c1vare = p_vare
+     c                   eval      c1lage = p_lage
+6.2c  *
+6.2c  * Oppslag på kode/status
+6.2c  *
+6.2c c     fstsl1_key    chain     fstsl1
+7.01  *
+7.01  * Endring 7.01 Styre ledetekster til bestillingspkt og mengde
+7.01  *
+7.01   CallP CO402R(l_filg:w_firm:0:'LEDETEKSTER_BESTILLINGSPKT':
+7.01                    co402_verdi1:co402_verdi2);
+7.01   if co402_verdi1 = '1';
+7.01     u_bpkt = *on;
+7.01   endif;
+      *
+     c                   endsr
+**     Ledetekster
+Bestillingspunkt . . . . . . . .
+Bestillingsmengde. . . . . . . .
+Hyllemin . . . . . . . . . . . .
+Hyllemax . . . . . . . . . . . .

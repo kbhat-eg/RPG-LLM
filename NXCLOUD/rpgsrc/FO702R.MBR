@@ -1,0 +1,268 @@
+      /TITLE  ASOFAK Ordrehode, Oppdatering av totaler fra linjer
+     h option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FO702R
+      * Beskrivelse . . : Ordre, kalkulerer ordretotaler inkl mva
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       250614 bsa  Nytt program
+8.01  *PRG2   210622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvltyl1    if   e           k disk    rename(vltypfr:vltyl1r)
+     ffodtl1    if   e           k disk    rename(fodtpfr:fodtl1r)
+     ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+      *
+      * Definering av parametere
+      *
+     d p_firm          s                   like(fofirm)
+     d p_numm          s                   like(fonumm)
+     d p_suff          s                   like(fosuff)
+     d p_brto          s                   like(fotots)
+     d p_raba          s                   like(fotots)
+     d p_neto          s                   like(fotots)
+     d p_mvag          s                   like(fotots)
+     d p_mvab          s                   like(fotots)
+     d p_avru          s                   like(fotots)
+     d p_otot          s                   like(fotots)
+      *
+      * Definering av variable i nøkler
+      *
+     d vltyl1_ltyp     s                   like(valtyp)
+     d fodtl1_numm     s                   like(fdnumm)
+     d fodtl1_suff     s                   like(fdsuff)
+     d fohel1_numm     s                   like(fonumm)
+     d fohel1_suff     s                   like(fosuff)
+     d vvarl1_vare     s                   like(vvvare)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(fofirm)
+     d w_tots          s                   like(fotots)
+     d w_totk          s                   like(fototk)
+     d w_totr          s                   like(fototr)
+      *
+     d w_stat          s              1
+     d w_mvak          s              1
+     d w_mvtx          s             30
+     d w_dato          s               d   datfmt(*iso)
+     d w_mvas          s              6  2
+     d w_mvat          s              5  4
+     d w_mvaf          s             10  9
+     d w_bpro          s              5  2
+     d w_nbel          s             15  4
+      *
+     d m               s              2  0
+     d w_xmbe          s             11  2
+     d w_mvab          s             13  2
+      *
+      * Definering av array's
+      *
+     d mko             s              1    dim(9)
+     d msa             s              5  2 dim(9)
+     d mgr             s             11  2 dim(9)
+     d mbe             s             11  2 dim(9)
+     d mog             s             11  2 dim(9)
+     d mor             s             11  2 dim(9)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Nullstilling av array's
+      *
+     c                   eval      mko = *blank
+     c                   eval      msa = *zero
+     c                   eval      mgr = *zero
+     c                   eval      mbe = *zero
+     c                   eval      mog = *zero
+     c                   eval      mor = *zero
+      *
+      * Hent inn ordrehodet
+      *
+     c                   eval      fohel1_numm = p_numm
+     c                   eval      fohel1_suff = p_suff
+     c     fohel1_key    chain     fohel1
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Lese ordrelinjer og summer opp
+      *
+     c                   eval      fodtl1_numm = p_numm
+     c                   eval      fodtl1_suff = p_suff
+     c     fodtl1_key    setll     fodtl1
+     c     fodtl1_key    reade     fodtl1                                 90
+      *
+     c                   dow       *in90  = *off
+      *
+      * Hente linjetype
+      *
+     c                   eval      vltyl1_ltyp = fdltyp
+     c     vltyl1_key    chain     vltyl1r                            91
+      *
+      * Summer opp dersom det ikke er tekstlinjer
+      *
+     c                   if        valktx = 0
+     c                   eval      vvarl1_vare = fdvare
+     c     vvarl1_key    chain     vvarl1
+     c                   eval      p_brto = p_brto + fdsums
+     c**                 eval      w_totk = w_totk + fdsumk
+     c                   eval      p_raba = p_raba + fdsumr
+     c                   eval      p_neto = p_neto + (fdsums-fdsumr)
+      * Beregn mva
+     c                   exsr      calc_mva
+     c                   endif
+      *
+     c     fodtl1_key    reade     fodtl1                                 90
+      *
+      * Beregner mva for de forskjellige satser
+      *
+     c                   eval      mbe = (mgr - mor) * msa / 100
+     c                   xfoot     mbe           w_xmbe
+     c                   eval      p_otot = p_neto + w_xmbe
+      *
+     c     1             do        9             m
+     c                   if        mko(m) <> ' '
+     c*                  eval      t1mvas = msa(m)
+     c                   eval      p_mvag = mgr(m) - mor(m)
+     c                   eval      p_mvab = mbe(m)
+     c                   endif
+     c                   enddo
+      *
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Beregner og kalkulerer mva
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     calc_mva      begsr
+      *
+      * Starter beregning av mva
+      *
+     c                   eval      w_mvas = 0
+      *
+     c                   if        fdomva <> *blank
+     c                   eval      w_stat = *blank
+     c                   eval      w_mvak = fdomva
+     c                   time                    w_dato
+      *
+     c                   call      'RS205R'
+     c                   parm                    w_stat
+     c                   parm                    w_mvak
+     c                   parm                    w_mvtx
+     c                   parm                    w_dato
+     c                   parm                    w_mvas
+     c                   parm                    w_mvat
+     c                   parm                    w_mvaf
+     c                   parm                    w_bpro
+      *
+     c                   if        w_mvas > 0
+     c                   eval      w_nbel = fdsums - fdsumr
+     c                   eval(h)   w_mvab = w_mvab + (w_nbel * w_mvas / 100)
+     c**                 eval(h)   d1mvap = w_mvas
+     c                   exsr      xarray
+     c                   endif
+     c                   endif
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for array-håndtering av mva
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xarray        begsr
+      *
+     c     1             do        9             m
+     c                   if        mko(m) = w_mvak or
+     c                             mko(m) = ' '
+     c                   eval      mko(m) = w_mvak
+     c                   eval      msa(m) = w_mvas
+     c                   eval      mgr(m) = mgr(m) + w_nbel
+      *
+     c                   if        forabp > 0
+     c                   if        vvkord = 0
+     c                   eval      mog(m) = mog(m) + w_nbel
+     c                   eval      mor(m) = mog(m) * forabp / 100
+     c                   endif
+     c                   endif
+      *
+     c                   leave
+     c                   endif
+     c                   enddo
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+     c                   parm                    p_brto
+     c                   parm                    p_raba
+     c                   parm                    p_neto
+     c                   parm                    p_mvag
+     c                   parm                    p_mvab
+     c                   parm                    p_avru
+     c                   parm                    p_otot
+      *
+      * Key for oppslag på linjetype
+      *
+     c     vltyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltyl1_ltyp
+      *
+      * Key for oppslag på linjetype
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for oppslag på ordrehode
+      *
+     c     fohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fohel1_numm
+     c                   kfld                    fohel1_suff
+      *
+      * Key for oppslag på ordrelinje
+      *
+     c     fodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fodtl1_numm
+     c                   kfld                    fodtl1_suff
+      *
+      * Legg inn firmanummer
+      *
+     c                   eval      w_firm = p_firm
+      *
+     c                   endsr

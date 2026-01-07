@@ -1,0 +1,2745 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASVADM
+      * Program . . . . : JV751R
+      * Beskrivelse . . : Vare, henter priser til ordre
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       250100 HKO  Nytt program
+      *       110202 HKO  Tar hensyn til aktivisering av rabattelement
+      *       060103 HKO  Lagt inn grossistløsning
+      *       181003 HKO  Lagt inn modul som nivå under påslag, og tillatt
+      *                   leverandør uten varegruppe som et nivå
+      *       240504 HKO  Fjernet logikken som leter etter betingelse på
+      *                   vareeier dersom betingelse ikke ble funnet på
+      *                   prisgiver
+      *       150905 HKO  Utvidet parameterlisten med leveringstype som
+      *                   input-parameter og med varetype og leveringstype
+      *                   fra påslag og betingelse som output-parameter.
+      *                   Endret logikk for å finne påslag og betingelse.
+      *                   Fjernet vekt og volum fra parameterlisten
+      *                   Lagt inn kalkulering av salgspris fra Nobbpris
+      *       111207 bof  Utvidet vare-pris med gammel pris
+5.70  * PRGR  201108 bof  Utvidet med prisgruppe
+6.10  *       260809 bof  Fjernet '000' fra pakning - prisenhet på jvarpf
+6.11  *       120510 bof  Utvidet omr.faktor. Hvis den er over 1mill. så legges
+6.11  *                   det bare ut 999999,999999.
+6.30  *       050414 bof  Utvidet nøkkel i vare-pris med leverandør
+6.31  *       140314 bof  Lagt inn test på fra /til dato på pakning
+6.32  * 6.30  270314 bof  test om varepris VA er utgått
+6.33  * 6.30  220414 bof  Velger dagens pris
+6.34  * 6.30  170714 bof  Utvidet lev.varenr, hentes fra LVLEPF
+6.35  * 6.30  140915 bof  setter dagens dato i variabel
+6.3x  * 6.30  310515 bof  Utvidet med prisgruppe
+6.3y  * 6.30  140915 bof  Hvis ikke prgr er def på betingelse,så prgr = blank
+6.3a  * 6.30  140915 bof  justering for å få med frakt og logikk en-eller-flere
+6.3a  *                   prisgrupper
+6.3b  * 6.30  180416 bof  Utvidet med antall parameter som kreves ihht. frakt
+6.3c  * 6.30  010816 bof  Sjekker at betingelse er innenfor fra/til dato
+6.3d  * 6.30  030417 bof Endret test på dato intervall, skal bruke parm.dato
+6.3e  * 6.30  220518 bof  Ta hensyn til Valuta ved beregning av pris
+6.3f  * 6.30  051018 bof  Utvidet med logistikk-vare
+      *
+7.01  * 7.xx  200121 bsa  Henter kostprisfaktor og kostprisbeløp som 1 (Skattum)
+7.02  * 7.xx  200921 bof  Bruker prisdato i parm aktivt
+7.03  * 7.xx  310322 bof  Endret test på pris tildato
+8.01  * 7.xx  100622 bof  Endret test på dato i frakt
+8.02  *PRG2   150622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjvarl1    if   e           k disk    rename(jvarpfr:jvarl1r)
+     fjvdtl1    if   e           k disk    rename(jvdtpfr:jvdtl1r)
+     fjvprl1    if   e           k disk    rename(jvprpfr:jvprl1r)
+     fjvpkl1    if   e           k disk    rename(jvpkpfr:jvpkl1r)
+     fjbetlb    if   e           k disk    rename(jbetpfr:jbetlbr)
+     fjbetlc    if   e           k disk    rename(jbetpfr:jbetlcr)
+     fjbetl1    if   e           k disk    rename(jbetpfr:jbetl1r)
+     fjrael1    if   e           k disk    rename(jraepfr:jrael1r)
+     fjrael4    if   e           k disk    rename(jraepfr:jrael4r)
+     fjpfala    if   e           k disk    rename(jpfapfr:jpfalar)
+     fjpfalb    if   e           k disk    rename(jpfapfr:jpfalbr)
+     fjpfal1    if   e           k disk    rename(jpfapfr:jpfal1r)
+     fjlevl1    if   e           k disk    rename(jlevpfr:jlevl1r)
+6.34 fjvlel1    if   e           k disk    rename(jvlepfr:jvlel1r)
+6.3a fjfbelb    if   e           k disk    rename(jfbepfr:jfbelbr)
+6.3a fjfbelc    if   e           k disk    rename(jfbepfr:jfbelcr)
+6.3a fjfbel1    if   e           k disk    rename(jfbepfr:jfbel1r)
+6.3e fra16l1    if   e           k disk    rename(ra16pfr:ra16l1r)
+      *
+      * Definering av Local data area
+      *
+7.01 d                uds
+7.01 d l_user                911    920
+7.01 d l_filg                931    933
+7.01 d l_firm                944    946  0
+      *
+      * Definering av parametre
+      *
+     d p_dato          s               d   datfmt(*iso)
+     d p_osts          s              1  0
+     d p_nopr          s              9  2
+     d p_gdat          s               d   datfmt(*iso)
+     d p_ntpr          s              9  2
+     d p_ifak          s              8  6
+     d p_inpr          s              9  2
+     d p_kfak          s              8  6
+     d p_kopr          s              9  2
+     d p_sfak          s              8  6
+     d p_sapr          s              9  2
+     d p_dekn          s              5  2
+     d p_eldo          s              6  0
+     d p_ofp1          s             12  6
+     d p_ofp2          s             12  6
+     d p_ofp3          s             12  6
+     d p_ofv2          s             12  6
+     d p_ofv3          s             12  6
+6.3a d w_ofv1          s                   like(jwofak)
+6.3a d w_ofz1          s                   like(jwofak)
+8.02 d p_prut          s                   like(jcprgr)
+8.02 d p_prgr          s                   like(jcprgr)
+6.3x d p_pgbe          s                   like(jcprgr)
+6.3y d p_pgfr          s                   like(jcprgr)
+6.3a d p_ffak          s              8  6
+6.3a d p_inp2          s              9  2
+6.3y d p_oppd          s              1
+      *
+     d p_firm          s              3  0
+     d p_vare          s                   like(jvvare)
+     d p_lety          s                   like(jclety)
+     d p_ldor          s                   like(jvldor)
+     d p_lnav          s                   like(jlnavn)
+6.34 d p_lvar          s                   like(jvllva)
+     d p_enh1          s                   like(jwenhe)
+     d p_enh2          s                   like(jwenhe)
+     d p_enh3          s                   like(jwenhe)
+     d p_pkod          s                   like(jvdpko)
+     d p_bldo          s                   like(jpldor)
+     d p_bogr          s                   like(jpogrp)
+     d p_bhgr          s                   like(jphgrp)
+     d p_bugr          s                   like(jpugrp)
+     d p_bmod          s                   like(jpmodn)
+     d p_bvar          s                   like(jpvare)
+     d p_bvty          s                   like(jpvtyp)
+     d p_blet          s                   like(jplety)
+     d p_bbet          s                   like(jpbeti)
+     d p_pogr          s                   like(jcogrp)
+     d p_phgr          s                   like(jchgrp)
+     d p_pugr          s                   like(jcugrp)
+     d p_pldo          s                   like(jcldor)
+     d p_pmod          s                   like(jcmodn)
+     d p_pvar          s                   like(jcvare)
+     d p_ppko          s                   like(jckpri)
+     d p_pvty          s                   like(jcvtyp)
+     d p_plet          s                   like(jclety)
+     d p_kbel          s                   like(jckobe)
+      *
+      * Definering av variabler i nøkler
+      *
+     d jvarl1_vare     s                   like(jvvare)
+     d jvdtl1_dvar     s                   like(jvdvar)
+     d jvprl1_vare     s                   like(jxvare)
+     d jvprl1_ldor     s                   like(jxldor)
+     d jvpkl1_vare     s                   like(jwvare)
+6.30 d jvpkl1_ldor     s                   like(jwldor)
+     d jbetlb_ldor     s                   like(jpldor)
+     d jbetlb_vare     s                   like(jpvare)
+6.3x d jbetlb_prgr     s                   like(jpprgr)
+     d jbetlb_vtyp     s                   like(jpvtyp)
+     d jbetlb_lety     s                   like(jplety)
+     d jbetlc_ldor     s                   like(jpldor)
+     d jbetlc_modn     s                   like(jpmodn)
+     d jbetlc_vare     s                   like(jpvare)
+6.3x d jbetlc_prgr     s                   like(jpprgr)
+     d jbetlc_vtyp     s                   like(jpvtyp)
+     d jbetlc_lety     s                   like(jplety)
+     d jbetl1_ldor     s                   like(jpldor)
+6.3x d jbetl1_prgr     s                   like(jpprgr)
+     d jbetl1_ogrp     s                   like(jpogrp)
+     d jbetl1_hgrp     s                   like(jphgrp)
+     d jbetl1_ugrp     s                   like(jpugrp)
+     d jbetl1_modn     s                   like(jpmodn)
+     d jbetl1_vare     s                   like(jpvare)
+     d jbetl1_vtyp     s                   like(jpvtyp)
+     d jbetl1_lety     s                   like(jplety)
+     d jrael1_eldo     s                   like(jpeldo)
+6.3x d jrael1_eprg     s                   like(jpeprg)
+     d jrael1_eogr     s                   like(jpeogr)
+     d jrael1_ehgr     s                   like(jpehgr)
+     d jrael1_eugr     s                   like(jpeugr)
+     d jrael1_emod     s                   like(jpemod)
+     d jrael1_evar     s                   like(jpevar)
+     d jrael1_evty     s                   like(jpevty)
+     d jrael1_elet     s                   like(jpelet)
+     d jrael1_ebrs     s                   like(jpebrs)
+     d jrael1_ebli     s                   like(jpebli)
+     d jrael4_eldo     s                   like(jpeldo)
+     d jrael4_eprg     s                   like(jpeprg)
+     d jrael4_eogr     s                   like(jpeogr)
+     d jrael4_ehgr     s                   like(jpehgr)
+     d jrael4_eugr     s                   like(jpeugr)
+     d jrael4_emod     s                   like(jpemod)
+     d jrael4_evar     s                   like(jpevar)
+     d jrael4_evty     s                   like(jpevty)
+     d jrael4_elet     s                   like(jpelet)
+     d jrael4_ebrs     s                   like(jpebrs)
+     d jrael4_ebli     s                   like(jpebli)
+     d jrael4_eakt     s                   like(jpeakt)
+     d jpfala_vare     s                   like(jcvare)
+5.70 d jpfala_prgr     s                   like(jcprgr)
+     d jpfala_ldor     s                   like(jcldor)
+     d jpfala_kpri     s                   like(jckpri)
+     d jpfala_vtyp     s                   like(jcvtyp)
+     d jpfala_lety     s                   like(jclety)
+     d jpfalb_modn     s                   like(jcmodn)
+     d jpfalb_ldor     s                   like(jcldor)
+     d jpfalb_vare     s                   like(jcvare)
+5.70 d jpfalb_prgr     s                   like(jcprgr)
+     d jpfalb_kpri     s                   like(jckpri)
+     d jpfalb_vtyp     s                   like(jcvtyp)
+     d jpfalb_lety     s                   like(jclety)
+5.70 d jpfal1_prgr     s                   like(jcprgr)
+     d jpfal1_ogrp     s                   like(jcogrp)
+     d jpfal1_hgrp     s                   like(jchgrp)
+     d jpfal1_ugrp     s                   like(jcugrp)
+     d jpfal1_ldor     s                   like(jcldor)
+     d jpfal1_modn     s                   like(jcmodn)
+     d jpfal1_vare     s                   like(jcvare)
+     d jpfal1_kpri     s                   like(jckpri)
+     d jpfal1_vtyp     s                   like(jcvtyp)
+     d jpfal1_lety     s                   like(jclety)
+     d jlevl1_ldor     s                   like(jlldor)
+6.34 d jvlel1_lvnr     s                   like(jvlvnr)
+6.34 d jvlel1_lldo     s                   like(jvlldo)
+6.3a d jfbelb_fldo     s                   like(jpfldo)
+6.3a d jfbelb_fvar     s                   like(jpfvar)
+6.3a d jfbelb_fprg     s                   like(jpfprg)
+6.3a d jfbelb_fvty     s                   like(jpfvty)
+6.3a d jfbelb_flet     s                   like(jpflet)
+6.3a d jfbelc_fldo     s                   like(jpfldo)
+6.3a d jfbelc_fmod     s                   like(jpfmod)
+6.3a d jfbelc_fvar     s                   like(jpfvar)
+6.3a d jfbelc_fprg     s                   like(jpfprg)
+6.3a d jfbelc_fvty     s                   like(jpfvty)
+6.3a d jfbelc_flet     s                   like(jpflet)
+6.3a d jfbel1_fldo     s                   like(jpfldo)
+6.3a d jfbel1_fprg     s                   like(jpfprg)
+6.3a d jfbel1_fogr     s                   like(jpfogr)
+6.3a d jfbel1_fhgr     s                   like(jpfhgr)
+6.3a d jfbel1_fugr     s                   like(jpfugr)
+6.3a d jfbel1_fmod     s                   like(jpfmod)
+6.3a d jfbel1_fvar     s                   like(jpfvar)
+6.3a d jfbel1_fvty     s                   like(jpfvty)
+6.3a d jfbel1_flet     s                   like(jpflet)
+6.3e d ra16l1_pkod     s                   like(rapkod)
+      *
+      * Definering av variable
+      *
+     d b_akti          s              1    inz(*off)
+5.70 d b_pasl          s              1    inz(*off)
+6.31 d b_pakn          s              1    inz(*off)
+6.3x d b_beti          s              1    inz(*off)
+6.3a d b_frak          s              1    inz(*off)
+6.3c d b_bdat          s              1    inz(*off)
+6.3f d b_logv          s              1    inz(*off)
+      *
+     d w_firm          s              3  0
+     d w_vtyp          s              1
+6.31 d w_udat          s                   like(jvudat)
+8.01 d w_ddat          s                   like(jvudat)
+6.3a d w_fkrt          s                   like(jpfkrt)
+6.3a d w_fprt          s                   like(jpfprt)
+6.3a d w_fton          s                   like(jpfton)
+6.3a d w_fkub          s                   like(jpfkub)
+6.3a d w_vekt          s                   like(jwvekt)
+6.3a d w_volu          s                   like(jwvolu)
+6.3a d w_vekx          s                   like(jwvekt)
+6.3a d w_volx          s                   like(jwvolu)
+6.3e d w_kurs          s                   like(rapmku)
+6.3f d w_lv_vare       s                   like(jvvare)
+6.3f d w_lv_modn       s                   like(jvmodn)
+6.3f d w_lv_lvar       s                   like(jvllva)
+6.3f d w_lv_kldo       s                   like(jvldor)
+6.3f d w_lv_nobb       s                   like(jvnobb)
+6.3f d w_lv_ofak       s                   like(jwofak)
+6.3f d w_vare          s                   like(jvvare)
+6.3f d w_modnx         s                   like(jvmodn)
+      *
+7.01   dcl-s co402_verdi1  char(1);
+7.01   dcl-s co402_verdi2  char(2048);
+7.01   DCL-PR CO402R EXTPGM('CO402R');
+7.01     p_filgrp            char(3)     const;
+7.01     p_firm              packed(3:0) const;
+7.01     p_lager             packed(2:0) const;
+7.01     p_nokkel            char(50)    const;
+7.01     p_verdi1            char(1);
+7.01     p_verdi2            char(2048);
+7.01   END-PR;
+7.01 d u_701           s              1    inz(*off)
+      *
+6.3f C/Exec SQL
+6.3f C+  Set Option DatFmt=*ISO
+6.3f C/End-Exec
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedrutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      jvarl1_vare = p_vare
+     c     jvarl1_key    chain     jvarl1
+      *
+      * Vare ble ikke funnet
+      *
+     c                   if        not %found
+     c                   eval      p_osts = 9
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Siden varen selges som skaffevare fra ordre benytter den kalkyle
+      * som skaffevare
+      *
+     c                   eval      w_vtyp = 'S'
+      *
+      * Henter vare-detalj-informasjon
+      *
+     c                   eval      jvdtl1_dvar = p_vare
+     c     jvdtl1_key    chain     jvdtl1
+     c                   if        %found
+     c                   eval      p_pkod = jvdpko
+     c                   endif
+      *
+      * Sjekker varegruppe
+      *
+     c                   if        jvogrp = 0 or
+     c                             jvhgrp = 0 or
+     c                             jvugrp = 0
+     c                   eval      p_osts = 1
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Henter prisgivende leverandør
+      *
+     c                   exsr      hent_lev
+      *
+      * Henter betingelser
+      *
+      *
+6.3x c                   eval      b_beti = *off
+6.3x c                   eval      jbetlb_prgr = p_prgr
+6.3x c                   eval      jbetlc_prgr = p_prgr
+6.3x c                   eval      jbetl1_prgr = p_prgr
+     c                   exsr      hent_beti
+      *
+6.3a  * Hvis prisgruppe, men ikke funnet, så prøves blank prisgruppe
+6.3a c                   if        b_beti = *off and
+6.3a c                             p_prgr <> *blank
+6.3a c                   eval      p_pgbe = *blank
+6.3a c                   eval      p_osts = 0
+6.3a c                   eval      jbetlb_prgr = *blank
+6.3a c                   eval      jbetlc_prgr = *blank
+6.3a c                   eval      jbetl1_prgr = *blank
+6.3a c                   exsr      hent_beti
+6.3a c                   endif
+      *
+      *
+      * Henter påslagsfaktorer
+      *
+5.70 c                   eval      b_pasl = *off
+5.70 c                   if        p_prgr <> *blank
+5.70 c                   eval      jpfala_prgr = p_prgr
+5.70 c                   eval      jpfalb_prgr = p_prgr
+5.70 c                   eval      jpfal1_prgr = p_prgr
+5.70 c                   exsr      hent_pasl
+5.70  *
+5.70 c                   endif
+5.70  *
+5.70 c                   if        b_pasl = *off
+5.70 c                   eval      jpfala_prgr = *blank
+5.70 c                   eval      jpfalb_prgr = *blank
+5.70 c                   eval      jpfal1_prgr = *blank
+     c                   exsr      hent_pasl
+5.70 c                   eval      p_prut = *blank
+     c                   endif
+      *
+      * Henter leverandørnummer i eget vareregister
+      *
+     c                   exsr      hent_elev
+      *
+      * Henter enhet
+      *
+     c                   exsr      hent_enhet
+     c                   if        p_osts = 3
+     c                   goto      avslutt
+     c                   endif
+6.3a  *
+6.3a  * Henter fraktbetingelse
+6.3a  *
+6.3a c                   eval      b_frak = *off
+6.3a c                   eval      jfbelb_fprg = p_prgr
+6.3a c                   eval      jfbelc_fprg = p_prgr
+6.3a c                   eval      jfbel1_fprg = p_prgr
+6.3a c                   exsr      hent_frakt
+6.3a  *
+6.3a  * Hvis prisgruppe, men ikke funnet, så prøves blank prisgruppe
+6.3a c                   if        b_frak = *off and
+6.3a c                             p_prgr <> *blank
+6.3a c                   eval      p_pgfr = *blank
+6.3a c                   eval      p_osts = 0
+6.3a c                   eval      jfbelb_fprg = *blank
+6.3a c                   eval      jfbelc_fprg = *blank
+6.3a c                   eval      jfbel1_fprg = *blank
+6.3a c                   exsr      hent_frakt
+6.3a c                   endif
+6.3a  *
+      *
+      * Henter pris
+      *
+     c                   exsr      hent_pris
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å hente prisgivende leverandør
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_lev      begsr
+      *
+     c                   if        p_ldor = 0
+     c                   eval      p_ldor = jvldor
+     c                   endif
+6.3f c                   exsr      finn_logivar
+6.3f  * hvis Logistikk-vare så settes modulnr til logistikkvarens modulnr
+      * og vare - dette brukes i betingelse og påslag
+6.3f c                   eval      w_vare = p_vare
+6.3f c                   eval      w_modnx = jvmodn
+6.3f c                   if        b_logv = *on
+6.3f c                   eval      w_modnx  = w_lv_modn
+6.3f c                   movel     w_lv_nobb     w_vare
+6.3f c                   endif
+      *
+     c                   eval      jvprl1_vare = p_vare
+     c                   eval      jvprl1_ldor = p_ldor
+6.33 c     jvprl1_key    setll     jvprl1
+6.33 c     jvprl1_key    reade     jvprl1
+6.33 c                   dow       not %eof
+6.33 c                   if        p_dato >= jxgdat
+6.33  *
+6.33  * her velges parm.dato's pris, som ikke utløpt**
+6.33  *
+6.32 c                   if        (jxtdat =  *loval) or
+6.32 c                             (jxtdat <> *loval and
+7.03 c                             jxtdat >= w_udat)
+     c                   eval      p_nopr = jxpris
+6.33 c                   eval      p_gdat = jxgdat
+7.02 c                   leave
+     c                   endif
+     c                   endif
+6.33 c     jvprl1_key    reade     jvprl1
+6.33 c                   enddo
+6.3f  ** hvis logistikkvare og omregn.faktor <> 1
+6.3f  **
+6.3f c*                   if        b_logv  = *on and
+6.3f c*                             w_lv_ofak <>  1
+6.3f c*                   eval(h)   p_nopr = p_nopr * w_lv_ofak
+6.3f c*                   endif
+      *
+6.3e  *
+6.3e  * sjekker om valuta på nobbpris
+6.3e  *
+6.3e c                   if        jxvalu <> *blank and
+6.3e c                             jxvalu <> 'NOK'
+6.3e c                   eval      w_kurs = 1
+6.3e c                   exsr      valuta
+6.3e c                   eval(h)   p_nopr = p_nopr * w_kurs
+6.3e c                   endif
+      *
+6.34 c                   eval      jvlel1_lvnr = jvvare
+6.34 c                   eval      jvlel1_lldo = p_ldor
+6.34 c     jvlel1_key    setll     jvlel1
+6.34 c                   if        %found(jvlel1)
+6.ef c                   if        b_logv = *on
+6.ef c                   eval      p_lvar = w_lv_lvar
+6.ef c                   else
+6.34 c                   eval      p_lvar = jvllva
+6.ef c                   endif
+6.34 c                   endif
+      *
+     c                   if        p_lvar = *blank and
+     c                             p_ldor = jvldor
+     c                   eval      p_lvar = jvlvar
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å hente betingelse
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_beti     begsr
+      *
+      * Leter etter betingelser knyttet opp mot prisgivende leverandør
+      * etter følgende rekkefølge:
+      *
+      * Overgruppe
+      * | Hovedgruppe
+      * | | Undergruppe
+      * | | | Modul
+      * | | | | Vare
+      * | | | | | Varetype
+      * | | | | | | Leveringstype
+      * | | | | | | |
+      * _________________
+      * - - - - x x x    1. vare,vt,lt
+      * - - - - x x 0    2. vare,vt,lt=0
+      * - - - - x - x    3. vare,lt
+      * - - - - x - 0    4. vare,lt=0
+      * - - - x - x x    5. modul,vt,lt
+      * - - - x - x 0    6. modul,vt,lt=0
+      * - - - x - - x    7. modul,lt
+      * - - - x - - 0    8. modul,lt=0
+      * x x x - - x x    9. ogr,hgr,ugr,vt,lt
+      * x x x - - x 0   10. ogr,hgr,ugr,vt,lt=0
+      * x x x - - - x   11. ogr,hgr,ugr,lt
+      * x x x - - - 0   12. ogr,hgr,ugr,lt=0
+      * x x - - - x x   13. ogr,hgr,vt,lt
+      * x x - - - x 0   14. ogr,hgr,vt,lt=0
+      * x x - - - - x   15. ogr,hgr,lt
+      * x x - - - - 0   16. ogr,hgr,lt=0
+      * x - - - - x x   17. ogr,vt,lt
+      * x - - - - x 0   18. ogr,vt,lt=0
+      * x - - - - - x   19. ogr,lt
+      * x - - - - - 0   20. ogr,lt=0
+      * - - - - - x x   21. ogr,vt,lt
+      * - - - - - x 0   22. ogr,vt,lt=0
+      * - - - - - - x   23. ogr,lt
+      * - - - - - - 0   24. ogr,lt=0
+      *
+      * Vare
+      *
+     c                   eval      jbetlb_ldor = p_ldor
+6.3f c                   eval      jbetlb_vare = w_vare
+     c                   eval      jbetlb_vtyp = w_vtyp
+     c                   eval      jbetlb_lety = p_lety
+      *
+     c     jbetlb_key    setll     jbetlb
+     c     jbetlb_key    reade     jbetlb
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetlb_key    reade     jbetlb
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetlb_lety = 0
+     c     jbetlb_key    setll     jbetlb
+     c     jbetlb_key    reade     jbetlb
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetlb_key    reade     jbetlb
+     c                   enddo
+     c                   endif
+      *
+     c                   if        w_vtyp <> *blank
+      *
+     c                   eval      jbetlb_vtyp = *blank
+     c                   eval      jbetlb_lety = p_lety
+     c     jbetlb_key    setll     jbetlb
+     c     jbetlb_key    reade     jbetlb
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetlb_key    reade     jbetlb
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetlb_vtyp = *blank
+     c                   eval      jbetlb_lety = 0
+     c     jbetlb_key    setll     jbetlb
+     c     jbetlb_key    reade     jbetlb
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetlb_key    reade     jbetlb
+     c                   enddo
+     c                   endif
+      *
+     c                   endif
+      *
+      * Modul
+      *
+6.3f c                   if        w_modnx <> 0
+      *
+     c                   eval      jbetlc_ldor = p_ldor
+6.3f c                   eval      jbetlc_modn = w_modnx
+     c                   eval      jbetlc_vare = *blank
+     c                   eval      jbetlc_vtyp = w_vtyp
+     c                   eval      jbetlc_lety = p_lety
+      *
+     c     jbetlc_key    setll     jbetlc
+     c     jbetlc_key    reade     jbetlc
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetlc_key    reade     jbetlc
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetlc_lety = 0
+     c     jbetlc_key    setll     jbetlc
+     c     jbetlc_key    reade     jbetlc
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetlc_key    reade     jbetlc
+     c                   enddo
+     c                   endif
+      *
+     c                   if        w_vtyp <> *blank
+      *
+     c                   eval      jbetlc_vtyp = *blank
+     c                   eval      jbetlc_lety = p_lety
+     c     jbetlc_key    setll     jbetlc
+     c     jbetlc_key    reade     jbetlc
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetlc_key    reade     jbetlc
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetlc_vtyp = *blank
+     c                   eval      jbetlc_lety = 0
+     c     jbetlc_key    setll     jbetlc
+     c     jbetlc_key    reade     jbetlc
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetlc_key    reade     jbetlc
+     c                   enddo
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   endif
+      *
+      * Overgruppe/hovedgruppe/undergruppe
+      *
+     c                   eval      jbetl1_ldor = p_ldor
+     c                   eval      jbetl1_ogrp = jvogrp
+     c                   eval      jbetl1_hgrp = jvhgrp
+     c                   eval      jbetl1_ugrp = jvugrp
+     c                   eval      jbetl1_modn = 0
+     c                   eval      jbetl1_vare = *blank
+     c                   eval      jbetl1_vtyp = w_vtyp
+     c                   eval      jbetl1_lety = p_lety
+      *
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetl1_lety = 0
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+     c                   endif
+      *
+     c                   if        w_vtyp <> *blank
+      *
+     c                   eval      jbetl1_vtyp = *blank
+     c                   eval      jbetl1_lety = p_lety
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetl1_vtyp = *blank
+     c                   eval      jbetl1_lety = 0
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+     c                   endif
+      *
+     c                   endif
+      *
+      * Overgruppe/hovedgruppe
+      *
+     c                   eval      jbetl1_ugrp = 0
+     c                   eval      jbetl1_vtyp = w_vtyp
+     c                   eval      jbetl1_lety = p_lety
+      *
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetl1_lety = 0
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+     c                   endif
+      *
+     c                   if        w_vtyp <> *blank
+      *
+     c                   eval      jbetl1_vtyp = *blank
+     c                   eval      jbetl1_lety = p_lety
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetl1_vtyp = *blank
+     c                   eval      jbetl1_lety = 0
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+     c                   endif
+      *
+     c                   endif
+      *
+      * Overgruppe
+      *
+     c                   eval      jbetl1_hgrp = 0
+     c                   eval      jbetl1_vtyp = w_vtyp
+     c                   eval      jbetl1_lety = p_lety
+      *
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetl1_lety = 0
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+     c                   endif
+      *
+     c                   if        w_vtyp <> *blank
+      *
+     c                   eval      jbetl1_vtyp = *blank
+     c                   eval      jbetl1_lety = p_lety
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetl1_vtyp = *blank
+     c                   eval      jbetl1_lety = 0
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+     c                   endif
+      *
+     c                   endif
+      *
+      * Generell (på leverandør)
+      *
+     c                   eval      jbetl1_ogrp = 0
+     c                   eval      jbetl1_vtyp = w_vtyp
+     c                   eval      jbetl1_lety = p_lety
+      *
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetl1_lety = 0
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+     c                   endif
+      *
+     c                   if        w_vtyp <> *blank
+      *
+     c                   eval      jbetl1_vtyp = *blank
+     c                   eval      jbetl1_lety = p_lety
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+      *
+     c                   if        p_lety <> 0
+     c                   eval      jbetl1_vtyp = *blank
+     c                   eval      jbetl1_lety = 0
+     c     jbetl1_key    setll     jbetl1
+     c     jbetl1_key    reade     jbetl1
+     c                   dow       not %eof
+     c                   if        jpakti = 1
+6.3c c                   exsr      sjekk_dato
+6.3c c                   if        b_bdat = *on
+     c                   goto      end_beti
+6.3c c                   endif
+     c                   endif
+     c     jbetl1_key    reade     jbetl1
+     c                   enddo
+     c                   endif
+      *
+     c                   endif
+      *
+      * Dersom ingen betingelse ble funnet, settes status til 5, og
+      * innkjøpsprisfaktor defaultes til 1
+      *
+     c                   eval      p_osts = 5
+     c                   eval      p_ifak = 1
+      *
+     c                   leavesr
+      *
+     c     end_beti      tag
+      *
+      * Henter verdier fra funnet betingelse
+      *
+     c                   eval      p_bldo = jpldor
+     c                   eval      p_bogr = jpogrp
+     c                   eval      p_bhgr = jphgrp
+     c                   eval      p_bugr = jpugrp
+     c                   eval      p_bmod = jpmodn
+     c                   eval      p_bvar = jpvare
+     c                   eval      p_bvty = jpvtyp
+     c                   eval      p_blet = jplety
+     c                   eval      p_bbet = jpbeti
+      *
+      * Dersom det finnes aktiviserte rabattelement under betingelsen er
+      * det kun disse som skal benyttes.
+      *
+     c                   eval      jrael4_eldo = jpldor
+     c                   eval      jrael4_eprg = jpprgr
+     c                   eval      jrael4_eogr = jpogrp
+     c                   eval      jrael4_ehgr = jphgrp
+     c                   eval      jrael4_eugr = jpugrp
+     c                   eval      jrael4_emod = jpmodn
+     c                   eval      jrael4_evar = jpvare
+     c                   eval      jrael4_evty = jpvtyp
+     c                   eval      jrael4_elet = jplety
+     c                   eval      jrael4_ebrs = jprsts
+     c                   eval      jrael4_ebli = jpline
+     c                   eval      jrael4_eakt = 1
+     c     jrael4_key    chain     jrael4
+     c                   if        %found
+     c                   eval      b_akti = *on
+     c                   endif
+      *
+      * Kalkulerer nettopris og innkjøpsprisfaktor fra rabattelementene
+      *
+     c                   eval      p_ntpr = 0
+     c                   eval      p_ifak = 1
+      *
+     c                   eval      jrael1_eldo = jpldor
+     c                   eval      jrael1_eprg = jpprgr
+     c                   eval      jrael1_eogr = jpogrp
+     c                   eval      jrael1_ehgr = jphgrp
+     c                   eval      jrael1_eugr = jpugrp
+     c                   eval      jrael1_emod = jpmodn
+     c                   eval      jrael1_evar = jpvare
+     c                   eval      jrael1_evty = jpvtyp
+     c                   eval      jrael1_elet = jplety
+     c                   eval      jrael1_ebrs = jprsts
+     c                   eval      jrael1_ebli = jpline
+     c     jrael1_key    setll     jrael1
+     c     jrael1_key    reade     jrael1
+     c                   dow       not %eof
+     c                   if        b_akti = *off or
+     c                             b_akti = *on and
+     c                             jpeakt = 1
+     c                   select
+     c                   when      jpereg = '1'
+     c                   eval(h)   p_ifak = p_ifak - (jpever / 100 * p_ifak)
+     c                   when      jpereg = '2'
+     c                   eval(h)   p_ifak = p_ifak - (jpever / 100)
+     c                   when      jpereg = 'N'
+     c                   eval      p_ntpr = p_ntpr + jpever
+     c                   endsl
+     c                   endif
+     c     jrael1_key    reade     jrael1
+     c                   enddo
+      *
+6.3x c                   eval      b_beti = *on
+      *
+     c                   endsr
+6.3a  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3a  * Subrutine for å hente frakt betingelse
+6.3a  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3a  *
+6.3a c     hent_frakt    begsr
+6.3a  *
+6.3a  * Leter etter betingelser knyttet opp mot prisgivende leverandør
+6.3a  * etter følgende rekkefølge:
+6.3a  *
+6.3a  * Overgruppe
+6.3a  * | Hovedgruppe
+6.3a  * | | Undergruppe
+6.3a  * | | | Modul
+6.3a  * | | | | Vare
+6.3a  * | | | | | Varetype
+6.3a  * | | | | | | Leveringstype
+6.3a  * | | | | | | |
+6.3a  * _________________
+6.3a  * - - - - x x x    1. vare,vt,lt
+6.3a  * - - - - x x 0    2. vare,vt,lt=0
+6.3a  * - - - - x - x    3. vare,lt
+6.3a  * - - - - x - 0    4. vare,lt=0
+6.3a  * - - - x - x x    5. modul,vt,lt
+6.3a  * - - - x - x 0    6. modul,vt,lt=0
+6.3a  * - - - x - - x    7. modul,lt
+6.3a  * - - - x - - 0    8. modul,lt=0
+6.3a  * x x x - - x x    9. ogr,hgr,ugr,vt,lt
+6.3a  * x x x - - x 0   10. ogr,hgr,ugr,vt,lt=0
+6.3a  * x x x - - - x   11. ogr,hgr,ugr,lt
+6.3a  * x x x - - - 0   12. ogr,hgr,ugr,lt=0
+6.3a  * x x - - - x x   13. ogr,hgr,vt,lt
+6.3a  * x x - - - x 0   14. ogr,hgr,vt,lt=0
+6.3a  * x x - - - - x   15. ogr,hgr,lt
+6.3a  * x x - - - - 0   16. ogr,hgr,lt=0
+6.3a  * x - - - - x x   17. ogr,vt,lt
+6.3a  * x - - - - x 0   18. ogr,vt,lt=0
+6.3a  * x - - - - - x   19. ogr,lt
+6.3a  * x - - - - - 0   20. ogr,lt=0
+6.3a  * - - - - - x x   21. ogr,vt,lt
+6.3a  * - - - - - x 0   22. ogr,vt,lt=0
+6.3a  * - - - - - - x   23. ogr,lt
+6.3a  * - - - - - - 0   24. ogr,lt=0
+6.3a  *
+6.3a c                   eval      w_fkrt = 0
+6.3a c                   eval      w_fprt = 0
+6.3a c                   eval      w_fton = 0
+6.3a c                   eval      w_fkub = 0
+6.3a  *
+6.3a  * vare
+6.3a  *
+6.3a c                   eval      jfbelb_fldo = p_ldor
+6.3a c                   eval      jfbelb_fvar = p_vare
+6.3a c                   eval      jfbelb_fvty = w_vtyp
+6.3a c                   eval      jfbelb_flet = p_lety
+6.3a  *
+6.3a c     jfbelb_key    setll     jfbelb
+6.3a c     jfbelb_key    reade     jfbelb
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbelb_key    reade     jfbelb
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbelb_flet = 0
+6.3a c     jfbelb_key    setll     jfbelb
+6.3a c     jfbelb_key    reade     jfbelb
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbelb_key    reade     jfbelb
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   if        w_vtyp <> *blank
+6.3a  *
+6.3a c                   eval      jfbelb_fvty = *blank
+6.3a c                   eval      jfbelb_flet = p_lety
+6.3a c     jfbelb_key    setll     jfbelb
+6.3a c     jfbelb_key    reade     jfbelb
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbelb_key    reade     jfbelb
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbelb_fvty = *blank
+6.3a c                   eval      jfbelb_flet = 0
+6.3a c     jfbelb_key    setll     jfbelb
+6.3a c     jfbelb_key    reade     jfbelb
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbelb_key    reade     jfbelb
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   endif
+6.3a  *
+6.3a  * Modul
+6.3a  *
+6.3f c                   if        w_modnx <> 0
+6.3a  *
+6.3a c                   eval      jfbelc_fldo = p_ldor
+6.3f c                   eval      jfbelc_fmod = w_modnx
+6.3a c                   eval      jfbelc_fvar = *blank
+6.3a c                   eval      jfbelc_fvty = w_vtyp
+6.3a c                   eval      jfbelc_flet = p_lety
+6.3a  *
+6.3a c     jfbelc_key    setll     jfbelc
+6.3a c     jfbelc_key    reade     jfbelc
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbelc_key    reade     jfbelc
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbelc_flet = 0
+6.3a c     jfbelc_key    setll     jfbelc
+6.3a c     jfbelc_key    reade     jfbelc
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbelc_key    reade     jfbelc
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   if        w_vtyp <> *blank
+6.3a  *
+6.3a c                   eval      jfbelc_fvty = *blank
+6.3a c                   eval      jfbelc_flet = p_lety
+6.3a c     jfbelc_key    setll     jfbelc
+6.3a c     jfbelc_key    reade     jfbelc
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbelc_key    reade     jfbelc
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbelc_fvty = *blank
+6.3a c                   eval      jfbelc_flet = 0
+6.3a c     jfbelc_key    setll     jfbelc
+6.3a c     jfbelc_key    reade     jfbelc
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbelc_key    reade     jfbelc
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   endif
+6.3a  *
+6.3a c                   endif
+6.3a  *
+6.3a  * Overgruppe/hovedgruppe/undergruppe
+6.3a  *
+6.3a c                   eval      jfbel1_fldo = p_ldor
+6.3a c                   eval      jfbel1_fogr = jvogrp
+6.3a c                   eval      jfbel1_fhgr = jvhgrp
+6.3a c                   eval      jfbel1_fugr = jvugrp
+6.3a c                   eval      jfbel1_fmod = 0
+6.3a c                   eval      jfbel1_fvar = *blank
+6.3a c                   eval      jfbel1_fvty = w_vtyp
+6.3a c                   eval      jfbel1_flet = p_lety
+6.3a  *
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbel1_flet = 0
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   if        w_vtyp <> *blank
+6.3a  *
+6.3a c                   eval      jfbel1_fvty = *blank
+6.3a c                   eval      jfbel1_flet = p_lety
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbel1_fvty = *blank
+6.3a c                   eval      jfbel1_flet = 0
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   endif
+6.3a  *
+6.3a  * Overgruppe/hovedgruppe
+6.3a  *
+6.3a c                   eval      jfbel1_fugr = 0
+6.3a c                   eval      jfbel1_fvty = w_vtyp
+6.3a c                   eval      jfbel1_flet = p_lety
+6.3a  *
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbel1_flet = 0
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   if        w_vtyp <> *blank
+6.3a  *
+6.3a c                   eval      jfbel1_fvty = *blank
+6.3a c                   eval      jfbel1_flet = p_lety
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbel1_fvty = *blank
+6.3a c                   eval      jfbel1_flet = 0
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   endif
+6.3a  *
+6.3a  * Overgruppe
+6.3a  *
+6.3a c                   eval      jfbel1_fhgr = 0
+6.3a c                   eval      jfbel1_fvty = w_vtyp
+6.3a c                   eval      jfbel1_flet = p_lety
+6.3a  *
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbel1_flet = 0
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   if        w_vtyp <> *blank
+6.3a  *
+6.3a c                   eval      jfbel1_fvty = *blank
+6.3a c                   eval      jfbel1_flet = p_lety
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbel1_fvty = *blank
+6.3a c                   eval      jfbel1_flet = 0
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   endif
+6.3a  *
+6.3a  * Generell (på leverandør)
+6.3a  *
+6.3a c                   eval      jfbel1_fogr = 0
+6.3a c                   eval      jfbel1_fvty = w_vtyp
+6.3a c                   eval      jfbel1_flet = p_lety
+6.3a  *
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbel1_flet = 0
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   if        w_vtyp <> *blank
+6.3a  *
+6.3a c                   eval      jfbel1_fvty = *blank
+6.3a c                   eval      jfbel1_flet = p_lety
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a  *
+6.3a c                   if        p_lety <> 0
+6.3a c                   eval      jfbel1_fvty = *blank
+6.3a c                   eval      jfbel1_flet = 0
+6.3a c     jfbel1_key    setll     jfbel1
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   dow       not %eof
+6.3a c                   goto      end_frakt
+6.3a c     jfbel1_key    reade     jfbel1
+6.3a c                   enddo
+6.3a c                   endif
+6.3a  *
+6.3a c                   endif
+6.3a  *
+6.3a  * Dersom ingen frakt betingelse
+6.3a  *
+6.3a c                   leavesr
+6.3a  *
+6.3a c     end_frakt     tag
+6.3a  *
+6.3a  * Henter verdier fra funnet frakt
+6.3a  *
+6.3a  *
+     c                   if        (jpffda = *loval and
+     c                             jpftda = *loval) or
+8.01 c                             (w_ddat >= jpffda and
+8.01 c                             w_ddat <= jpftda) or
+8.01 c                             (w_ddat >= jpffda and
+8.01 c                             jpftda = *loval)
+6.3a  *
+6.3a c                   eval      w_fkrt = jpfkrt * p_ofp1
+6.3a c                   eval(h)   w_fprt = jpfprt
+6.3a c                   eval      w_fton = jpfton * p_ofp1
+6.3a c                   eval      w_fkub = jpfkub * p_ofp1
+     c                   eval      b_frak = *on
+6.3a c
+6.3a c                   endif
+6.3a c                   endsr
+6.3a  *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å hente påslagsfaktorer - bruker først funnet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_pasl     begsr
+      *
+      * Leter etter påslag etter følgende rekkefølge:
+      *
+      * Overgruppe
+      * | Hovedgruppe
+      * | | Undergruppe
+      * | | | Leverandør
+      * | | | | Modul
+      * | | | | | Vare
+      * | | | | | | Priskode
+      * | | | | | | | Varetype
+      * | | | | | | | | Leveringstype
+      * | | | | | | | | |
+      * _________________
+      * - - - x - x x x x    1. lev,vare,pk,vt,lt
+      * - - - x - x x x 0    2. lev,vare,pk,vt,lt=0
+      * - - - x - x x - x    3. lev,vare,pk,lt
+      * - - - x - x x - 0    4. lev,vare,pk,lt=0
+      * - - - x - x - x x    5. lev,vare,vt,lt
+      * - - - x - x - x 0    6. lev,vare,vt,lt=0
+      * - - - x - x - - x    7. lev,vare,lt
+      * - - - x - x - - 0    8. lev,vare,lt=0
+      * - - - - - x x x x    9. vare,pk,vt,lt
+      * - - - - - x x x 0   10. vare,pk,vt,lt=0
+      * - - - - - x x - x   11. vare,pk,lt
+      * - - - - - x x - 0   12. vare,pk,lt=0
+      * - - - - - x - x x   13. vare,vt,lt
+      * - - - - - x - x 0   14. vare,vt,lt=0
+      * - - - - - x - - x   15. vare,lt
+      * - - - - - x - - 0   16. vare,lt=0
+      * - - - x x - x x x   17. lev,modul,pk,vt,lt
+      * - - - x x - x x 0   18. lev,modul,pk,vt,lt=0
+      * - - - x x - x - x   19. lev,modul,pk,lt
+      * - - - x x - x - 0   20. lev,modul,pk,lt=0
+      * - - - x x - - x x   21. lev,modul,vt,lt
+      * - - - x x - - x 0   22. lev,modul,vt,lt=0
+      * - - - x x - - - x   23. lev,modul,lt
+      * - - - x x - - - 0   24. lev,modul,lt=0
+      * - - - - x - x x x   25. modul,pk,vt,lt
+      * - - - - x - x x 0   26. modul,pk,vt,lt=0
+      * - - - - x - x - x   27. modul,pk,lt
+      * - - - - x - x - 0   28. modul,pk,lt=0
+      * - - - - x - - x x   29. modul,vt,lt
+      * - - - - x - - x 0   30. modul,vt,lt=0
+      * - - - - x - - - x   31. modul,lt
+      * - - - - x - - - 0   32. modul,lt=0
+      * x x x x - - x x x   33. ogr,hgr,ugr,lev,pk,vt,lt
+      * x x x x - - x x 0   34. ogr,hgr,ugr,lev,pk,vt,lt=0
+      * x x x x - - x - x   35. ogr,hgr,ugr,lev,pk,lt
+      * x x x x - - x - 0   36. ogr,hgr,ugr,lev,pk,lt=0
+      * x x x x - - - x x   37. ogr,hgr,ugr,lev,vt,lt
+      * x x x x - - - x 0   38. ogr,hgr,ugr,lev,vt,lt=0
+      * x x x x - - - - x   39. ogr,hgr,ugr,lev,lt
+      * x x x x - - - - 0   40. ogr,hgr,ugr,lev,lt=0
+      * x x - x - - x x x   41. ogr,hgr,lev,pk,vt,lt
+      * x x - x - - x x 0   42. ogr,hgr,lev,pk,vt,lt=0
+      * x x - x - - x - x   43. ogr,hgr,lev,pk,lt
+      * x x - x - - x - 0   44. ogr,hgr,lev,pk,lt=0
+      * x x - x - - - x x   45. ogr,hgr,lev,vt,lt
+      * x x - x - - - x 0   46. ogr,hgr,lev,vt,lt=0
+      * x x - x - - - - x   47. ogr,hgr,lev,lt
+      * x x - x - - - - 0   48. ogr,hgr,lev,lt=0
+      * x - - x - - x x x   49. ogr,lev,pk,vt,lt
+      * x - - x - - x x 0   50. ogr,lev,pk,vt,lt=0
+      * x - - x - - x - x   51. ogr,lev,pk,lt
+      * x - - x - - x - 0   52. ogr,lev,pk,lt=0
+      * x - - x - - - x x   53. ogr,lev,vt,lt
+      * x - - x - - - x 0   54. ogr,lev,vt,lt=0
+      * x - - x - - - - x   55. ogr,lev,lt
+      * x - - x - - - - 0   56. ogr,lev,lt=0
+      * - - - x - - x x x   57. lev,pk,vt,lt
+      * - - - x - - x x 0   58. lev,pk,vt,lt=0
+      * - - - x - - x - x   59. lev,pk,lt
+      * - - - x - - x - 0   60. lev,pk,lt=0
+      * - - - x - - - x x   61. lev,vt,lt
+      * - - - x - - - x 0   62. lev,vt,lt=0
+      * - - - x - - - - x   63. lev,lt
+      * - - - x - - - - 0   64. lev,lt=0
+      * x x x - - - x x x   65. ogr,hgr,ugr,pk,vt,lt
+      * x x x - - - x x 0   66. ogr,hgr,ugr,pk,vt,lt=0
+      * x x x - - - x - x   67. ogr,hgr,ugr,pk,lt
+      * x x x - - - x - 0   68. ogr,hgr,ugr,pk,lt=0
+      * x x x - - - - x x   69. ogr,hgr,ugr,vt,lt
+      * x x x - - - - x 0   70. ogr,hgr,ugr,vt,lt=0
+      * x x x - - - - - x   71. ogr,hgr,ugr,lt
+      * x x x - - - - - 0   72. ogr,hgr,ugr,lt=0
+      * x x - - - - x x x   73. ogr,hgr,pk,vt,lt
+      * x x - - - - x x 0   74. ogr,hgr,pk,vt,lt=0
+      * x x - - - - x - x   75. ogr,hgr,pk,lt
+      * x x - - - - x - 0   76. ogr,hgr,pk,lt=0
+      * x x - - - - - x x   77. ogr,hgr,vt,lt
+      * x x - - - - - x 0   78. ogr,hgr,vt,lt=0
+      * x x - - - - - - x   79. ogr,hgr,lt
+      * x x - - - - - - 0   80. ogr,hgr,lt=0
+      * x - - - - - x x x   81. ogr,pk,vt,lt
+      * x - - - - - x x 0   82. ogr,pk,vt,lt=0
+      * x - - - - - x - x   83. ogr,pk,lt
+      * x - - - - - x - 0   84. ogr,pk,lt=0
+      * x - - - - - - x x   85. ogr,vt,lt
+      * x - - - - - - x 0   86. ogr,vt,lt=0
+      * x - - - - - - - x   87. ogr,lt
+      * x - - - - - - - 0   88. ogr,lt=0
+      * - - - - - - x x x   89. pk,vt,lt
+      * - - - - - - x x 0   90. pk,vt,lt=0
+      * - - - - - - x - x   91. pk,lt
+      * - - - - - - x - 0   92. pk,lt=0
+      * - - - - - - - x x   93. vt,lt
+      * - - - - - - - x 0   94. vt,lt=0
+      * - - - - - - - - x   95. lt
+      * - - - - - - - - 0   96. lt=0
+      *
+6.3f c                   eval      jpfala_vare = w_vare
+     c                   eval      jpfala_ldor = p_ldor
+     c                   eval      jpfala_kpri = p_pkod
+     c                   eval      jpfala_vtyp = w_vtyp
+     c                   eval      jpfala_lety = p_lety
+      *
+6.3f c                   eval      jpfalb_modn = w_modnx
+     c                   eval      jpfalb_ldor = p_ldor
+     c                   eval      jpfalb_vare = *blank
+     c                   eval      jpfalb_kpri = p_pkod
+     c                   eval      jpfalb_vtyp = w_vtyp
+     c                   eval      jpfalb_lety = p_lety
+      *
+     c                   eval      jpfal1_ogrp = jvogrp
+     c                   eval      jpfal1_hgrp = jvhgrp
+     c                   eval      jpfal1_ugrp = jvugrp
+     c                   eval      jpfal1_ldor = p_ldor
+     c                   eval      jpfal1_modn = 0
+     c                   eval      jpfal1_vare = *blank
+     c                   eval      jpfal1_kpri = p_pkod
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+      *
+      * Leverandør/vare
+      *
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_lety = 0
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_vtyp = *blank
+     c                   eval      jpfala_lety = p_lety
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_lety = 0
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_kpri = *blank
+     c                   eval      jpfala_vtyp = w_vtyp
+     c                   eval      jpfala_lety = p_lety
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_lety = 0
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_vtyp = *blank
+     c                   eval      jpfala_lety = p_lety
+     c     jpfala_key    chain     jpfala
+6.xx c                   if        not %found
+     c                   eval      jpfala_lety = 0
+     c     jpfala_key    chain     jpfala
+6.xx c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfala)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Vare
+      *
+     c                   eval      jpfala_ldor = 0
+     c                   eval      jpfala_kpri = p_pkod
+     c                   eval      jpfala_vtyp = w_vtyp
+     c                   eval      jpfala_lety = p_lety
+      *
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_lety = 0
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_vtyp = *blank
+     c                   eval      jpfala_lety = p_lety
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_lety = 0
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_kpri = *blank
+     c                   eval      jpfala_vtyp = w_vtyp
+     c                   eval      jpfala_lety = p_lety
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_lety = 0
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_vtyp = *blank
+     c                   eval      jpfala_lety = p_lety
+     c     jpfala_key    chain     jpfala
+     c                   if        not %found
+     c                   eval      jpfala_lety = 0
+     c     jpfala_key    chain     jpfala
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfala)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Leverandør/modul
+      *
+6.3f c                   if        w_modnx <> 0
+      *
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_lety = 0
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_vtyp = *blank
+     c                   eval      jpfalb_lety = p_lety
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_lety = 0
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_kpri = *blank
+     c                   eval      jpfalb_vtyp = w_vtyp
+     c                   eval      jpfalb_lety = p_lety
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_lety = 0
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_vtyp = *blank
+     c                   eval      jpfalb_lety = p_lety
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_lety = 0
+     c     jpfalb_key    chain     jpfalb
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfalb)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Modul
+      *
+     c                   eval      jpfalb_ldor = 0
+     c                   eval      jpfalb_kpri = p_pkod
+     c                   eval      jpfalb_vtyp = w_vtyp
+     c                   eval      jpfalb_lety = p_lety
+      *
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_lety = 0
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_vtyp = *blank
+     c                   eval      jpfalb_lety = p_lety
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_lety = 0
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_kpri = *blank
+     c                   eval      jpfalb_vtyp = w_vtyp
+     c                   eval      jpfalb_lety = p_lety
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_lety = 0
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_vtyp = *blank
+     c                   eval      jpfalb_lety = p_lety
+     c     jpfalb_key    chain     jpfalb
+     c                   if        not %found
+     c                   eval      jpfalb_lety = 0
+     c     jpfalb_key    chain     jpfalb
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfalb)
+     c                   goto      end_paslag
+     c                   endif
+      *
+     c                   endif
+      *
+      * Overgruppe/hovedgruppe/undergruppe/leverandør
+      *
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_kpri = *blank
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfal1)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Overgruppe/hovedgruppe/leverandør
+      *
+     c                   eval      jpfal1_ugrp = 0
+     c                   eval      jpfal1_kpri = p_pkod
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+      *
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_kpri = *blank
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfal1)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Overgruppe/leverandør
+      *
+     c                   eval      jpfal1_hgrp = 0
+     c                   eval      jpfal1_kpri = p_pkod
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+      *
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_kpri = *blank
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfal1)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Leverandør
+      *
+     c                   eval      jpfal1_ogrp = 0
+     c                   eval      jpfal1_kpri = p_pkod
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+      *
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_kpri = *blank
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfal1)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Overgruppe/hovedgruppe/undergruppe
+      *
+     c                   eval      jpfal1_ogrp = jvogrp
+     c                   eval      jpfal1_hgrp = jvhgrp
+     c                   eval      jpfal1_ugrp = jvugrp
+     c                   eval      jpfal1_ldor = 0
+     c                   eval      jpfal1_modn = 0
+     c                   eval      jpfal1_vare = *blank
+     c                   eval      jpfal1_kpri = p_pkod
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+      *
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_kpri = *blank
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfal1)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Overgruppe/hovedgruppe
+      *
+     c                   eval      jpfal1_ugrp = 0
+     c                   eval      jpfal1_kpri = p_pkod
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+      *
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_kpri = *blank
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfal1)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Overgruppe
+      *
+     c                   eval      jpfal1_hgrp = 0
+     c                   eval      jpfal1_kpri = p_pkod
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+      *
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_kpri = *blank
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfal1)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Generell
+      *
+     c                   eval      jpfal1_ogrp = 0
+     c                   eval      jpfal1_kpri = p_pkod
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+      *
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_kpri = *blank
+     c                   eval      jpfal1_vtyp = w_vtyp
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_vtyp = *blank
+     c                   eval      jpfal1_lety = p_lety
+     c     jpfal1_key    chain     jpfal1
+     c                   if        not %found
+     c                   eval      jpfal1_lety = 0
+     c     jpfal1_key    chain     jpfal1
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   if        %found(jpfal1)
+     c                   goto      end_paslag
+     c                   endif
+      *
+      * Ingen gyldige påslagsfaktorer funnet.
+      * Status settes til 6, dersom status for betingelse ikke allerede er
+      * satt. Kostprisfaktor og salgprisfaktor defaultes til 1.
+      *
+     c                   if        p_osts <> 5
+     c                   eval      p_osts = 6
+     c                   endif
+      *
+     c                   eval      p_kfak = 1
+     c                   eval      p_sfak = 1
+     c                   leavesr
+      *
+      * Tar vare på påslagsfaktor data.
+      *
+     c     end_paslag    tag
+      *
+     c                   eval      p_pogr = jcogrp
+     c                   eval      p_phgr = jchgrp
+     c                   eval      p_pugr = jcugrp
+     c                   eval      p_pldo = jcldor
+     c                   eval      p_pmod = jcmodn
+     c                   eval      p_pvar = jcvare
+     c                   eval      p_ppko = jckpri
+     c                   eval      p_pvty = jcvtyp
+     c                   eval      p_plet = jclety
+7.01 c                   if        u_701 = *off
+     c                   eval      p_kfak = jckofa
+     c                   eval      p_kbel = jckobe
+7.01 c                   else
+7.01 c                   eval      p_kfak = 1
+7.01 c                   eval      p_kbel = 0
+7.01 c                   endif
+     c                   eval      p_sfak = jcsafa
+6.3a c                   eval      b_pasl = *on
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å hente leverandørinformasjon og for å sjekke om
+      * knytning mot leverandør i EVR er lagt inn
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_elev     begsr
+      *
+     c                   eval      jlevl1_ldor = p_ldor
+     c     jlevl1_key    chain     jlevl1
+     c                   if        not %found
+     c                   eval      p_osts = 2
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        jlenum = 0 and
+     c                             p_osts = 0
+     c                   eval      p_osts = 2
+     c                   leavesr
+     c                   endif
+      *
+     c                   eval      p_lnav = jlnavn
+     c                   eval      p_eldo = jlenum
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for henting av enheter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_enhet    begsr
+6.3a  *
+6.3a c                   eval       w_vekt = 0
+6.3a c                   eval       w_volu = 0
+      *
+      * Leser vare-pakningsregisteret for å finne enhet-1 med omregnings-
+      * faktorer.
+      *
+     c                   eval      jvpkl1_vare = p_vare
+6.30 c                   eval      jvpkl1_ldor = p_ldor
+     c     jvpkl1_key    setll     jvpkl1
+     c     jvpkl1_key    reade     jvpkl1
+     c                   dow       not %eof
+6.31  *
+6.31  * sjekker fra / tildato
+6.31 c                   exsr      sjekk_pkdato
+6.31 c                   if        b_pakn = *on
+6.3a  * tar var på vekt og m3 for. evt fraktbetingelse
+6.3a c                   if        jvpenh = jwenhe  and
+6.3a c                             jwpakn <> '000'
+6.3a c                   eval      w_vekt = jwvekt
+6.3a c                   eval      w_volu = jwvolu
+6.3a c                   endif
+6.3a  *
+6.3a  * *tar vare på vekt/volum/omregning for sikkerhets skyld på F-pak
+6.3a c                   if        jwpakn = '001'
+6.3a c                   eval      w_ofz1 = jwofak
+6.3a c                   eval      w_vekx = jwvekt
+6.3a c                   eval      w_volx = jwvolu
+6.3a c                   endif
+6.10  * pris-enhet
+6.10 c                   if        jwenhe = jvpenh
+      *
+     c                   eval      p_enh1 = jwenhe
+      *
+     c                   eval      p_ofp1 = jwofap
+      *
+     c                   if        p_ofp1 = 0
+     c                   if        jwofak = 0
+     c                   eval      p_ofp1 = 1
+     c                   else
+6.11 c                   if        jwofak < 1000000
+     c                   eval      p_ofp1 = jwofak
+6.11 c                   else
+6.11 c                   eval      p_ofp1 = 999999,999999
+6.11 c                   endif
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+6.31 c                   endif
+     c     jvpkl1_key    reade     jvpkl1
+     c                   enddo
+      *
+      * Avbryter dersom prisenhet/enhet-1 ikke ble funnet
+      *
+     c                   if        p_enh1 = *blank
+     c                   eval      p_osts = 3
+     c                   leavesr
+     c                   endif
+      *
+      * Leser vare-pakningsregisteret for å finne enhet-2 og enhet-3 med
+      * omregningsfaktorer
+      *
+     c     jvpkl1_key    setll     jvpkl1
+     c     jvpkl1_key    reade     jvpkl1
+     c                   dow       not %eof
+6.31  *
+6.31  * sjekker fra / tildato
+6.31 c                   exsr      sjekk_pkdato
+6.31 c                   if        b_pakn = *on
+      *
+6.10 c                   if        jwenhe <> *blank and
+     c                             jwenhe <> p_enh1
+      *
+     c                   select
+     c                   when      p_enh2 = *blank or
+     c                             p_enh2 = jwenhe
+     c                   eval      p_enh2 = jwenhe
+6.11 c                   if        jwofak < 1000000
+     c                   eval      p_ofv2 = jwofak
+6.11 c                   else
+6.11 c                   eval      p_ofv2 = 999999,999999
+6.11 c                   endif
+     c                   eval      p_ofp2 = jwofap
+     c                   if        p_ofv2 = 0
+     c                   eval      p_ofv2 = 1
+     c                   endif
+     c                   if        p_ofp2 = 0
+     c                   eval      p_ofp2 = p_ofv2
+     c                   endif
+     c                   when      p_enh3 = *blank or
+     c                             p_enh3 = jwenhe
+     c                   eval      p_enh3 = jwenhe
+6.11 c                   if        jwofak < 1000000
+     c                   eval      p_ofv3 = jwofak
+6.11 c                   else
+6.11 c                   eval      p_ofv3 = 999999,999999
+6.11 c                   endif
+     c                   eval      p_ofp3 = jwofap
+     c                   if        p_ofv3 = 0
+     c                   eval      p_ofv3 = 1
+     c                   endif
+     c                   if        p_ofp3 = 0
+     c                   eval      p_ofp3 = p_ofv3
+     c                   endif
+     c                   endsl
+      *
+     c                   endif
+      *
+6.31 c                   endif
+     c     jvpkl1_key    reade     jvpkl1
+     c                   enddo
+6.3a  *
+6.3a  * Hvis vekt/volum ikke finnes på prisenhet, sjekk F-pak
+6.3a c                   if        w_vekt = 0 and
+6.3a c                             w_vekx <> 0 and
+6.3a c                             w_ofz1 <> 0
+6.3a c                   eval(h)   w_vekt = w_vekx * (1/w_ofz1)
+6.3a c                   endif
+6.3a c                   if        w_volu = 0 and
+6.3a c                             w_volx <> 0 and
+6.3a c                             w_ofz1 <> 0
+6.3a c                   eval(h)   w_volu = w_volx * (1/w_ofz1)
+6.3a c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for henting av pris
+      * Sjekker om priser er overstyrt i midlertidig prisregister eller
+      * beregner priser ut i fra leste verdier.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_pris     begsr
+      *
+      * Innkjøpspris for enhet-1
+      *
+     c                   if        p_ntpr <> 0
+     c                   eval      p_inpr = p_ntpr
+     c                   else
+     c                   eval(h)   p_inpr = p_nopr * p_ifak
+     c                   endif
+      *
+      * Innkjøpspris 2 for enhet-1
+      *
+6.3a  * Innkjøpspris2, kostpris, salgspris
+6.3a  * beregnes her.  Frakt-faktor sendes til kallende program
+6.3a  *
+6.3a c                   eval      p_inp2 = p_inpr
+6.3a c                   select
+6.3a c                   when      w_fkrt <> 0
+6.3a c                   eval      p_inp2 = p_inpr + w_fkrt
+6.3a c                   when      w_fprt <> 0
+6.3a c                   eval(h)   p_inp2 = p_inpr + p_inpr * (w_fprt/100)
+6.3a c                   when      w_fton <> 0 and w_vekt <> 0
+6.3a c                   eval(h)   p_inp2 = p_inpr +
+6.3a c                                      w_fton * (w_vekt /1000000)
+6.3a c                   when      w_fkub <> 0
+6.3a c                   eval(h)   p_inp2 = p_inpr +
+6.3a c                                      w_fkub * w_volu
+6.3a c                   endsl
+6.3a c                   eval(h)   p_ffak = p_inp2 / p_inpr
+      *
+      * Kostpris for enhet-1
+      *
+6.3a c                   eval(h)   p_kopr = (p_inp2 * p_kfak) + p_kbel
+      *
+      * Salgspris enhet-1, enhet-2 og enhet-3
+      *
+     c                   if        jlkkal = 1
+     c                   eval(h)   p_sapr = p_nopr * p_sfak * p_ofp1
+     c                   else
+     c                   eval(h)   p_sapr = p_kopr * p_sfak * p_ofp1
+     c                   endif
+      *
+      * Dekningsgrad (DG)
+      *
+     c                   if        p_kopr <> 0
+     c                   eval(h)   p_dekn = 100 - ((p_kopr * 100) / p_sapr)
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+     c                   eval      p_osts = 9
+     c                   goto      avslutt
+      *
+     c                   endsr
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  * Subrutine for å sjekke om dato er innenfor fra /til dato
+6.31  * hvis *loval i begge datoer = ok
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  *
+6.31 c     sjekk_pkdato  begsr
+6.31  *
+6.31 c                   eval      b_pakn = *on
+6.31  *
+6.31 c                   if        jwfdat = *loval and
+6.31 c                             jwtdat = *loval
+6.31 c                   leavesr
+6.31 c                   endif
+6.31  *
+6.31 c                   if        jwfdat <= w_udat and
+6.31 c                             jwtdat >  w_udat
+6.31 c                   leavesr
+6.31 c                   endif
+6.31  *
+6.31 c                   if        jwfdat = *loval  and
+6.31 c                             jwtdat >  w_udat
+6.31 c                   leavesr
+6.31 c                   endif
+6.31  *
+6.31 c                   if        jwfdat <= w_udat and
+6.31 c                             jwtdat =  *loval
+6.31 c                   leavesr
+6.31 c                   endif
+6.31  *
+6.31 c                   eval      b_pakn = *off
+6.31  *
+6.31 c                   endsr
+6.31  *
+6.3c  *
+6.3c  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3c  * Subrutine for å sjekke at lest betingelser er innenfor evt. dato
+6.3c  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3c  *
+6.3c c     sjekk_dato    begsr
+6.3c  *
+6.3c c                   eval      b_bdat = *off
+6.3c c                   if        (jpfdat = *loval and
+6.3c c                             jptdat = *loval) or
+6.3c c                             (w_udat >= jpfdat and
+6.3c c                             w_udat <= jptdat) or
+6.3c c                             (jpfdat = *loval  and
+6.3c c                             w_udat <= jptdat) or
+6.3c c                             (w_udat >= jpfdat and
+6.3c c                             jptdat = *loval)
+6.3c c                   eval      b_bdat = *on
+6.3c c                   endif
+6.3c  *
+6.3c c                   endsr
+6.3p  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3e  * Henter valuta for kode
+6.3e  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3e  *
+6.3e c     valuta        begsr
+6.3e c                   move      jxvalu        ra16l1_pkod
+6.3e c     ra16l1_key    chain     ra16l1
+6.3e  *
+6.3e c                   if        %found(ra16l1)
+6.3e  *
+6.3e c                   if        w_udat > rapkda
+6.3e c                   eval      w_kurs = rapmku
+6.3e c                   else
+6.3e c                   eval      w_kurs = rapmkg
+6.3e c                   endif
+6.3e c                   endif
+6.3e c                   endsr
+6.3f  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3f  * Finn info om logistikkvare for riktig prisgiver
+6.3f  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3f  *
+6.3f c     finn_logivar  begsr
+6.3f  *
+6.3f c                   eval      b_logv = *off
+6.3f c                   eval      w_lv_vare = *blank
+6.3f c                   eval      w_lv_modn = 0
+6.3f c                   eval      w_lv_kldo = 0
+6.3f c                   eval      w_lv_nobb = 0
+6.3f c                   eval      w_lv_ofak = 0
+6.3f c/exec sql
+6.3f c+ select jvvare,
+6.3f c+        jvmodn,
+6.3f c+        jvllva,
+6.3f c+        jvkldo,
+6.3f c+        jvquno,
+6.3f c+        jvqofa
+6.3f c+ into   :w_lv_vare,
+6.3f c+        :w_lv_modn,
+6.3f c+        :w_lv_lvar,
+6.3f c+        :w_lv_kldo,
+6.3f c+        :w_lv_nobb,
+6.3f c+        :w_lv_ofak
+6.3f c+ from   jvarpf
+6.3f c+ inner join jvkhpf on jvkvnr = jvvare and jvkfir = :w_firm
+6.3f c+ inner join jvklpf on jvqvnr = jvvare and jvqfir = :w_firm
+6.3f c+ inner join jvlepf on jvlvnr = jvvare and jvlldo = :p_ldor
+6.3f c+ where  jvqvnr = :jvvare
+6.3f c+    and jvqldo = :p_ldor fetch first 1 rows only
+6.3f c/end-exec
+6.3f  *
+6.3f  *
+6.3f c                   if        sqlcod = 100 or sqlstt = '02000'
+6.3f c                   leavesr
+6.3f c                   endif
+6.3f c                   if        sqlcod <> 0
+6.3f c                   leavesr
+6.3f c                   endif
+6.3f  *
+6.3f c                   eval      b_logv = *on
+6.3f  *
+6.3f c                   endsr
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_vare
+5.70 c                   parm                    p_prgr
+     c                   parm                    p_lety
+     c                   parm                    p_dato
+      *
+     c                   parm                    p_osts
+      *
+     c                   parm                    p_ldor
+     c                   parm                    p_lnav
+     c                   parm                    p_lvar
+     c                   parm                    p_eldo
+     c                   parm                    p_nopr
+     c                   parm                    p_gdat
+      *
+     c                   parm                    p_enh1
+     c                   parm                    p_enh2
+     c                   parm                    p_enh3
+     c                   parm                    p_ofp1
+     c                   parm                    p_ofp2
+     c                   parm                    p_ofp3
+     c                   parm                    p_ofv2
+     c                   parm                    p_ofv3
+      *
+     c                   parm                    p_pkod
+      *
+     c                   parm                    p_bldo
+     c                   parm                    p_bogr
+     c                   parm                    p_bhgr
+     c                   parm                    p_bugr
+     c                   parm                    p_bmod
+     c                   parm                    p_bvar
+     c                   parm                    p_bvty
+     c                   parm                    p_blet
+     c                   parm                    p_bbet
+     c                   parm                    p_ntpr
+     c                   parm                    p_ifak
+      *
+     c                   parm                    p_pogr
+     c                   parm                    p_phgr
+     c                   parm                    p_pugr
+     c                   parm                    p_pldo
+     c                   parm                    p_pmod
+     c                   parm                    p_pvar
+     c                   parm                    p_ppko
+     c                   parm                    p_pvty
+     c                   parm                    p_plet
+     c                   parm                    p_kfak
+     c                   parm                    p_kbel
+     c                   parm                    p_sfak
+      *
+     c                   parm                    p_inpr
+     c                   parm                    p_kopr
+     c                   parm                    p_sapr
+     c                   parm                    p_dekn
+5.70 c                   parm                    p_prut
+6.3x c                   parm                    p_pgbe
+6.3y c                   parm                    p_pgfr
+6.3b C                   parm                    p_ffak
+6.3b c                   parm                    p_inp2
+      *
+      * Key for oppslag på vare
+      *
+     c     jvarl1_key    klist
+     c                   kfld                    jvarl1_vare
+      *
+      * Key for oppslag på vare-detalj
+      *
+     c     jvdtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jvdtl1_dvar
+      *
+      * Key for oppslag på vare-pris
+      *
+     c     jvprl1_key    klist
+     c                   kfld                    jvprl1_vare
+     c                   kfld                    jvprl1_ldor
+      *
+      * Key for oppslag på vare-pakning
+      *
+     c     jvpkl1_key    klist
+     c                   kfld                    jvpkl1_vare
+6.30 c                   kfld                    jvpkl1_ldor
+6.34  *
+6.34  * Key for oppslag på vare-leverandør
+6.34  *
+6.34 c     jvlel1_key    klist
+6.34 c                   kfld                    jvlel1_lvnr
+6.34 c                   kfld                    jvlel1_lldo
+      *
+      * Key for oppslag på betingelse
+      *
+     c     jbetlb_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jbetlb_ldor
+     c                   kfld                    jbetlb_vare
+6.3x c                   kfld                    jbetlb_prgr
+     c                   kfld                    jbetlb_vtyp
+     c                   kfld                    jbetlb_lety
+      *
+     c     jbetlc_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jbetlc_ldor
+     c                   kfld                    jbetlc_modn
+     c                   kfld                    jbetlc_vare
+6.3x c                   kfld                    jbetlc_prgr
+     c                   kfld                    jbetlc_vtyp
+     c                   kfld                    jbetlc_lety
+      *
+     c     jbetl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jbetl1_ldor
+6.3x c                   kfld                    jbetl1_prgr
+     c                   kfld                    jbetl1_ogrp
+     c                   kfld                    jbetl1_hgrp
+     c                   kfld                    jbetl1_ugrp
+     c                   kfld                    jbetl1_modn
+     c                   kfld                    jbetl1_vare
+     c                   kfld                    jbetl1_vtyp
+     c                   kfld                    jbetl1_lety
+6.3a  *
+6.3a  * Key for oppslag på frakt
+6.3a  *
+6.3a c     jfbelb_key    klist
+6.3a c                   kfld                    w_firm
+6.3a c                   kfld                    jfbelb_fldo
+6.3a c                   kfld                    jfbelb_fvar
+6.3a c                   kfld                    jfbelb_fprg
+6.3a c                   kfld                    jfbelb_fvty
+6.3a c                   kfld                    jfbelb_flet
+6.3a  *
+6.3a c     jfbelc_key    klist
+6.3a c                   kfld                    w_firm
+6.3a c                   kfld                    jfbelc_fldo
+6.3a c                   kfld                    jfbelc_fmod
+6.3a c                   kfld                    jfbelc_fvar
+6.3a c                   kfld                    jfbelc_fprg
+6.3a c                   kfld                    jfbelc_fvty
+6.3a c                   kfld                    jfbelc_flet
+6.3a  *
+6.3a c     jfbel1_key    klist
+6.3a c                   kfld                    w_firm
+6.3a c                   kfld                    jfbel1_fldo
+6.3a c                   kfld                    jfbel1_fprg
+6.3a c                   kfld                    jfbel1_fogr
+6.3a c                   kfld                    jfbel1_fhgr
+6.3a c                   kfld                    jfbel1_fugr
+6.3a c                   kfld                    jfbel1_fmod
+6.3a c                   kfld                    jfbel1_fvar
+6.3a c                   kfld                    jfbel1_fvty
+6.3a c                   kfld                    jfbel1_flet
+      *
+      * Key for les på rabattelement
+      *
+     c     jrael1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jrael1_eldo
+6.3x c                   kfld                    jrael1_eprg
+     c                   kfld                    jrael1_eogr
+     c                   kfld                    jrael1_ehgr
+     c                   kfld                    jrael1_eugr
+     c                   kfld                    jrael1_emod
+     c                   kfld                    jrael1_evar
+     c                   kfld                    jrael1_evty
+     c                   kfld                    jrael1_elet
+     c                   kfld                    jrael1_ebrs
+     c                   kfld                    jrael1_ebli
+      *
+     c     jrael4_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jrael4_eldo
+6.3x c                   kfld                    jrael4_eprg
+     c                   kfld                    jrael4_eogr
+     c                   kfld                    jrael4_ehgr
+     c                   kfld                    jrael4_eugr
+     c                   kfld                    jrael4_emod
+     c                   kfld                    jrael4_evar
+     c                   kfld                    jrael4_evty
+     c                   kfld                    jrael4_elet
+     c                   kfld                    jrael4_ebrs
+     c                   kfld                    jrael4_ebli
+     c                   kfld                    jrael4_eakt
+      *
+      * Key for oppslag på påslagsfaktor
+      *
+     c     jpfala_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jpfala_vare
+5.70 c                   kfld                    jpfala_prgr
+     c                   kfld                    jpfala_ldor
+     c                   kfld                    jpfala_kpri
+     c                   kfld                    jpfala_vtyp
+     c                   kfld                    jpfala_lety
+      *
+     c     jpfalb_key    klist
+     c                   kfld                    w_firm
+5.70 c                   kfld                    jpfalb_prgr
+     c                   kfld                    jpfalb_modn
+     c                   kfld                    jpfalb_ldor
+     c                   kfld                    jpfalb_vare
+     c                   kfld                    jpfalb_kpri
+     c                   kfld                    jpfalb_vtyp
+     c                   kfld                    jpfalb_lety
+      *
+     c     jpfal1_key    klist
+     c                   kfld                    w_firm
+5.70 c                   kfld                    jpfal1_prgr
+     c                   kfld                    jpfal1_ogrp
+     c                   kfld                    jpfal1_hgrp
+     c                   kfld                    jpfal1_ugrp
+     c                   kfld                    jpfal1_ldor
+     c                   kfld                    jpfal1_modn
+     c                   kfld                    jpfal1_vare
+     c                   kfld                    jpfal1_kpri
+     c                   kfld                    jpfal1_vtyp
+     c                   kfld                    jpfal1_lety
+      *
+      * Key for oppslag på leverandør
+      *
+     c     jlevl1_key    klist
+     c                   kfld                    jlevl1_ldor
+6.3e  *
+6.3e  * Key for valutakoder
+6.3e  *
+6.3e c     ra16l1_key    klist
+6.3e c                   kfld                    w_firm
+6.3e c                   kfld                    ra16l1_pkod
+      *
+      *
+      * Henter firma fra parameter
+      *
+     c                   eval      w_firm = p_firm
+      *
+      * Nullstiller resultatparametre før behandling.
+      *
+     c                   eval      p_osts = 0
+      *
+     c                   eval      p_lnav = *blank
+     c                   eval      p_lvar = *blank
+     c                   eval      p_eldo = 0
+     c                   eval      p_nopr = 0
+     c                   eval      p_gdat = *loval
+      *
+     c                   eval      p_enh1 = *blank
+     c                   eval      p_enh2 = *blank
+     c                   eval      p_enh3 = *blank
+     c                   eval      p_ofp1 = 0
+     c                   eval      p_ofp2 = 0
+     c                   eval      p_ofp3 = 0
+     c                   eval      p_ofv2 = 0
+     c                   eval      p_ofv3 = 0
+      *
+     c                   eval      p_pkod = *blank
+      *
+     c                   eval      p_bldo = 0
+     c                   eval      p_bogr = 0
+     c                   eval      p_bhgr = 0
+     c                   eval      p_bugr = 0
+     c                   eval      p_bmod = 0
+     c                   eval      p_bvar = *blank
+     c                   eval      p_bvty = *blank
+     c                   eval      p_blet = 0
+     c                   eval      p_bbet = *blank
+     c                   eval      p_ntpr = 0
+     c                   eval      p_ifak = 0
+      *
+     c                   eval      p_pogr = 0
+     c                   eval      p_phgr = 0
+     c                   eval      p_pugr = 0
+     c                   eval      p_pldo = 0
+     c                   eval      p_pmod = 0
+     c                   eval      p_pvar = *blank
+     c                   eval      p_kfak = 0
+     c                   eval      p_kbel = 0
+     c                   eval      p_sfak = 0
+      *
+     c                   eval      p_inpr = 0
+     c                   eval      p_kopr = 0
+     c                   eval      p_sapr = 0
+     c                   eval      p_dekn = 0
+6.3b c                   eval      p_ffak = 0
+6.3b c                   eval      p_inp2 = 0
+5.70 c                   eval      p_prut = p_prgr
+6.3a c                   eval      p_pgbe = p_prgr
+6.3a c                   eval      p_pgfr = p_prgr
+6.3d c**                 time                    w_udat
+8.01 c                   time                    w_ddat
+6.3d c                   eval      w_udat = p_dato
+7.01  *
+7.01  * Endring 7.01 Henter kostprisfaktor og kostprisbeløp som 1 (Skattum)
+7.01  *
+7.01   CallP CO402R(l_filg:w_firm:0:'JV751R_701':
+7.01                    co402_verdi1:co402_verdi2);
+7.01   if co402_verdi1 = '1';
+7.01     u_701 = *on;
+7.01   endif;
+      *
+     c                   endsr

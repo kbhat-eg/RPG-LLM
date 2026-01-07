@@ -1,0 +1,452 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Program . . . . : AA038R
+      * Beskrivelse . . : Syst. Adm. Generering av Iq-program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       300109 AMD  Nytt program febr.-09
+5.61  *  5.61 250309 AMD  Lagt om slik at parameter inn kan droppes
+      *                   + kaller AA101R i stedet for AA100R
+6.00  *  6.00 050320 BKV  Endret for å gjøre multi tenant, dvs kan bytte
+      *                   filgruppe
+      *
+      *
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  BRUK AV INDIKATORER
+      *
+      *       LR = Avslutt program
+      *    60-69 = Fileindikatorer chain etc.
+      *    70-79 = Arbeidsindikatorer i sub-rutiner
+      *    80-89 = Arbeidsindikatorer ordinære
+      *    90-99 = Benyttes ved std. sub-rutiner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fausrl1    if   e           k disk    rename(ausrpfr:ausrl1r)
+     falibl1    if   e           k disk    rename(alibpfr:alibl1r)
+     fqcllesrc  o  a f  096        disk
+      *
+      *
+      * Definering av tabeller
+      *
+6.00 d rec             s             80    dim(44) ctdata perrcd(1)             Programlinjer
+      *
+      * Definering av data-strukturer
+      *
+     d                 ds
+     d d_dato                         6  0
+     d  d_aaar                        2  0 overlay(d_dato)
+     d  d_mmnd                        2  0 overlay(d_dato:3)
+     d  d_ddag                        2  0 overlay(d_dato:5)
+      *
+     d                 ds
+     d d_recc                        84
+     d  d_flt1                       27    overlay(d_recc)
+     d  d_flt2                       12    overlay(d_recc:28)
+     d  d_flt3                       45    overlay(d_recc:40)
+      *
+      * Definering av parametere
+      *
+     d p_user          s                   like(abuser)
+      *
+      * Definering av variable i nøkler
+      *
+     d ausrl1_user     s                   like(abuser)
+     d alibl1_plas     s                   like(alplas)
+     d alibl1_user     s                   like(aluser)
+      *
+      * Definering av variable
+      *
+     d n               s              2  0
+     d w_dato          s              6  0
+     d w_recc          s             84
+     d w_tell          s              6  0
+     d y               s              2  0
+     d w_vers          s              3  0
+     d w_vera          s              3
+     d w_w02a          s              2
+5.61 d w_w03a          s              3
+     d w_w07a          s              7
+     d w_w12a          s             12
+5.61 d w_w60a          s             60
+6.00 d w_w75a          s             75
+5.61 d w_fnut          s              1    inz('''')
+      *
+      * Definering av save variable
+      *
+     d s_user          s                   like(abuser)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Legg ut records til Cl-program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Slå opp i brukerfilen
+      *
+     c                   eval      ausrl1_user = p_user
+     c     ausrl1_key    chain     ausrl1
+     c                   if        not %found
+     c                   goto      xover1
+     c                   endif
+      *
+      * Dersom det er lagt inn miljø på brukeren
+      * finn i så fall hvilken versjon dette miljø
+      * kjører i og legg dette på i bibliotekslista.
+      * Versjonsnummer legges bare på i bibliotek som
+      * starter på 'AS'  Versjonsnummer må bli funnet
+      * og være forskjellig fra 0 dersom det skal benyttes.
+      * Versjonsnummer legges heller ikke på ASPGPLK.
+      *
+     c                   eval      w_vers = 0
+      *
+     c                   if        abmilj <> *blank
+     c                   call      'AR700R'
+     c                   parm                    abmilj
+     c                   parm                    w_vers
+     c                   endif
+      *
+      * Første del av CL-programmet
+      *
+6.00 c                   for       n = 1 to 13
+     c                   add       100           w_tell
+     c                   movel     rec(n)        w_recc
+     c                   except    xrecut
+     c                   endfor
+6.00  *
+6.00  * Test mot at curlib er den samme
+6.00  *
+6.00 c                   eval      w_recc = *blank
+6.00 c                   exsr      xtstcur
+6.00 c                   add       100           w_tell
+6.00 c                   movel     w_w75a        w_recc
+6.00 c                   except    xrecut
+6.00  *
+6.00 c                   for       n = 15 to 30
+6.00 c                   add       100           w_tell
+6.00 c                   movel     rec(n)        w_recc
+6.00 c                   except    xrecut
+6.00 c                   endfor
+      *
+      * Bygger biblioteksliste
+      * utfra file pr. bruker
+      * -----------------------
+      *
+      * Finne hvilken biblioteksliste
+      * som skal benyttes
+      *
+     c                   if        abrlib <> *blank
+     c                   eval      alibl1_user = abrlib
+     c                   eval      alibl1_plas = *zero
+     c                   else
+     c                   eval      alibl1_user = abuser
+     c                   eval      alibl1_plas = *zero
+     c                   endif
+      *
+      * Legger opp bibliotek for Miljø automatisk
+      *
+     c                   if        abmilj <> *blank
+     c                   eval      albibl = abmilj
+     c                   endif
+      *
+     c                   add       100           w_tell
+     c                   exsr      xfixit
+     c                   except    xrecut
+      *
+      * Legger opp bibliotek for ADB automatisk
+      *
+     c                   eval      albibl = 'ADB'
+      *
+     c                   add       100           w_tell
+     c                   exsr      xfixit
+     c                   except    xrecut
+      *
+      * Bygger bibliotekslister
+      *
+     c     alibl1_key    setll     alibl1
+     c                   read      alibl1                                 62
+     c     *in62         cabeq     *on           xover2
+     c                   eval      s_user = aluser
+      *
+     c                   dow       alibl1_user = s_user
+     c                   add       100           w_tell
+     c                   exsr      xfixit
+     c                   except    xrecut
+     c                   read      alibl1                                 62
+     c     *in62         cabeq     *on           xover2
+     c                   eval      s_user = aluser
+     c                   enddo
+      *
+     c     xover2        tag
+      *
+      * Andre del av CL-programmet (A)
+      *
+6.00 c                   for       n = 33 to 35
+     c                   add       100           w_tell
+     c                   movel     rec(n)        w_recc
+     c                   except    xrecut
+     c                   endfor
+      *
+      * Kjøre subrutine som setter opp riktig CURLIB
+      *
+     c                   eval      w_recc = *blank
+     c                   exsr      xcurlib
+     c                   add       100           w_tell
+     c                   movel     w_w60a        w_recc
+     c                   except    xrecut
+      *
+      * Andre del av CL-programmet (B)
+      *
+6.00 c                   for       n = 37 to 40
+     c                   add       100           w_tell
+     c                   movel     rec(n)        w_recc
+     c                   except    xrecut
+     c                   endfor
+      *
+      * Kjøre subrutine som kaller RPG for LDA-oppdatering
+      *
+     c                   eval      w_recc = *blank
+     c                   exsr      xldaopp
+     c                   add       100           w_tell
+     c                   movel     w_w60a        w_recc
+     c                   except    xrecut
+      *
+      * Andre del av CL-programmet (C)
+      *
+6.00 c                   for       n = 42 to 44
+     c                   add       100           w_tell
+     c                   movel     rec(n)        w_recc
+     c                   except    xrecut
+     c                   endfor
+      *
+     c     xover1        tag
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      *inlr = *on
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for stokke på plass navn på bibliotek med ( ).
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xfixit        begsr
+      *
+     c                   eval      w_w12a = *blank
+     c                   move      w_vers        w_vera
+6.00 c                   movel     rec(32)       w_recc
+     c                   eval      d_recc = w_recc
+      *
+      * Dersom versjonsnummer ikke er oppgitt
+      * rediger bibliotek med (Biblnavn)
+      *
+     c                   if        w_vers =  0
+     c                   eval      w_w12a = '(' + %trim(albibl) + ')'
+     c                   goto      xfixet
+     c                   endif
+      *
+      * Det er bare bibliotek som starter
+      * på 'AS' som skal redigeres m/versjonsnr
+      *
+     c                   eval      w_w02a = %subst(albibl:1:2)
+     c                   if        w_w02a <> 'AS'
+     c                   eval      w_w12a = '(' + %trim(albibl) + ')'
+     c                   goto      xfixet
+     c                   endif
+      *
+      * Biblioteket ASPGPLK skal ikke ha versjonsnummer
+      *
+     c                   eval      w_w07a = %subst(albibl:1:7)
+     c                   if        w_w07a = 'ASPGPLK'
+     c                   eval      w_w12a = '(' + %trim(albibl) + ')'
+     c                   goto      xfixet
+     c                   endif
+      *
+      * Dersom biblioteksnavnet er større enn
+      * 7 posisjoner, kan ikke versjonsnummer
+      * legges på.
+      *
+     c                   eval      w_w02a = %subst(albibl:8:2)
+     c                   if        w_w02a <> '  '
+     c                   eval      w_w12a = '(' + %trim(albibl) + ')'
+     c                   goto      xfixet
+     c                   endif
+      *
+      * Her redigeres biblioteksnavnet slik:
+      * (XXXXXXXVVV)  X=Bibliotek V=Versjonsnr.
+      *
+     c                   eval      w_w12a = '(' + %trim(albibl) +
+     c                                      w_vera + ')'
+      *
+     c     xfixet        tag
+      *
+     c                   eval      d_flt2 = w_w12a
+      *
+     c                   eval      w_recc = d_recc
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å sette opp riktig CURLIB
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xcurlib       begsr
+      *
+     c                   eval      w_w03a = *blank
+     c                   eval      w_w60a = *blank
+      *
+      * Henter ut filegruppe fra innparameter (ASP_xxx)
+      *
+     c                   eval      w_w03a = %subst(p_user:5:3)
+      *
+      * Bygger linje som skal inn i CL-source
+      * for endring av CURLIB
+      *
+     c                   eval      w_w60a = '             ' +
+     c                                      'CHGCURLIB  '  +
+     c                                      'CURLIB(ADB' +
+     c                                       w_w03a + ')'
+      *
+     c                   endsr
+      *
+6.00  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.00  * Subrutine for å sette opp test mot riktig CURLIB
+6.00  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.00  *
+6.00 c     xtstcur       begsr
+6.00  *
+6.00 c                   eval      w_w03a = *blank
+6.00 c                   eval      w_w75a = *blank
+6.00  *
+6.00  * Henter ut filegruppe fra innparameter (ASP_xxx)
+6.00  *
+6.00 c                   eval      w_w03a = %subst(p_user:5:3)
+6.00  *
+6.00  * Bygger linje som skal inn i CL-source
+6.00  * for endring av CURLIB
+6.00  *
+6.00 c                   eval      w_w75a = '             ' +
+6.00 c                                      'IF         '  +
+6.00 c                                      'COND(&CLIB *NE '+w_fnut+ 'ADB' +
+6.00 c                                       w_w03a +'    '+ w_fnut + ')' +
+6.00 c                                       ' THEN(GOTO +'
+6.00  *
+6.00 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kall til RPG for oppdatering av LDA
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xldaopp       begsr
+      *
+     c                   eval      w_w03a = *blank
+     c                   eval      w_w60a = *blank
+      *
+      * Henter ut filegruppe fra innparameter (ASP_xxx)
+      *
+     c                   eval      w_w03a = %subst(p_user:5:3)
+      *
+      * Bygger linje som skal inn i CL-source
+5.61  * for call av AA101R m/parameter
+      *
+     c                   eval      w_w60a = '             ' +
+     c                                      'CALL       '  +
+5.61 c                                      'PGM(AA101R)     ' +
+     c                                      'PARM(&PUSR)'
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *
+     c                   eval      w_recc = *blank
+     c                   eval      w_tell = *zero
+     c                   eval      w_dato = *zero
+     c                   eval      n = *zero
+     c                   eval      y = *zero
+      *
+     c                   eval      d_aaar = uyear
+     c                   eval      d_mmnd = umonth
+     c                   eval      d_ddag = uday
+     c                   eval      w_dato = d_dato
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+     c                   parm                    p_user
+      *
+      * Key for brukerregister
+      *
+     c     ausrl1_key    klist
+     c                   kfld                    ausrl1_user
+      *
+      * Key for bibliotekslister
+      *
+     c     alibl1_key    klist
+     c                   kfld                    alibl1_user
+     c                   kfld                    alibl1_plas
+      *
+     c                   endsr
+      *
+     oqcllesrc  eadd         xrecut
+     o                       w_recc              96
+     o                       w_tell               6
+     o                       w_dato              12
+**
+             PGM        PARM(&PUSR)
+             DCL        VAR(&JOBB)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&USER)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&PUSR)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&CLIB)      TYPE(*CHAR) LEN(10)
+/*                                                                 06*/
+/*                                                                 07*/
+/*                                                                 08*/
+             MONMSG     MSGID(CPF2103)  /*    Bibl finnes fra før  09*/
+             MONMSG     MSGID(CPF2110)  /*    Bibl ble ikke funnet 10*/
+/*           MONMSG     MSGID(CPF0000)                             11*/
+             RTVJOBA    JOB(&JOBB) USER(&USER) CURLIB(&CLIB)
+
+             IF         COND(&CLIB *NE 'ADBxxx    ') THEN(GOTO +
+                          CMDLBL(BYGG))
+
+             CHKOBJ     OBJ(*LIBL/FO100R)    OBJTYPE(*PGM)
+             MONMSG     MSGID(CPF9801)       EXEC(GOTO CMDLBL(BYGG))
+
+             GOTO         CMDLBL(LDA)
+
+BYGG:
+
+/*                                                                 24*/
+/* Biblioteksliste start                                           25*/
+/*                                                                 26*/
+             CHGLIBL    LIBL(*NONE)
+             ADDLIBLE   LIB(QGPL)       POSITION(*LAST)
+             ADDLIBLE   LIB(QTEMP)      POSITION(*LAST)
+             ADDLIBLE   LIB(NETSRVCMD)  POSITION(*LAST)
+/* Record 31.........                                              31*/
+             ADDLIBLE   LIB             POSITION(*LAST)
+/*                                                                 33*/
+/* Endre biblioteksliste                                           34*/
+/*                                                                 35*/
+/*           CHGCURLIB  CURLIB(ADBxxx)                             36*/
+/*                                                                 37*/
+/* Kall program for oppdatering av LDA                             38*/
+/*                                                                 39*/
+LDA:
+/*           CALL       PGM(AA101R)     PARM(&PUSR)                41*/
+/*                                                                 42*/
+END:
+             ENDPGM

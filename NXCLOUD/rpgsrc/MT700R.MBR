@@ -1,0 +1,1337 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASLAGR
+      * Program . . . . : MT700R
+      * Beskrivelse . . : Leser data fra importfil fra TREDATA og
+      *                   legger de inn i repektive felter på pakketre.
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       250804 ASK  Nytt program
+      * 6.10  220909 ASK  Nye parametre til VL001R
+6.nu  * 6.30  050614 bof  endring i forb. nummerutvidelse
+6.30  * 6.30  180515 bkv  Endret LVAR pga økt fra 15 til 20 tegn
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flwpapf    if   f  500        disk
+     fmtpalu    if a e           k disk    rename(mtpapfr:mtpalur)
+     fvvarl4    if   e           k disk    rename(vvarpfr:vvarl4r)
+     fmupalu    if a e           k disk    rename(mupapfr:mupalur)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_firm                944    946  0
+      *
+      * Datastruktur for lageroppdatering
+      *
+     d                 ds
+6.nu d hlrec                        128
+     d  hlvare                       15    overlay(hlrec)
+     d  hllage                        2  0 overlay(hlrec:16)
+     d  hldato                         d   overlay(hlrec:18) datfmt(*iso)
+     d  hltime                         t   overlay(hlrec:28) timfmt(*iso)
+     d  hlotyp                        2    overlay(hlrec:36)
+     d  hlltyp                        2    overlay(hlrec:38)
+     d  hlanta                       11  3 overlay(hlrec:40)
+     d  hlkopr                        9  2 overlay(hlrec:51)
+     d  hlrefr                       20    overlay(hlrec:60)
+     d  hlsyst                        1    overlay(hlrec:80)
+     d  hlaltk                        2    overlay(hlrec:81)
+     d  hlrest                        1    overlay(hlrec:83)
+     d  hltype                        1    overlay(hlrec:84)
+     d  hlenhe                        3    overlay(hlrec:85)
+     d  hlinlr                        1    overlay(hlrec:88)
+     d  hllety                        1    overlay(hlrec:89)
+6.nu d  hlonum                        8  0 overlay(hlrec:90)
+6.nu d  hlolin                        4  0 overlay(hlrec:98)
+      *
+      * Definering av variable i nøkler
+      *
+     d mtpalu_numm     s                   like(mtnumm)
+     d mupalu_numm     s                   like(munumm)
+     d mupalu_dato     s                   like(mudato)
+     d mupalu_time     s                   like(mutime)
+     d vvarl4_lvar     s                   like(vvlvar)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(mtfirm)
+     d w_posi          s              2  0
+     d w_posd          s              2  0
+     d w_leng          s              2  0
+     d w_prof          s              3
+     d w_atyk          s              3
+     d w_abre          s              3
+      *
+     d w_tx01          s              1
+     d w_tx02          s              2
+     d w_tx03          s              3
+     d w_tx04          s              4
+     d w_tx05          s              5
+     d w_tx06          s              6
+     d w_tx07          s              7
+     d w_tx08          s              8
+     d w_tx09          s              9
+     d w_tx10          s             10
+      *
+     d w_numa          s              6
+     d w_stat          s              1
+     d w_dage          s              6  0
+     d w_s             s              6  0
+     d w_secn          s             10  0
+     d w_sech          s             10  0
+     d w_secr          s             10  0
+     d w_sdat          s               d   datfmt(*iso) inz(d'1970-01-01')
+     d w_pdat          s               d   datfmt(*iso)
+     d w_ptim          s               t   timfmt(*iso)
+     d w_udat          s               d   datfmt(*iso)
+     d w_utim          s               t   timfmt(*iso)
+     d b_funn          s              1    inz(*off)
+      *
+6.31 d w_lv_vare       s                   like(vvvare)
+6.31 d w_lv_nobb       s                   like(vvnobb)
+
+      * Definering av konstanter
+      *
+     d c_null          s             15    inz('000000000000000')
+      *
+      * Intern fildefinisjon
+      *
+E001 ilwpapf    ns  01
+     i                                  1  500  paklin
+      *
+6.31 C/Exec SQL
+6.31 C+  Set Option DatFmt=*ISO
+6.31 C/End-Exec
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Leser pakkeinformasjon fra Tredata
+      *
+     c                   read      lwpapf
+      *
+     c                   dow       not %eof
+     c                   if        %subst(paklin:2:10) <> *blank
+     c                   exsr      oppdater
+     c                   endif
+     c                   read      lwpapf
+     c                   enddo
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av varer/priser
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppdater      begsr
+      *
+      * Linjenr
+      *
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtline
+      *
+      * Serienr
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx06 = %trim(w_tx06)
+     c                   eval      w_leng = %len(%trim(w_tx06))
+      *
+     c                   if        w_leng < 6
+     c                   eval      w_tx06 = %subst(c_null:1:6-w_leng) +
+     c                                      %subst(w_tx06:1:w_leng)
+     c                   endif
+     c                   move      w_tx06        mtseri
+      *
+      * Pakkenr
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx06 = %trim(w_tx06)
+     c                   eval      w_leng = %len(%trim(w_tx06))
+     c                   move      w_tx06        w_numa
+      *
+     c                   if        w_leng < 6
+     c                   eval      w_tx06 = %subst(c_null:1:6-w_leng) +
+     c                                      %subst(w_tx06:1:w_leng)
+     c                   endif
+     c                   move      w_tx06        mtnumm
+      *
+      * Korreksjon
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx01 = %trim(%subst(paklin:1:w_posi-1))
+     c                   move      w_tx01        mtkorr
+      *
+      * Beregner produksjonstidspunkt
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx10 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx10 = %trim(w_tx10)
+     c                   eval      w_leng = %len(%trim(w_tx10))
+      *
+     c                   if        w_leng < 10
+     c                   eval      w_tx10 = %subst(c_null:1:10-w_leng) +
+     c                                      %subst(w_tx10:1:w_leng)
+     c                   endif
+     c                   move      w_tx10        w_secn
+      *
+      *    Produksjonstid er angitt i ant. sekunder fra 01.01.1970
+      *    Ant. sekunder i et døgn er 86400
+      *
+     c                   eval      w_dage = %int(w_secn/86400)
+     c     w_sdat        adddur    w_dage:*days  w_pdat
+     c                   eval      mtdato = w_pdat
+      *
+     c                   eval      w_sech = w_dage * 86400
+     c                   eval      w_s = w_secn - w_sech
+     c     T'00.00.00'   adddur    w_s:*seconds  w_ptim
+     c                   eval      mttime = w_ptim
+      *
+      * Nominell tykkelse
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx06 = %trim(w_tx06)
+     c                   eval      w_leng = %len(%trim(w_tx06))
+      *
+     c                   if        w_leng < 6
+     c                   eval      w_tx06 = %subst(c_null:1:6-w_leng) +
+     c                                      %subst(w_tx06:1:w_leng)
+     c                   endif
+     c                   move      w_tx06        mtntyk
+      *
+      * Nominell bredde
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx06 = %trim(w_tx06)
+     c                   eval      w_leng = %len(%trim(w_tx06))
+      *
+     c                   if        w_leng < 6
+     c                   eval      w_tx06 = %subst(c_null:1:6-w_leng) +
+     c                                      %subst(w_tx06:1:w_leng)
+     c                   endif
+     c                   move      w_tx06        mtnbre
+      *
+      * Aktuell tykkelse
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx06 = %trim(w_tx06)
+     c                   eval      w_leng = %len(%trim(w_tx06))
+      *
+     c                   if        w_leng < 6
+     c                   eval      w_tx06 = %subst(c_null:1:6-w_leng) +
+     c                                      %subst(w_tx06:1:w_leng)
+     c                   endif
+     c                   move      w_tx06        mtatyk
+     c                   eval      w_atyk = %subst(w_tx06:4:3)
+      *
+      * Aktuell bredde
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx06 = %trim(w_tx06)
+     c                   eval      w_leng = %len(%trim(w_tx06))
+      *
+     c                   if        w_leng < 6
+     c                   eval      w_tx06 = %subst(c_null:1:6-w_leng) +
+     c                                      %subst(w_tx06:1:w_leng)
+     c                   endif
+     c                   move      w_tx06        mtabre
+     c                   eval      w_abre = %subst(w_tx06:4:3)
+      *
+      * Artikkelnummer
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx08 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx08 = %trim(w_tx08)
+     c                   eval      w_leng = %len(%trim(w_tx08))
+      *
+     c                   if        w_leng < 8
+     c                   eval      w_tx08 = %subst(c_null:1:8-w_leng) +
+     c                                      %subst(w_tx08:1:w_leng)
+     c                   endif
+     c                   move      w_tx08        mtartn
+      *
+      * Vare/profil
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      mtprof = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_prof = %subst(mtprof:1:3)
+      *
+      * Kvalitet
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      mtkval = %trim(%subst(paklin:1:w_posi-1))
+      *
+      * Trekode
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      mttrek = %trim(%subst(paklin:1:w_posi-1))
+      *
+      * Behandling
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      mtbeha = %trim(%subst(paklin:1:w_posi-1))
+      *
+      * Pakketype
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      mtptyp = %trim(%subst(paklin:1:w_posi-1))
+      *
+      * Lengdejustert
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      mtljus = %trim(%subst(paklin:1:w_posi-1))
+      *
+      * Totalt antall
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx06 = %trim(w_tx06)
+     c                   eval      w_leng = %len(%trim(w_tx06))
+      *
+     c                   if        w_leng < 6
+     c                   eval      w_tx06 = %subst(c_null:1:6-w_leng) +
+     c                                      %subst(w_tx06:1:w_leng)
+     c                   endif
+     c                   move      w_tx06        mttant
+      *
+      * Totalt kortlengde antall
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx06 = %trim(w_tx06)
+     c                   eval      w_leng = %len(%trim(w_tx06))
+      *
+     c                   if        w_leng < 6
+     c                   eval      w_tx06 = %subst(c_null:1:6-w_leng) +
+     c                                      %subst(w_tx06:1:w_leng)
+     c                   endif
+     c                   move      w_tx06        mtkant
+      *
+      * Antall i DM18
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm18
+      *
+      * Antall i DM19
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm19
+      *
+      * Antall i DM20
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm20
+      *
+      * Antall i DM21
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm21
+      *
+      * Antall i DM22
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm22
+      *
+      * Antall i DM23
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm23
+      *
+      * Antall i DM24
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm24
+      *
+      * Antall i DM25
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm25
+      *
+      * Antall i DM26
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm26
+      *
+      * Antall i DM27
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm27
+      *
+      * Antall i DM28
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm28
+      *
+      * Antall i DM29
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm29
+      *
+      * Antall i DM30
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm30
+      *
+      * Antall i DM31
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm31
+      *
+      * Antall i DM32
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm32
+      *
+      * Antall i DM33
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm33
+      *
+      * Antall i DM34
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm34
+      *
+      * Antall i DM35
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm35
+      *
+      * Antall i DM36
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm36
+      *
+      * Antall i DM37
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm37
+      *
+      * Antall i DM38
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm38
+      *
+      * Antall i DM39
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm39
+      *
+      * Antall i DM40
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm40
+      *
+      * Antall i DM41
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm41
+      *
+      * Antall i DM42
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm42
+      *
+      * Antall i DM43
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm43
+      *
+      * Antall i DM44
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm44
+      *
+      * Antall i DM45
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm45
+      *
+      * Antall i DM46
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm46
+      *
+      * Antall i DM47
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm47
+      *
+      * Antall i DM48
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm48
+      *
+      * Antall i DM49
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm49
+      *
+      * Antall i DM50
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm50
+      *
+      * Antall i DM51
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm51
+      *
+      * Antall i DM52
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm52
+      *
+      * Antall i DM53
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm53
+      *
+      * Antall i DM54
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm54
+      *
+      * Antall i DM55
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm55
+      *
+      * Antall i DM56
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm56
+      *
+      * Antall i DM57
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm57
+      *
+      * Antall i DM58
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm58
+      *
+      * Antall i DM59
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm59
+      *
+      * Antall i DM60
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm60
+      *
+      * Antall i DM61
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm61
+      *
+      * Antall i DM62
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx03 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx03:1:w_leng)
+     c                   endif
+     c                   move      w_tx03        mtdm62
+      *
+      * Total lengde
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx07 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx07)
+     c                   eval      w_tx05 = %trim(%subst(w_tx07:1:w_posd-1))
+     c                   eval      w_tx01 = %subst(w_tx07:w_posd+1:1)
+     c                   eval      w_tx05 = %trim(w_tx05)
+     c                   eval      w_leng = %len(%trim(w_tx05))
+      *
+     c                   if        w_leng < 5
+     c                   eval      w_tx05 = %subst(c_null:1:5-w_leng) +
+     c                                      %subst(w_tx05:1:w_leng)
+     c                   endif
+     c                   movel     w_tx05        w_tx06
+     c                   move      w_tx01        w_tx06
+     c                   move      w_tx06        mttotl
+     c                   move      w_tx06        mttotr
+      *
+      * Kortlengde lengde
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx07 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx07)
+     c                   eval      w_tx05 = %trim(%subst(w_tx07:1:w_posd-1))
+     c                   eval      w_tx01 = %subst(w_tx07:w_posd+1:1)
+     c                   eval      w_tx05 = %trim(w_tx05)
+     c                   eval      w_leng = %len(%trim(w_tx05))
+      *
+     c                   if        w_leng < 5
+     c                   eval      w_tx05 = %subst(c_null:1:5-w_leng) +
+     c                                      %subst(w_tx05:1:w_leng)
+     c                   endif
+     c                   movel     w_tx05        w_tx06
+     c                   move      w_tx01        w_tx06
+     c                   move      w_tx06        mttotk
+      *
+      * Nominell kubikk
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx06)
+     c                   eval      w_tx02 = %trim(%subst(w_tx06:1:w_posd-1))
+     c                   eval      w_tx03 = %subst(w_tx06:w_posd+1:3)
+     c                   eval      w_tx02 = %trim(w_tx02)
+     c                   eval      w_leng = %len(%trim(w_tx02))
+      *
+     c                   if        w_leng < 2
+     c                   eval      w_tx02 = %subst(c_null:1:2-w_leng) +
+     c                                      %subst(w_tx02:1:w_leng)
+     c                   endif
+     c                   movel     w_tx02        w_tx05
+     c                   move      w_tx03        w_tx05
+     c                   move      w_tx05        mtnomk
+      *
+      * Kortlengde nominell kubikk
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx06)
+     c                   eval      w_tx02 = %trim(%subst(w_tx06:1:w_posd-1))
+     c                   eval      w_tx03 = %subst(w_tx06:w_posd+1:3)
+     c                   eval      w_tx02 = %trim(w_tx02)
+     c                   eval      w_leng = %len(%trim(w_tx02))
+      *
+     c                   if        w_leng < 2
+     c                   eval      w_tx02 = %subst(c_null:1:2-w_leng) +
+     c                                      %subst(w_tx02:1:w_leng)
+     c                   endif
+     c                   movel     w_tx02        w_tx05
+     c                   move      w_tx03        w_tx05
+     c                   move      w_tx05        mtknok
+      *
+      * Aktuell kubikk
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx06)
+     c                   eval      w_tx02 = %trim(%subst(w_tx06:1:w_posd-1))
+     c                   eval      w_tx03 = %subst(w_tx06:w_posd+1:3)
+     c                   eval      w_tx02 = %trim(w_tx02)
+     c                   eval      w_leng = %len(%trim(w_tx02))
+      *
+     c                   if        w_leng < 2
+     c                   eval      w_tx02 = %subst(c_null:1:2-w_leng) +
+     c                                      %subst(w_tx02:1:w_leng)
+     c                   endif
+     c                   movel     w_tx02        w_tx05
+     c                   move      w_tx03        w_tx05
+     c                   move      w_tx05        mtaktk
+      *
+      * Kortlengde aktuell kubikk
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx06)
+     c                   eval      w_tx02 = %trim(%subst(w_tx06:1:w_posd-1))
+     c                   eval      w_tx03 = %subst(w_tx06:w_posd+1:3)
+     c                   eval      w_tx02 = %trim(w_tx02)
+     c                   eval      w_leng = %len(%trim(w_tx02))
+      *
+     c                   if        w_leng < 2
+     c                   eval      w_tx02 = %subst(c_null:1:2-w_leng) +
+     c                                      %subst(w_tx02:1:w_leng)
+     c                   endif
+     c                   movel     w_tx02        w_tx05
+     c                   move      w_tx03        w_tx05
+     c                   move      w_tx05        mtkakk
+      *
+      * Minste lengde
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx04 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx04)
+     c                   eval      w_tx01 = %subst(w_tx04:1:w_posd-1)
+     c                   eval      w_tx02 = %subst(w_tx04:w_posd+1:2)
+      *
+     c                   movel     w_tx01        w_tx03
+     c                   move      w_tx02        w_tx03
+     c                   move      w_tx03        mtmlen
+      *
+      * Største lengde
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx04 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx04)
+     c                   eval      w_tx01 = %subst(w_tx04:1:w_posd-1)
+     c                   eval      w_tx02 = %subst(w_tx04:w_posd+1:2)
+      *
+     c                   movel     w_tx01        w_tx03
+     c                   move      w_tx02        w_tx03
+     c                   move      w_tx03        mtslen
+      *
+      * Snitt lengde
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx04 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx04)
+     c                   eval      w_tx01 = %subst(w_tx04:1:w_posd-1)
+     c                   eval      w_tx02 = %subst(w_tx04:w_posd+1:2)
+      *
+     c                   movel     w_tx01        w_tx03
+     c                   move      w_tx02        w_tx03
+     c                   move      w_tx03        mtsnit
+      *
+      * Kortlengde prosent
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx06)
+     c                   eval      w_tx03 = %trim(%subst(w_tx06:1:w_posd-1))
+     c                   eval      w_tx02 = %subst(w_tx06:w_posd+1:2)
+     c                   eval      w_tx03 = %trim(w_tx03)
+     c                   eval      w_leng = %len(%trim(w_tx03))
+      *
+     c                   if        w_leng < 3
+     c                   eval      w_tx03 = %subst(c_null:1:3-w_leng) +
+     c                                      %subst(w_tx02:1:w_leng)
+     c                   endif
+     c                   movel     w_tx03        w_tx05
+     c                   move      w_tx02        w_tx05
+     c                   move      w_tx05        mtpros
+      *
+      * Vekt
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      w_tx06 = %trim(%subst(paklin:1:w_posi-1))
+     c                   eval      w_posd = %scan('.':w_tx06)
+     c                   eval      w_tx04 = %trim(%subst(w_tx06:1:w_posd-1))
+     c                   eval      w_tx01 = %subst(w_tx06:w_posd+1:1)
+     c                   eval      w_tx04 = %trim(w_tx04)
+     c                   eval      w_leng = %len(%trim(w_tx04))
+      *
+     c                   if        w_leng < 4
+     c                   eval      w_tx04 = %subst(c_null:1:4-w_leng) +
+     c                                      %subst(w_tx04:1:w_leng)
+     c                   endif
+     c                   movel     w_tx04        w_tx05
+     c                   move      w_tx01        w_tx05
+     c                   move      w_tx05        mtvekt
+      *
+      * Sorterer
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      mtsort = %trim(%subst(paklin:1:w_posi-1))
+      *
+      * Ordrenr
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   eval      mtordn = %trim(%subst(paklin:1:w_posi-1))
+      *
+      * Kunde
+      *
+     c                   eval      paklin = %subst(paklin:w_posi+1:500-w_posi)
+     c                   eval      w_posi = %scan(',':paklin)
+     c                   if        w_posi > 0
+     c                   eval      mtkund = %trim(%subst(paklin:1:w_posi-1))
+     c                   else
+     c                   eval      mtkund = *blank
+     c                   endif
+      *
+      * Sjekker kobling mot vareregister
+      *
+      * Bygger varenummer
+      *
+     c                   eval      mttvar = mttrek + w_prof + w_atyk +
+     c                                      w_abre + mtkval + mtbeha
+6.30 c*                  eval      mtlvar = mttvar
+6.30 c                   movel     mttvar        mtlvar
+     c                   if        mtkval = 'L'
+     c                   eval      mtkval = 'F'
+     c                   eval      mtlvar = mttrek + w_prof + w_atyk +
+     c                                      w_abre + mtkval + mtbeha
+     c                   endif
+      *
+6.31  * sjekker om logistikk-vare
+6.31 c                   eval      w_lv_vare = *blank
+6.31 c/exec sql
+6.31 c+ select vvlvnr,
+6.31 c+        vvlnob
+6.31 c+ into   :w_lv_vare,
+6.31 c+        :w_lv_nobb
+6.31 c+ from   vvlepf
+6.31 c+ where  vvllva = :mtlvar
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+6.31 c                   if        w_lv_vare <> *blank
+6.31 c                   eval      mtvare = w_lv_vare
+6.31 c                   eval      mtnobb = w_lv_nobb
+6.31 c                   eval      b_funn = *on
+6.31 c                   else
+     c                   movel     mtlvar        vvarl4_lvar
+     c     vvarl4_key    chain     vvarl4
+     c                   if        %found
+     c                   eval      mtvare = vvvare
+     c                   eval      mtnobb = vvnobb
+     c                   eval      b_funn = *on
+     c                   else
+     c                   eval      mtvare = *blank
+     c                   eval      mtnobb = 0
+     c                   eval      b_funn = *off
+     c                   endif
+6.31 c                   endif
+      *
+      * Velger lager for pakke
+      *
+     c                   if        mtartn = 0
+     c                   eval      mtlage = 33
+     c                   else
+     c                   eval      mtlage = 32
+     c                   endif
+      *
+      * Skriver post til pakkeregister
+      *
+     c                   eval      mtfirm = w_firm
+     c                   eval      mtstat = ' '
+     c                   write     mtpalur
+      *
+      * Oppdaterer lager
+      *
+     c                   if        b_funn = *on
+     c                   move      mtvare        hlvare
+     c                   move      mtlage        hllage
+     c                   move      vvenhl        hlenhe
+     c                   move      mtdato        hldato
+     c                   move      mttime        hltime
+     c                   move      'I '          hlotyp
+     c                   move      '  '          hlltyp
+      *
+     c                   eval      hlanta = mttotl
+     c                   eval      hlkopr = 0
+      *
+     c                   eval      hlrefr = 'Pk. ' + w_numa
+     c                   move      'L'           hlsyst
+     c                   eval      hlaltk = 'I '
+     c                   eval      hlrest = *blank
+     c                   eval      hlonum = 0
+     c                   eval      hlolin = 0
+      *
+      *
+     c                   eval      w_stat = *blank
+      *
+     c                   call      'VL001R'
+     c                   parm                    w_stat
+     c                   parm                    hlrec
+     c                   endif
+      *
+      * Oppdaterer pakkehistorikk
+      *
+     c                   eval      mupalu_numm = mtnumm
+     c                   eval      mupalu_dato = w_udat
+     c                   eval      mupalu_time = w_utim
+      *
+     c     mupalu_key    chain     mupalu
+     c                   if        not %found
+     c                   eval      mufirm = w_firm
+     c                   eval      munumm = mtnumm
+     c                   eval      mudato = w_udat
+     c                   eval      mutime = w_utim
+     c                   eval      mutext = 'Ny pakke lest inn'
+     c                   eval      muleng = mttotl
+      *
+     c                   write     mupalur
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for oppdatering av pakkeregister
+      *
+     c     mtpalu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mtpalu_numm
+      *
+      * Key for oppdatering av pakkehistorikk
+      *
+     c     mupalu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mupalu_numm
+     c                   kfld                    mupalu_dato
+     c                   kfld                    mupalu_time
+      *
+      * Key for oppslag på vare m/lev.varenummer
+      *
+     c     vvarl4_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl4_lvar
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      *  Legger inn dato og klokkeslett (timestamp)
+      *
+     c                   time                    w_udat
+     c                   time                    w_utim
+      *
+     c                   endsr

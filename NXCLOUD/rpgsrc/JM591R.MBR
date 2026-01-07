@@ -1,0 +1,689 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASVADM
+      * Program . . . . : JM591R
+      * Beskrivelse . . : Hvis mer enn 1 kampanjepris i innkjøpsperiode
+      *                   så vises disse, hvis 1 så returneres prisene
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       190214 bof  Nytt program
+6.3q  *       260515 bof  Datoformat sql
+6.30  *       100615 bkv  Henter også kampanje kostpris også mulighet til å
+      *                   angi kampanje
+6.31  *       200718 bof  Feilretting, byttet rekkefølge av kost og tilb.pris
+7.01  *       180820 bof  Utvidet parm med prisgruppe
+8.01  *PRG2   130622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skvdrmindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjkavlr    if   e           k disk    rename(jkavpfr:jkavlrr)
+     fjkahlr    if   e           k disk    rename(jkahpfr:jkahlrr)
+     fjlevl3    if   e           k disk    rename(jlevpfr:jlevl3r)
+     fjvarlr    if   e           k disk    rename(jvarpfr:jvarlrr)
+      *
+     fJM591d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+     d p_vfir          s                   like(jmvfir)
+     d p_vvar          s                   like(jmvvar)
+     d p_ldor          s                   like(jlldor)
+6.20 d p_vkai          s                   like(jmvkai)
+6.30 d p_vkpr          s                   like(jmvkpr)
+6.20 d p_venh          s                   like(jvpenh)
+6.30 d p_kamp          s                   like(jmvkam)
+7.01 d p_prgr          s                   like(jmvprg)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variable i nøkler
+      *
+     d jkahlr_kamp     s                   like(jmkamp)
+     d jlevl3_enum     s                   like(jlenum)
+     d jvarlr_vare     s                   like(jvvare)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+      *
+     d w_seqe          s              1
+     d b_subf          s              1    inz(*off)
+     d b_open_sok      s              1    inz(*off)
+     d b_valg_ok       s              1    inz(*off)
+     d b_funn          s              1    inz(*off)
+      *
+     d w_vfir          s                   like(jmvfir)
+     d w_vldo          s                   like(jmvldo)
+6.20 d w_vvar          s                   like(jmvvar)
+6.20 d w_dato          s                   like(jmveda)
+6.20 d w_loval         s                   like(jmveda)
+6.20 d w_antt          s              4  0
+6.20 d w_firm          s                   like(jmvfir)
+7.01 d w_prgr          s                   like(jmvprg)
+      *
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(10)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skvdrmbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skvdrmbilde for CMD-taster
+      *
+      *
+6.3q C/Exec SQL
+6.3q C+  Set Option DatFmt=*ISO
+6.3q C/End-Exec
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   if        b_funn = *off
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Send Alt
+     c                   if        w_antt = 0
+     c                   goto      avslutt
+     c                   endif
+     c                   if        w_antt = 1
+     c                   exsr      finn_inpr
+     c                   goto      avslutt
+     c                   endif
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   if        b_funn = *off
+     c                   goto      avslutt
+     c                   endif
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c*                  if        b2numm <> 0
+     c*                  exsr      posisjoner
+     c*                  goto      b2tagb
+     c*                  endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   if        b_valg_ok = *on
+     c                   goto      avslutt
+     c                   endif
+      *
+     c                   if        b_subf = *on
+     c                   goto      b2taga
+     c                   endif
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'S'
+     c                   eval      b_open_sok = *on
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for søking i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c*    sØk           begsr
+      *
+     c*                  eval      w_seqe = 'S'
+     c*                  eval      b_open_sok = *on
+      *
+     c*                  eval      s_stek = b2stek
+      *
+      * Utleder søketekster ut av søketekst
+      *
+     c*                  call      'AS700R'
+     c*                  parm                    b2stek
+     c*                  parm                    w_ste1
+     c*                  parm                    w_ste2
+     c*                  parm                    w_ste3
+     c*                  parm                    w_ste4
+     c*                  parm                    w_ste5
+      *
+      * Blanker subfile, og fyller opp i.h.t. søk
+      *
+     c*                  exsr      clr_subfile
+     c*                  exsr      crt_subfile
+      *
+      * Blanker søkefelt
+      *
+     c*                  eval      b2stek = *blank
+      *
+     c*                  endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c*    posisjoner    begsr
+      *
+      * Navn
+      *
+     c*                  if        b2alfa <> *blank
+     c*                  eval      w_seqe = *blank
+     c*                  eval      rlevl2_alfa = b2alfa
+     c*    rlevl2_key    setll     rlevl2
+     c*                  goto      end_pos
+     c*                  endif
+      *
+      * Leverandør
+      *
+     c*                  if        b2vldo <> 0
+     c*                  eval      w_seqe = 'L'
+     c*                  eval      rlevl1_levr = b2vldo
+     c*    rlevl1_key    setll     rlevl1
+     c*                  goto      end_pos
+     c*                  endif
+      *
+     c*    end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c*                  exsr      clr_subfile
+     c*                  exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c*                  eval      b2alfa = *blank
+     c*                  eval      b2vldo = 0
+      *
+     c*                  endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_subf = *off
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      b_subf = *on
+     c                   eval      w_virn = w_srrn
+      *
+      * Legg til sortiment
+      *
+     c                   if        b1valg = 1
+     c                   eval      p_vkai = b1vkaa
+6.30 c                   eval      p_vkpr = b1vkpr
+     c                   eval      p_venh = jvpenh
+     c                   eval      b_valg_ok = *on
+     c                   leave
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   exsr      xc2win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   time                    w_dato
+     c                   eval      w_loval = *loval
+     c                   eval      w_firm  = p_vfir
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+      * Initierer SQL for søk
+      *
+     c                   if        w_seqe = 'S' and
+     c                             b_open_sok = *on
+     c/exec sql
+     c+                  declare sok cursor for
+     c+                  select jmvvar,
+     c+                         jmvkam,
+     c+                         jmvidf,
+     c+                         jmvldo,
+     c+                         jmvkai,
+     c+                         jmvkaa
+     c+                  from   jkavpf
+6.31 c+                  where  jmvfir = :w_vfir and
+6.31 c+                         jmvvar = :w_vvar and
+6.31 c+                         jmvldo = :w_vldo and
+7.01 c+                         (jmvprg = :w_prgr or
+7.01 c+                         jmvprg = '') and
+6.31 c+                         jmvidf <> :w_loval and
+6.31 c+                         jmvidt <> :w_loval and
+6.31 c+                         jmvidf <= :w_dato  and
+6.31 c+                         jmvidt >= :w_dato
+6.31 c+                  for read only
+     c/end-exec
+     c/exec sql
+     c+                  close sok
+     c/end-exec
+     c/exec sql
+     c+                  open sok
+     c/end-exec
+     c                   endif
+      *
+      * Fyller opp subfile
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c/exec sql
+     c+                  fetch next
+     c+                  from  sok
+     c+                  into  :jmvvar,
+     c+                        :jmvkam,
+     c+                        :jmvidf,
+     c+                        :jmvldo,
+6.31 c+                        :jmvkai,
+6.31 c+                        :jmvkaa
+     c/end-exec
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c                   eval      *in15 = *on
+     c                   endif
+      *
+     c                   if        *in15
+     c                   leave
+     c                   endif
+      *
+     c                   eval      jkahlr_kamp = jmvkam
+     c     jkahlr_key    chain     jkahlr
+     c                   if        not %found
+     c                   iter
+     c                   endif
+     c
+6.30 c                   if        p_kamp <> *blank
+6.30 c                   if        jmvkam <> p_kamp
+6.30 c                   iter
+6.30 c                   endif
+6.30 c                   endif
+     c
+      *
+      * Skriver til subfile
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      b_funn = *on
+     c                   eval      b1valg = 0
+     c                   eval      b1vkam = jmvkam
+     c                   eval      b1vkai = jmvkai
+     c                   eval      b1vkaa = jmvkaa
+     c                   eval      b1vkpr = jmvkpr
+     c                   eval      b1enhe = jvpenh
+     c                   if        jmvidf <> *loval
+     c     *dmy          move      jmvidf        b1vidf
+     c                   else
+     c                   eval      b1vidf = 0
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   eval      b_open_sok = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        w_seqe = 'S'
+     c                   exsr      forny
+     c                   goto      end_bck
+     c                   endif
+      *
+     c     end_bck       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+     c                   eval      *in22 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for vis av detaljer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2win        begsr
+      *
+      *
+     c                   endsr
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  * Subrutine for sjekke om vvar finnes på mer enn en kampanje
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  *
+6.31 c     finn_inpr     begsr
+      *
+     c                   time                    w_dato
+     c                   eval      w_loval = *loval
+     c                   eval      w_firm  = p_vfir
+6.31  *
+6.31  *
+6.31 c/exec sql
+6.31 c+                  declare kamp1 cursor for
+6.31 c+                  select jmvvar,
+     c+                         jmvkai,
+6.30 c+                         jmvkpr
+6.31 c+                  from   jkavpf
+6.31 c+                  where  jmvfir = :w_vfir and
+6.31 c+                         jmvvar = :w_vvar and
+6.31 c+                         jmvldo = :w_vldo and
+7.01 c+                         (jmvprg = :w_prgr or
+7.01 c+                         jmvprg = '') and
+7.01 c+                         jmvidf <> :w_loval and
+6.31 c+                         jmvidf <> :w_loval and
+6.31 c+                         jmvidt <> :w_loval and
+6.31 c+                         jmvidf <= :w_dato  and
+6.31 c+                         jmvidt >= :w_dato
+6.31 c+                  for read only
+6.31 c/end-exec
+6.31  *
+6.31 c/exec sql
+6.31 c+ open kamp1
+6.31 c/end-exec
+6.31  *
+6.31 c/exec sql
+6.31 c+ fetch kamp1
+6.31 c+ into  :jmvvar,
+6.30 c+       :jmvkai,
+6.30 c+       :jmvkpr
+6.31 c/end-exec
+6.31  *
+6.31 c/exec sql
+6.31 c+ close kamp1
+6.31 c/end-exec
+      *
+     c                   eval      p_vkai = jmvkai
+6.30 c                   eval      p_vkpr = jmvkpr
+     c                   eval      p_venh = jvpenh
+6.31  *
+6.31 c                   endsr
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  * Subrutine for sjekke om vvar finnes på mer enn en kampanje
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  *
+6.31 c     sjekk_kamp    begsr
+6.31  *
+     c                   time                    w_dato
+     c                   eval      w_loval = *loval
+6.31  *
+6.31 c/exec sql
+6.31 c+                  declare kamp2 cursor for
+6.31 c+                  select count(*) as w_antt
+6.31 c+                  from   jkavpf
+6.31 c+                  where  jmvfir = :w_vfir and
+6.31 c+                         jmvvar = :w_vvar and
+6.31 c+                         jmvldo = :w_vldo and
+7.01 c+                         (jmvprg = :w_prgr or
+7.01 c+                         jmvprg = '') and
+7.01 c+                         jmvidf <> :w_loval and
+6.31 c+                         jmvidf <> :w_loval and
+6.31 c+                         jmvidt <> :w_loval and
+6.31 c+                         jmvidf <= :w_dato  and
+6.31 c+                         jmvidt >= :w_dato
+6.31 c+                  for read only
+6.31 c/end-exec
+6.31  *
+6.31 c/exec sql
+6.31 c+ open kamp2
+6.31 c/end-exec
+6.31  *
+6.31 c/exec sql
+6.31 c+ fetch kamp2
+6.31 c+ into  :w_antt
+6.31 c/end-exec
+6.31  *
+6.31 c/exec sql
+6.31 c+ close kamp2
+6.31 c/end-exec
+      *
+     c                   if        w_antt > 0
+     c                   eval      b_funn = *on
+     c                   endif
+6.31  *
+6.31 c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_vfir
+6.20 c                   parm                    p_vvar
+6.20 c                   parm                    p_ldor
+     c                   parm                    p_vkai
+6.30 c                   parm                    p_vkpr
+     c                   parm                    p_venh
+6.30 c                   parm                    p_kamp
+7.01 c                   parm                    p_prgr
+      *
+      * Key for oppslag på ordre
+      *
+     c     jkahlr_key    klist
+     c                   kfld                    w_vfir
+     c                   kfld                    jkahlr_kamp
+      *
+      * Key for oppslag på leverandør
+      *
+     c     jlevl3_key    klist
+     c                   kfld                    jlevl3_enum
+      *
+      * Key for oppslag på leverandør
+      *
+     c     jvarlr_key    klist
+     c                   kfld                    jvarlr_vare
+      *
+      *
+      * Henter parametre, og initierer skjermbildet
+      *
+     c                   eval      w_vfir = p_vfir
+     c                   eval      b_funn = *off
+     c                   eval      p_venh = *blank
+      *
+     c                   eval      *in22 = *on
+      *
+     c                   time                    w_dato
+      *
+     c                   eval      jlevl3_enum = p_ldor
+     c     jlevl3_key    chain     jlevl3
+     c                   if        not %found(jlevl3)
+     c                   leavesr
+     c                   endif
+     c                   movel     jlnavn        b2lnav
+      *
+     c                   eval      jvarlr_vare = p_vvar
+     c     jvarlr_key    chain     jvarlr
+     c                   movel     jvtek1        b2vnav
+      *
+      *
+     c                   eval      b2vvar = p_vvar
+6.20 c                   eval      b2vldo = jlldor
+     c                   eval      w_vvar = p_vvar
+7.01 c                   eval      w_prgr = p_prgr
+6.20 c                   eval      w_vldo = jlldor
+6.20 c                   eval      w_loval= *loval
+     c                   time                    w_dato
+      *
+      * sjekk om vvarn finnes på flere kampanjer
+      *
+     c                   exsr      sjekk_kamp
+     c                   if        w_antt > 1
+      *
+     c                   eval      p_vkai = 0
+     c                   eval      p_venh = *blank
+     c                   eval      w_seqe = 'S'
+     c                   eval      b_open_sok = *on
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endif
+      *
+     c                   endsr

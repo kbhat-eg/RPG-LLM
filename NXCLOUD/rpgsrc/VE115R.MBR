@@ -1,0 +1,866 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VE115R
+      * Beskrivelse . . : vare-enhet pr. prisgiver, vedlikehold
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       290909 bof  Nytt program
+6.11  *       200510 bof  Lagt på feilm. hvis Gtin finnes
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvenl1    if   e           k disk    rename(vvenpfr:vvenlrr)
+     fvveplr    if   e           k disk    rename(vveppfr:vveplrr)
+     fvveplu    uf a e           k disk    rename(vveppfr:vveplur)
+     fvvepl1    if   e           k disk    rename(vveppfr:vvepl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvenhl1    if   e           k disk    rename(venhpfr:venhl1r)
+6.12 fvvepl2    if   e           k disk    rename(vveppfr:vvepl2r)
+      *
+     fVE115D    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(vaefir)
+     d p_pvar          s                   like(vepvar)
+     d p_penh          s                   like(vepenh)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d vveplr_pldo     s                   like(vepldo)
+     d vveplu_pldo     s                   like(vepldo)
+     d vvepl1_pldo     s                   like(vepldo)
+     d vvarl1_vare     s                   like(vvvare)
+     d venhl1_eenh     s                   like(vaeenh)
+6.12 d vvepl2_pgti     s                   like(vepgti)
+      *
+      * Definering av variabler
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_srrn_w        s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_enter         s              1    inz(*off)
+     d b_inlr          s              1    inz(*off)
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+     d b_subf          s              1    inz(*off)
+     d b_eaok          s              1    inz(*off)
+      *
+     d w_firm          s                   like(vaefir)
+     d w_pvar          s                   like(vepvar)
+     d w_penh          s                   like(vepenh)
+     d w_stat          s              1
+     d w_rkod          s              1
+      *
+      *
+     d s_pldo          s                   like(vepldo)
+6.11 d s_pgti          s                   like(vepgti)
+      *
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(11)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meldingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   if        b_subf = *on
+     c                   goto      b2taga
+     c                   endif
+      *
+     c                   eval      b_enter = *on
+      *
+      * Validering av input-felter
+      *
+     c                   if        b_feil = *on
+     c                   goto      b2tagb
+     c                   endif
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   eval      vvepl1_pldo = b1pldo
+     c     vvepl1_key    setll     vvepl1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_subf = *off
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl                                  16
+      *
+     c                   if        *in16
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   eval      c1pvar = b2pvar
+     c                   eval      c1penh = b2penh
+     c                   eval      c1pldo = b1pldo
+     c                   exsr      xc2bld
+     c                   eval      b_subf = *on
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Kopier
+      *
+     c                   if        b1valg = 3
+     c                   eval      k1pvar = b2pvar
+     c                   eval      k1penh = b2penh
+     c                   eval      k1pldo = b1pldo
+     c                   exsr      xk1win
+     c                   eval      b_subf = *on
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1pvar = b2pvar
+     c                   eval      d1penh = b2penh
+     c                   eval      d1pldo = b1pldo
+     c                   exsr      xd1win
+     c                   eval      b_subf = *on
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1pvar = b2pvar
+     c                   eval      c1penh = b2penh
+     c                   eval      c1pldo = b1pldo
+     c                   exsr      xc2bld
+     c                   eval      b_subf = *on
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      *in40 = *off
+     c                   eval      b_oppr = *on
+     c                   eval      b_forn = *off
+      *
+     c                   eval      c1pvar = b2pvar
+     c                   eval      c1penh = p_penh
+     c                   if        w_pvar < '10000000'
+     c                   eval      c1pldo = vvldor
+     c                   eval      *in40 = *on
+     c                   endif
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_c1bld
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      c1taga
+     c                   endsl
+      *
+     c                   if        c1penh = *blank
+     c                   goto      end_c1bld
+     c                   endif
+      *
+      * hvis VA-varenr, så skal det kun være prisgivende lev. som skal være gyldig
+      *
+     c                   if        *in40 = *off
+     c                   call      'JX720R '
+     c                   parm                    w_pvar
+     c                   parm                    c1pldo
+     c                   parm                    w_stat
+     c                   if        w_stat = '0'
+     c                   eval      *in31 = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+     c
+      *
+      * Sender opp informasjonsbildet dersom rad finnes fra før
+      *
+     c                   eval      vveplr_pldo = c1pldo
+     c     vveplr_key    chain     vveplr                             90
+     c                   if        *in90 = *off
+     c                   exsr      xc1msg
+     c                   if        b_anul = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   exsr      xc2bld
+      *
+     c                   eval      c1penh = *blank
+      *
+     c                   goto      c1taga
+      *
+     c     end_c1bld     tag
+      *
+     c                   eval      b_oppr = *off
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * C2BLD Behandle bilde for ny - endring - vise
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+     c                   eval      b_eaok = *off
+      *
+     c                   eval      vveplr_pldo = c1pldo
+     c     vveplr_key    chain     vveplr                             90
+      *
+     c                   if        *in90 = *off
+6.10 c                   eval      c2pgti = vepgti
+6.11 c                   eval      s_pgti = vepgti
+6.11 c                   eval      c2pkla = vepkla
+     c                   eval      c2pbes = vepbes
+     c                   eval      c2peus = vepeus
+     c                   if        vepoda <> *loval
+     c     *dmy          move      vepoda        c2poda
+     c                   else
+     c                   eval      c2poda = 0
+     c                   endif
+     c                   if        vepeda <> *loval
+     c     *dmy          move      vepeda        c2peda
+     c                   else
+     c                   eval      c2peda = 0
+     c                   endif
+     c                   else
+6.10 c                   eval      c2pgti = 0
+6.11 c                   eval      s_pgti = 0
+     c                   eval      c2peus = *blank
+     c                   eval      c2poda = 0
+     c                   eval      c2peda = 0
+     c                   endif
+      *
+     c                   if        b1valg = 3
+     c                   eval      c1pldo = k1pldo
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30 = *on
+     c                   endif
+      *
+     c     c2tagb        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+     c                   if        c2pgti = 0 and
+     c                             c2pkla = *blank and
+     c                             c2pbes = 0
+     c                   goto      end_c2bld
+     c                   endif
+      *
+     c                   if        c2pgti <> 0
+     c                   exsr      sjekk_ean
+     c                   if        b_eaok = *off
+     c                   eval      *in31 = *on
+     c                   goto      c2tagb
+     c                   endif
+     c                   endif
+6.11  *
+6.11  * Sjekker om inntastet ean-nr allerede ligger på vare-enhet
+6.11  *
+6.11 c                   if        c2pgti <> 0 and
+6.11 c                             c2pgti <> s_pgti
+6.11 c                   eval      vvepl2_pgti = c2pgti
+6.11 c     vvepl2_key    chain     vvepl2
+6.11 c                   if        %found(vvepl2)
+6.11 c                   eval      *in32 = *on
+6.11 c                   goto      c2tagb
+6.11 c                   endif
+6.11 c                   endif
+      *
+      * Oppdatering
+      *
+     c                   clear                   vveplur
+      *
+     c                   eval      vveplu_pldo = c1pldo
+     c     vveplu_key    chain     vveplur                            90
+      *
+6.10 c                   eval      vepgti = c2pgti
+6.11 c                   eval      vepkla = c2pkla
+     c                   eval      vepbes = c2pbes
+     c                   eval      vepeus = l_user
+      *
+     c                   time                    vepeda
+     c                   time                    vepeti
+      *
+     c                   if        *in90 = *off
+     c                   update    vveplur
+     c                   else
+     c                   eval      vepfir = w_firm
+     c                   eval      vepvar = w_pvar
+     c                   eval      vepenh = w_penh
+     c                   eval      vepldo = c1pldo
+     c                   time                    vepoda
+     c                   time                    vepoti
+     c                   eval      vepous = l_user
+     c                   write     vveplur
+     c                   endif
+      *
+      * Oppdatering av søketekster
+      *
+     c                   call      'JV790R'
+     c                   parm                    w_firm
+     c                   parm                    vepvar
+     c                   parm                    b_inlr
+      *
+      * Oppdater subfile
+      *
+     c                   if        b1valg = 2
+6.10 c                   eval      b1pgti = c2pgti
+6.11 c                   eval      b1pkla = c2pkla
+     c                   eval      b1pbes = c2pbes
+     c                   endif
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      vveplr_pldo = d1pldo
+     c     vveplr_key    chain     vveplr                             90
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter rad
+      *
+     c                   eval      vveplu_pldo = d1pldo
+     c     vveplu_key    chain     vveplur                            90
+     c                   delete    vveplur
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle kopierings-bildet (K1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xk1win        begsr
+      *
+      * Tar pvar på nøkkel til rad det skal kopieres fra
+      *
+     c                   eval      s_pldo = k1pldo
+      *
+      * Fyller kopierings-bildet
+      *
+     c                   eval      vveplr_pldo = k1pldo
+     c     vveplr_key    chain     vveplr                             90
+      *
+     c     k1tagb        tag
+      *
+     c                   exfmt     k1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+      * Sjekker input
+      *
+     c                   if        k1pldo = 0
+     c                   eval      *in31 = *on
+     c                   goto      k1tagb
+     c                   endif
+      *
+      * Sjekker om rad finnes fra før
+      *
+     c                   eval      vveplr_pldo = k1pldo
+     c     vveplr_key    chain     vveplr                             90
+     c                   if        *in90 = *off
+     c                   eval      *in32 = *on
+     c                   goto      k1tagb
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   eval      c1pldo = s_pldo
+      *
+     c                   exsr      xc2bld
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Fyll opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   read      vvepl1                                 15
+      *
+     c                   if        *in15
+     c                   leave
+     c                   endif
+      *
+     c                   if        vepvar <> w_pvar or
+     c                             vepenh <> w_penh
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   eval      vvepl1_pldo = vepldo
+      *
+6.10 c                   eval      b1pldo = vepldo
+6.10 c                   eval      b1pgti = vepgti
+6.10 c                   eval      b1pkla = vepkla
+     c                   eval      b1pbes = vepbes
+      *
+     c                   write     b1sfl
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c     vvepl1_key    setgt     vvepl1
+     c                   readp     vvepl1
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   readp     vvepl1
+      *
+     c                   if        %eof or
+     c                             vepvar <> w_pvar or
+     c                             vepenh <> w_penh
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   eval      vvepl1_pldo = vepldo
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c     vvepl1_key    setll     vvepl1
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av spørring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     spØrring      begsr
+      *
+      * Prisgivere /leverandører av denne varen
+      *
+     c                   if        w_afld = 'C1PLDO'
+     c                   call      'JX520R'
+     c                   parm                    w_pvar
+     c                   parm                    c1pldo
+     c                   goto      end_spØrr
+     c                   endif
+      *
+     c     end_spØrr     endsr
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å sjekke om gyldig ean-nr er angitt
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_ean     begsr
+      *
+     c                   eval      w_rkod = '1'
+     c                   call      'FÅ900R'
+     c                   parm                    c2pgti
+     c                   parm                    w_rkod
+      *
+     c                   if        w_rkod = ' '
+     c                   eval      b_eaok = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_pvar
+     c                   parm                    p_penh
+      *
+      * Key for oppslag på pvar-penhing
+      *
+     c     vvenl1_key    klist
+     c                   kfld                    w_pvar
+     c                   kfld                    w_penh
+      *
+      * Key for oppslag på pvar-penhing
+      *
+     c     vveplr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_pvar
+     c                   kfld                    w_penh
+     c                   kfld                    vveplr_pldo
+      *
+      * Key for oppdatering av pvar-penhing
+      *
+     c     vveplu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_pvar
+     c                   kfld                    w_penh
+     c                   kfld                    vveplu_pldo
+      *
+      * Key for posisjonering på penhingskode
+      *
+     c     vvepl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_pvar
+     c                   kfld                    w_penh
+     c                   kfld                    vvepl1_pldo
+      *
+      *
+      * Key for oppslag på pvar
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for oppslag på enhet
+      *
+     c     venhl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    venhl1_eenh
+6.11  *
+6.11  * Key for oppslag på vare-enhet-gtin
+6.11  *
+6.12 c     vvepl2_key    klist
+6.11 c                   kfld                    w_firm
+6.12 c                   kfld                    vvepl2_pgti
+      *
+      *
+      * Henter firma og pvar fra parameter
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      w_pvar = p_pvar
+     c                   eval      w_penh = p_penh
+      *
+      * Henter vareinformasjon
+      *
+     c                   eval      vvarl1_vare = p_pvar
+     c     vvarl1_key    chain     vvarl1                             90
+     c                   if        *in90 = *off
+     c                   eval      b2pvar = vvvare
+     c                   eval      b2tek1 = vvtek1
+     c                   endif
+      *
+     c                   eval      b2penh = p_penh
+      *
+      * Henter beskrivelse
+      *
+      *
+     c*                  eval      venhl1_eenh = jwenhe
+     c*    venhl1_key    chain     venhl1r                            91
+     c*                  if        *in91 = *off
+     c*                  eval      c2etxt = vaetxt
+     c*                  endif
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      *in22 = *on
+      *
+     c     vvepl1_key    setll     vvepl1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

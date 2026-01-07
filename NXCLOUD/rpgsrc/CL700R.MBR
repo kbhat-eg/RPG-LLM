@@ -1,0 +1,232 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . :
+      * Program . . . . : CL700R
+      * Beskrivelse . . : EDI forsendelseslogg, bygg loggfil
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       140116 HKO  Nytt program
+      *       010217 HKO  Tilpasset Nexstep 6.30
+      *       070517 HKO  Leser tre måneder tilbake i tid
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flwell1    if   e           k disk    rename(lwelpfr:lwelpfr)
+     fcelgl2    if   e           k disk    rename(celgpfr:celgl2r)
+     f                                     prefix(xo:2)
+     fcelgpf    uf a e           k disk    rename(celgpfr:celgpfr)
+      *
+      * Definering av parametre
+      *
+     d p_list          s              8
+      *
+      * Datastruktur for parameterliste -inn
+      *
+     d                 ds
+     d d_list                         8
+     d  d_firm                        3  0 overlay(d_list:1)
+     d  d_avde                        4  0 overlay(d_list:4)
+      *
+      * Datastruktur for dato
+      *
+     d                 ds
+     d d_bdat                         8
+     d  d_paar                        4  0 overlay(d_bdat:1)
+      *
+      * Definering av variable i nøkkel
+      *
+     d lwell1_gind     s                   like(logind)
+     d lwell1_gdat     s                   like(logdat)
+     d celgl2_gind     s                   like(logind)
+     d celgl2_gtyp     s                   like(logtyp)
+     d celgl2_paar     s                   like(clpaar)
+     d celgl2_benr     s                   like(clbenr)
+      *
+      * Definering av variable
+      *
+     d w_bdat          s                   like(logdat)
+     d w_benr          s                   like(clbenr)
+      *
+     d w_firm          s              3  0
+     d w_dat8          s              8
+     d w_bena          s              8
+     d w_leng          s              1  0
+     d w_posi          s              1  0
+      *
+      * Definering av konstanter
+      *
+     d c_digi          s             10    inz('0123456789')
+     d c_null          s              7    inz('0000000')
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Henter dato tre måneder tilbake i tid
+      *
+     c                   eval      w_bdat = %date
+     c***  w_bdat        subdur    2:*years      w_bdat
+     c     w_bdat        subdur    3:*m          w_bdat
+      *
+      * Leser EDI logg fra tre måneder tilbake i tid
+      *
+     c                   eval      lwell1_gind = 'O'                            Utgående EDI
+     c                   eval      lwell1_gdat = w_bdat
+     c     lwell1_key    setll     lwell1
+     c     lwell1_key2   reade     lwell1
+     c                   dow       not %eof
+      *
+     c                   if        logtyp = 'ORDR' and
+     c                             %subst(logrec:1:4) = 'ED01' and
+     c                             %subst(logrec:35:3) = '220'
+      *
+     c                   eval      w_bena = %subst(logrec:38:8)
+     c                   eval      w_leng = %len(%trim(w_bena))
+     c                   if        w_leng = 6
+     c                   eval      w_bena = %subst(c_null:1:2) +
+     c                                      %subst(w_bena:1:6)
+     c                   endif
+      *
+     c     ' ':'0'       xlate     w_bena        w_bena
+     c                   move      w_bena        w_benr
+      *
+     c     *iso0         move      logdat        d_bdat
+      *
+     c                   eval      celgl2_gind = logind
+     c                   eval      celgl2_gtyp = logtyp
+     c                   eval      celgl2_paar = d_paar
+     c                   eval      celgl2_benr = w_benr
+     c     celgl2_key    chain     celgl2
+     c                   if        not %found
+     c                   eval      clfirm = w_firm
+     c                   eval      clpaar = d_paar
+     c                   eval      clbenr = w_benr
+     c                   write     celgpfr
+     c                   endif
+      *
+     c                   endif
+      *
+     c     lwell1_key2   reade     lwell1
+     c                   enddo
+      *
+     c                   eval      lwell1_gind = 'I'                            Inngående EDI
+     c                   eval      lwell1_gdat = w_bdat
+     c     lwell1_key    setll     lwell1
+     c     lwell1_key2   reade     lwell1
+     c                   dow       not %eof
+      *
+     c                   if        logtyp = 'OBKR' or
+     c                             logtyp = 'FAKT'
+     c                   if        %subst(logrec:1:6) = 'ED04ON'
+      *
+     c                   eval      w_bena = %subst(logrec:8:8)
+     c                   eval      w_bena = %trim(w_bena)
+      *
+     c                   if        %subst(w_bena:1:1) = ' ' or
+     c                             %subst(w_bena:1:1) = '/' or
+     c                             %subst(w_bena:1:1) = '-'
+     c                   eval      w_bena = %subst(w_bena:2:7)
+     c                   endif
+      *
+     c     ' '           scan      w_bena        w_posi
+     c                   if        w_posi <> 0
+     c                   eval      w_bena = %subst(w_bena:1:w_posi-1)
+     c                   endif
+      *
+     c     '/'           scan      w_bena        w_posi
+     c                   if        w_posi <> 0
+     c                   eval      w_bena = %subst(w_bena:1:w_posi-1)
+     c                   endif
+      *
+     c     '-'           scan      w_bena        w_posi
+     c                   if        w_posi <> 0
+     c                   eval      w_bena = %subst(w_bena:1:w_posi-1)
+     c                   endif
+      *
+     c                   if        w_bena <> *blank
+      *
+     c                   eval      w_leng = %len(%trim(w_bena))
+     c                   if        w_leng < 8
+     c                   eval      w_bena = %subst(c_null:1:8-w_leng) +
+     c                                      %subst(w_bena:1:w_leng)
+     c                   endif
+      *
+     c     c_digi        check     w_bena                                 70
+     c                   if        *in70 = *off
+      *
+     c     ' ':'0'       xlate     w_bena        w_bena
+     c                   move      w_bena        w_benr
+      *
+     c     *iso0         move      logdat        d_bdat
+      *
+     c                   eval      celgl2_gind = logind
+     c                   eval      celgl2_gtyp = logtyp
+     c                   eval      celgl2_paar = d_paar
+     c                   eval      celgl2_benr = w_benr
+     c     celgl2_key    chain     celgl2
+     c                   if        not %found
+     c                   eval      clfirm = w_firm
+     c                   eval      clpaar = d_paar
+     c                   eval      clbenr = w_benr
+     c                   write     celgpfr
+     c                   endif
+      *
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+     c     lwell1_key2   reade     lwell1
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_list
+      *
+      * Key for les på EDI bestillingslogg
+      *
+     c     lwell1_key    klist
+     c                   kfld                    lwell1_gind
+     c                   kfld                    lwell1_gdat
+      *
+     c     lwell1_key2   klist
+     c                   kfld                    lwell1_gind
+      *
+      * Key for oppslag på EDI forsendelseslogg
+      *
+     c     celgl2_key    klist
+     c                   kfld                    celgl2_gind
+     c                   kfld                    celgl2_gtyp
+     c                   kfld                    w_firm
+     c                   kfld                    celgl2_paar
+     c                   kfld                    celgl2_benr
+      *
+      *
+      * Kopierer parameter til datastruktur
+      *
+     c                   eval      d_list = p_list
+      *
+     c                   eval      w_firm = d_firm
+      *
+     c                   endsr

@@ -1,0 +1,597 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  System. . . . . : ASLAGR
+      *  Program . . . . : LI700R
+      *  Beskrivelse . . : Splitter mottatte EDI meldinger pr. type
+      *
+      *  Spesialversjon. :
+      *  Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+6.20  * 6.20  051114 bsa  Scanner for enda uoppdaget felt
+6.30  * 6.30  060315 bsa  Utvider med feilhåndtering
+6.31  * 6.30  120515 bsa  Uteglemt firmakode
+6.32  * 6.30  100615 bsa  Bruker feil nøkkel ved oppslag mot leverandører
+6.33  * 6.30  100615 bsa  Logger linjer selv om det er feil på linja.
+6.3x  * 6.30  140616 bsa  Mottak av bestillinger på EDI
+7.01  * 7.01  180919 bsa  Skiller mellom typer, når vi ser på parter
+7.02  * 6.30  261018 bsa  Automatisk oppdatering av OBKR/FAKT hvis den ikke
+7.02  *                   er tilknyttet ordre.
+7.02  *                   Sjekker om automatisk innlesing av ordrebekreftelse skal skje.
+7.02  *                   kjør automatisk innlesing selv om det har skjedd noe feil
+7.03  * 6.30  141218 bsa  Sjekker om  automatisk innlesing av faktura skal skje.
+7.04  * 7.xx  040621 bsa  Dobbeltsjekk at GLN nummer går gjennom.
+7.05  * 7.xx  100621 bof  Samme rettelse på ED04 som over.
+8.01  * 800   160323 ask  Lagt inn kall til program som danner betalingstranser til POG
+      *                   dersom switch "POG_TRANS" er på
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *    80-89 = Arbeidsindikatorer
+      *    90-99 = Fileindikatorer chain etc.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flwerpf    if   e           k disk
+     flweopf    o    e           k disk
+     flweppf    o    e           k disk
+     flwefpf    o    e           k disk
+     flwelpf    o    e           k disk
+6.3x flwebpf    o    e           k disk
+6.30 feloglu    uf a e           k disk
+6.30 frlevl5    if   e           k disk    rename(rlevpfr:rlevl5r)
+6.30  *
+6.30  * Definering av LDA
+6.30  *
+6.30 d                uds
+6.30 d l_user                911    920
+7.02 d l_filg                931    933
+6.30 d l_firm                944    946  0
+      *
+      * Definering av tabeller
+      *
+     d a_tegn          s             30    dim(4)  ctdata perrcd(1)
+6.30  *
+6.30  * Definering av variabler i nøkler
+6.30  *
+6.30 d eloglu_faar     s                   like(xlfaar)
+6.30 d eloglu_type     s                   like(xltype)
+6.30 d eloglu_lean     s                   like(xllean)
+6.30 d eloglu_refn     s                   like(xlrefn)
+6.30 d rlevl5_eanl     s                   like(rleanl)
+      *
+      * Definering av variable
+      *
+     d w_rect          s              4
+     d w_tegn          s            120
+     d w_tpos          s              3  0
+     d w_ptel          s              3  0
+     d w_udat          s               d   datfmt(*iso)
+     d w_utim          s               t   timfmt(*iso)
+6.30 d w_type          s              4
+6.30 d w_refn          s             35
+6.30 d w_part          s              2
+6.30 d w_lean          s                   like(xllean)
+6.30 d w_leaa          s             13
+6.30 d w_year          s              4  0
+6.30 d w_levn          s                   like(rllevr)
+6.30 d w_firm          s                   like(l_firm)
+6.30 d w_meld          s            128
+8.01 d w_faka          s             13
+8.01 d w_fakl          s             13  0
+      *
+     d b_obkr          s              1    inz(*off)
+     d b_pakk          s              1    inz(*off)
+     d b_fakt          s              1    inz(*off)
+6.3x d b_best          s              1    inz(*off)
+6.30 d b_feil          s              1    inz(*off)
+      *
+     d b_xobk          s              1    inz(*off)
+     d b_xpak          s              1    inz(*off)
+     d b_xfak          s              1    inz(*off)
+6.3x d b_xbes          s              1    inz(*off)
+7.02 d u_s702          s              1    inz(*off)
+7.03 d u_s703          s              1    inz(*off)
+8.01 d u_s801          s              1    inz(*off)
+      *
+6.3x d w_stat_bes      s              1
+6.30 d w_stat_obk      s              1
+6.30 d w_stat_pak      s              1
+6.30 d w_stat_fak      s              1
+6.30 d p_stat          s              1
+7.02  *
+7.02  * Definering av eksterne prg
+7.02  *
+7.02   dcl-s co402_verdi1  char(1);
+7.02   dcl-s co402_verdi2  char(2048);
+7.02   DCL-PR CO402R EXTPGM('CO402R');
+7.02     p_filgrp            char(3)     const;
+7.02     p_firm              packed(3:0) const;
+7.02     p_lager             packed(2:0) const;
+7.02     p_nokkel            char(50)    const;
+7.02     p_verdi1            char(1);
+7.02     p_verdi2            char(2048);
+7.02   END-PR;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Hoved program styrerutine - les av innposter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   read      lwerpf
+      *
+     c                   dow       not %eof
+     c                   exsr      vask_data
+     c                   eval      w_rect = %subst(edilin:1:4)
+      *
+     c                   if        w_rect = *blank
+     c                   goto      les_neste
+     c                   endif
+      *
+     c                   if        w_rect = 'ED00'
+     c                   goto      les_neste
+     c                   endif
+      *
+     c                   if        w_rect = 'ED01'
+     c                   exsr      finn_type
+     c                   endif
+      *
+7.01 c                   if        b_best = *on
+6.30 c                   if        w_rect = 'ED04'
+6.30 c                   eval      w_part = %subst(edilin:5:6)
+6.30 c                   if        w_part = 'SU'
+6.30 c                   eval      w_leaa = %subst(edilin:8:13)
+7.05 c                   if        %trim(w_leaa) = *blanks
+7.05 c                   eval      w_lean = 0
+7.05 c                   else
+6.30 c                   eval      w_lean = %int(w_leaa)
+7.05 c                   endif
+6.30 c                   exsr      skriv_logg
+6.30 c                   endif
+6.30 c                   endif
+7.01 c                   else
+7.01 c                   if        w_rect = 'ED05'
+7.01 c                   eval      w_part = %subst(edilin:5:6)
+7.01 c                   if        w_part = 'SU'
+7.01 c                   eval      w_leaa = %subst(edilin:8:13)
+7.04 c                   if        %trim(w_leaa) = *blanks
+7.04 c                   eval      w_lean = 0
+7.04 c                   else
+7.01 c                   eval      w_lean = %int(w_leaa)
+7.04 c                   endif
+7.01 c                   exsr      skriv_logg
+7.01 c                   endif
+7.01 c                   endif
+7.01 c                   endif
+      *
+     c                   select
+     c                   when      b_obkr = *on
+     c                   exsr      skriv_obkr
+     c                   when      b_pakk = *on
+     c                   exsr      skriv_pakk
+     c                   when      b_fakt = *on
+     c                   exsr      skriv_fakt
+6.3x c                   when      b_best = *on
+6.3x c                   exsr      skriv_best
+     c                   endsl
+      *
+     c                   exsr      skriv_logf
+      *
+     c     les_neste     tag
+     c                   read      lwerpf
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Kalle opp program for videre behandling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   close(e)  *all
+      * Ordrebekreftelse
+     c                   if        b_xobk = *on
+     c                   call      'LI701R'
+6.30 c                   parm                    w_stat_obk
+     c                   endif
+7.02  *
+7.02  * Start automatisk oppdatering av ordrebekreftelse
+7.02  *
+7.02 c                   if        u_s702 = *on
+7.02 c                   call      'LI721R'
+7.02 c                   endif
+7.02  *
+      * Pakkseddel
+     c                   if        b_xpak = *on
+     c                   call      'LI702R'
+6.30 c                   parm                    w_stat_pak
+     c                   endif
+      * Faktura
+     c                   if        b_xfak = *on
+     c                   call      'LI703R'
+6.30 c                   parm                    w_stat_fak
+7.03  *
+7.03  * Start automatisk oppdatering av faktura
+7.03  *
+7.03 c                   if        u_s703 = *on
+7.03 c                   call      'LI723R'
+7.03 c                   endif
+7.03  *
+8.01  *
+8.01  * Start utlegg av betalingstranser
+8.01  *
+8.01 c                   if        u_s801 = *on
+8.01 c                   call      'LI753R'
+8.01 c                   parm                    w_fakl
+8.01 c                   endif
+     c                   endif
+6.3x  * Bestillinger
+6.3x c                   if        b_xbes = *on
+6.3x c                   call      'LI704R'
+6.3x c                   parm                    w_stat_bes
+6.3x c                   endif
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     end_pgm       tag
+6.30  * Flagg hvis det har skjedd en feil
+6.30 c                   if        b_feil = *on  or
+6.30 c                             w_stat_obk = 'E' or
+6.30 c                             w_stat_pak = 'E' or
+6.3x c                             w_stat_fak = 'E' or
+6.3x c                             w_stat_bes = 'E'
+6.30 c                   eval      p_stat = 'E'
+6.30 c                   endif
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å skrive ordrebekreftelse
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skriv_obkr    begsr
+      *
+     c                   eval      obklin = edilin
+     c                   write     lweopfr
+      *
+     c     end_obkr      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å skrive pakkseddel
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skriv_pakk    begsr
+      *
+     c                   eval      paklin = edilin
+     c                   write     lweppfr
+      *
+     c     end_pakk      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å skrive faktura
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skriv_fakt    begsr
+      *
+     c                   eval      faklin = edilin
+     c                   write     lwefpfr
+      *
+     c     end_fakt      endsr
+      *
+6.3x  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3x  *  Subrutine for å skrive bestilling
+6.3x  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3x  *
+6.3x c     skriv_best    begsr
+6.3x  *
+6.3x c                   eval      beslin = edilin
+6.3x c                   write     lwebpfr
+6.3x  *
+6.3x c     end_best      endsr
+6.3x  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å finne meldingstype
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     finn_type     begsr
+      *
+     c                   eval      b_obkr = *off
+     c                   eval      b_pakk = *off
+     c                   eval      b_fakt = *off
+6.3x c                   eval      b_best = *off
+      *
+     c                   select
+     c                   when      %subst(edilin:19:6) = 'ORDRSP'
+     c                   eval      b_obkr = *on
+     c                   eval      b_xobk = *on
+     c                   when      %subst(edilin:19:6) = 'DESADV'
+     c                   eval      b_pakk = *on
+     c                   eval      b_xpak = *on
+     c                   when      %subst(edilin:19:6) = 'INVOIC'
+     c                   eval      b_fakt = *on
+     c                   eval      b_xfak = *on
+6.3x c                   when      %subst(edilin:15:6) = 'ORDERS'
+6.3x c                   eval      b_best = *on
+6.3x c                   eval      b_xbes = *on
+     c                   endsl
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å skrive til loggfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skriv_logf    begsr
+      *
+     c                   eval      logind = 'I'
+      *
+     c                   if        b_obkr = *on
+     c                   eval      logtyp = 'OBKR'
+     c                   endif
+     c                   if        b_pakk = *on
+     c                   eval      logtyp = 'PAKK'
+     c                   endif
+     c                   if        b_fakt = *on
+     c                   eval      logtyp = 'FAKT'
+     c                   endif
+6.3x c                   if        b_best = *on
+6.3x c                   eval      logtyp = 'ORDR'
+6.3x c                   endif
+      *
+     c                   eval      logdat = w_udat
+     c                   eval      logtid = w_utim
+      *
+     c                   eval      logrec = edilin
+     c                   write     lwelpfr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for å "vaske" data for ugyldige verdier
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     vask_data     begsr
+      *
+     c     X'1A':'Æ'     xlate     edilin        edilin
+     c     X'46':'Æ'     xlate     edilin        edilin
+     c     X'9E':'Æ'     xlate     edilin        edilin
+     c     X'A0':'æ'     xlate     edilin        edilin
+     c     X'BE':'æ'     xlate     edilin        edilin
+     c     X'31':'æ'     xlate     edilin        edilin
+     c     X'14':'Ø'     xlate     edilin        edilin
+     c     X'1D':'Ø'     xlate     edilin        edilin
+     c     X'70':'Ø'     xlate     edilin        edilin
+     c     X'77':'Ø'     xlate     edilin        edilin
+     c     X'80':'Ø'     xlate     edilin        edilin
+     c     X'10':'Ø'     xlate     edilin        edilin
+     c     X'90':'ø'     xlate     edilin        edilin
+     c     X'EE':'ø'     xlate     edilin        edilin
+     c     X'3B':'ø'     xlate     edilin        edilin
+     c     X'1B':'Å'     xlate     edilin        edilin
+     c     X'2A':'Å'     xlate     edilin        edilin
+     c     X'47':'Å'     xlate     edilin        edilin
+     c     X'67':'Å'     xlate     edilin        edilin
+     c     X'9F':'Å'     xlate     edilin        edilin
+     c     X'06':'å'     xlate     edilin        edilin
+     c     X'EF':'å'     xlate     edilin        edilin
+     c     x'EF':'å'     xlate     edilin        edilin
+     c     x'09':'²'     xlate     edilin        edilin
+     c     x'17':'à'     xlate     edilin        edilin
+6.20 c     X'EC':'Ø'     xlate     edilin        edilin
+      *
+     c                   eval      w_ptel = 1
+     c                   dou       w_tpos = 0
+     c     w_tegn        check     edilin:w_ptel w_tpos
+     c                   eval      w_ptel = w_tpos + 1
+     c                   if        w_tpos > 0
+     c                   eval      %subst(edilin  :w_tpos:1) = '?'
+     c                   endif
+     c                   enddo
+      *
+     c     end_vask      endsr
+      *
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  *  Subrutine for å skrive mottaks logg
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  *
+6.30 c     skriv_logg    begsr
+6.30  *
+6.30 c                   eval      w_type = *blanks
+6.30 c                   if        b_obkr = *on
+6.30 c                   eval      w_type = 'OBKR'
+6.30 c                   endif
+6.30 c                   if        b_pakk = *on
+6.30 c                   eval      w_type = 'PAKK'
+6.30 c                   endif
+6.30 c                   if        b_fakt = *on
+6.30 c                   eval      w_type = 'FAKT'
+6.30 c                   endif
+6.30 c                   eval      w_refn = %subst(edilin:42:35)
+6.30  *
+6.30  *  Finner leverandør via lokasjonsnummer
+6.30  *
+6.30 c                   eval      w_levn = 0
+6.32 c                   if        w_lean > 0
+6.32 c**                 move      w_levn        rlevl5_eanl
+6.32 c                   move      w_lean        rlevl5_eanl
+6.30 c     rlevl5_key    chain     rlevl5
+6.30 c                   if        not %found
+6.30 c*                  goto      log_end
+6.30 c                   else
+6.30 c                   eval      w_levn = rllevr
+6.30 c                   endif
+6.32 c                   endif
+6.30  *
+6.30  *  Sjekk om faktura kommet før, oppdater eller lag logg
+6.30  *
+6.30 c                   eval      eloglu_faar = w_year
+6.30 c                   eval      eloglu_type = w_type
+6.30 c                   eval      eloglu_lean = w_lean
+6.30 c                   eval      eloglu_refn = w_refn
+6.30 c     eloglu_key    chain     eloglu
+6.30  *
+6.30  *  Ikke funnet før - lag logg post
+6.30  *
+6.30 c                   if        not %found
+6.31 c                   eval      xlfirm = w_firm
+6.30 c                   eval      xlfaar = w_year
+6.30 c                   eval      xltype = w_type
+6.30 c                   eval      xllean = w_lean
+6.30 c                   eval      xlrefn = w_refn
+6.30 c                   eval      xllevn = w_levn
+6.30 c                   eval      xlmda1 = w_udat
+6.30 c                   eval      xlmti1 = w_utim
+6.30 c                   eval      xlmott = 1
+6.30 c                   eval      xlspli = 0
+6.30 c                   eval      xlovrf = 0
+6.30 c                   eval      xlstat = '10'
+6.30 c                   eval      xleror = 'IN'
+6.30 c                   time                    xlodat
+6.30 c                   time                    xlotim
+6.30 c                   eval      xlousr = l_user
+6.30 c                   write     elogpfr
+6.30 c                   goto      log_end
+6.30 c                   end
+6.30  *
+6.30  *  Funnet før - oppdater logg post
+6.30  *
+6.30 c                   if        xlmda1 <> w_udat
+6.30 c                   if        xlmda2 = *loval
+6.30 c                   eval      xlmda2 = w_udat
+6.30 c                   eval      xlmti2 = w_utim
+6.30 c                   else
+6.30 c                   eval      xlmda3 = w_udat
+6.30 c                   eval      xlmti3 = w_utim
+6.30 c                   endif
+6.30 c                   endif
+6.30 c                   update    elogpfr
+6.30  *
+6.30 c     log_end       endsr
+     c
+6.30  *
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  * ERROR-rutine
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  *
+6.30 c     *pssr         begsr
+6.30  *
+6.30  *  Prøv å logge hvilken faktura det er problemer med
+6.30  *
+6.30 c                   eval      eloglu_faar = w_year
+6.30 c                   eval      eloglu_type = w_type
+6.30 c                   eval      eloglu_lean = w_lean
+6.30 c                   eval      eloglu_refn = w_refn
+6.30 c     eloglu_key    chain     eloglu
+6.30 c                   eval      w_meld = %trim(edilin)
+6.30 c                   if        %found
+6.30 c                   eval      xlstat = '20'
+6.30 c                   eval      xleror = 'ER'
+6.30 c                   eval      xlmerk = w_meld
+6.30 c                   update    elogpfr
+6.30 c                   else
+6.31 c                   eval      xlfirm = w_firm
+6.30 c                   eval      xlfaar = w_year
+6.30 c                   eval      xltype = w_type
+6.30 c                   eval      xllean = w_lean
+6.30 c                   eval      xlrefn = w_refn
+6.30 c                   eval      xllevn = 0
+6.30 c                   eval      xlmda1 = w_udat
+6.30 c                   eval      xlmti1 = w_utim
+6.30 c                   eval      xlmott = 1
+6.30 c                   eval      xlspli = 0
+6.30 c                   eval      xlovrf = 0
+6.30 c                   eval      xlstat = '20'
+6.30 c                   eval      xleror = 'ER'
+6.30 c                   eval      xlmerk = w_meld
+6.30 c                   time                    xlodat
+6.30 c                   time                    xlotim
+6.30 c                   eval      xlousr = l_user
+6.30 c                   write     elogpfr
+6.30 c                   endif
+6.33  *
+6.33 c                   select
+6.33 c                   when      b_obkr = *on
+6.33 c                   exsr      skriv_obkr
+6.33 c                   when      b_pakk = *on
+6.33 c                   exsr      skriv_pakk
+6.33 c                   when      b_fakt = *on
+6.33 c                   exsr      skriv_fakt
+6.33 c                   endsl
+6.33  *
+6.33 c                   exsr      skriv_logf
+6.30  *
+6.30 c                   eval      b_feil = *on
+6.30 c                   goto      les_neste
+6.30  *
+6.30 c                   endsr
+6.30  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+6.30  *
+6.30  *  Key for oppdatering av LOGFIL
+6.30  *
+6.30 c     eloglu_key    klist
+6.31 c                   kfld                    w_firm
+6.30 c                   kfld                    eloglu_faar
+6.30 c                   kfld                    eloglu_type
+6.30 c                   kfld                    eloglu_lean
+6.30 c                   kfld                    eloglu_refn
+6.30  *
+6.30  * Key for les av leverandør på EAN - lokasjonsnummer
+6.30  *
+6.30 c     rlevl5_key    klist
+6.30 c                   kfld                    w_firm
+6.30 c                   kfld                    rlevl5_eanl
+6.30  *
+6.30  * Parameterliste
+6.30  *
+6.30 c     *entry        plist
+6.30 c                   parm                    p_stat
+      *
+     c                   eval      w_tegn  = a_tegn(1) + a_tegn(2) +
+     c                                       a_tegn(3) + a_tegn(4)
+      *
+     c                   time                    w_udat
+     c                   time                    w_utim
+6.30 c                   eval      w_year = %subdt(w_udat:*years)
+6.30 c                   eval      w_firm = l_firm
+7.02  *
+7.02  * Test om automatisk oppdatering av ordrebekreftelse skal skje
+7.02  *
+7.02   CallP CO402R(l_filg:w_firm:0:'LI700_702':
+7.02                    co402_verdi1:co402_verdi2);
+7.02   if co402_verdi1 = '1';
+7.02     u_s702 = *on;
+7.02   endif;
+7.03  *
+7.03  * Test om automatisk oppdatering av faktura skal skje
+7.03  *
+7.03   CallP CO402R(l_filg:w_firm:0:'LI700_703':
+7.03                    co402_verdi1:co402_verdi2);
+7.03   if co402_verdi1 = '1';
+7.03     u_s703 = *on;
+7.03   endif;
+8.01  *
+8.01  * Test om betalingstranser til POG skal dannes
+8.01  *
+8.01   CallP CO402R(l_filg:w_firm:0:'POG_TRANS':
+8.01                    co402_verdi1:co402_verdi2);
+8.01   if co402_verdi1 = '1';
+8.01     u_s801 = *on;
+8.01     w_faka = %subst(co402_verdi2:1:13);
+8.01     w_fakl = %dec(w_faka:13:0);
+8.01   endif;
+      *
+     c                   endsr
+**
+ ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅ
+abcdefghijklmnopqrstuvwxyzæøå
+1234567890+\!"#¤%&/()=?@£${[]
+}*-_.:,;<>'àáÈÉÜÁÀÇ²`´äñ|§ü

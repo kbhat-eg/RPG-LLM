@@ -1,0 +1,349 @@
+     h option(*nodebugio) datedit(*dmy)
+     h decedit('0.')
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASNAVIOKO
+      * Program . . . . : RN001R
+      * Beskrivelse . . : Leser linjer fra FOVF til NAV transaksjonsfil
+      *
+      * Spesialversjon. : OBS!!! Det finnes et "søsterprgram" RN011R
+      *                   Endringer må også gjøres der
+      * Tilpasset for . :
+      *
+      * ----- ------ ---- -------------------------------------------------
+      *       300714 ask  Nytt program
+6.30  *       230217 bof  Lagt over i askorr630 og kompilert pga.level
+6.31  *       270217 ask  Lagt inn henting av kid fra historisk fakturaregister
+6.32  *       270217 ask  Legger ut kortkid alfa pga. endring i NAV
+6.33  *       010317 ask  Lagt inn konvertering av bilagskoder - falt ut fra 6.2
+6.34  *       140317 ask  Lagt inn kid i fra historisk fakturaregister
+6.35  *       270617 ask  Endret rutiner for konvertering av bilagskoder øreavru
+7.00  *       150221 ask  Lagt inn kode for transtype FAKT/KRED
+7.01  *       250221 ask  Lagt inn betalingsbetingelse
+8.01  *       290921 ask  Dropper overføring av poster med bilagssum = 0
+8.02  *       071221 ask  Sjekker om depositumsbetaling, flagger det
+8.03  *       240122 ask  Lagt inn bokføringsdato med logikk fra RN003R (inng.fakt.)
+8.04  *       050522 ask  Lagt inn switchstyring på funksjon i 8.03
+8.05  *       170622 sst  Ikke kort kidd dersom lang kidd benyttes. Styres av rutine 'FFAKT'
+8.06  *       140922 sst  Styre 8.05 med switch: IKKE_KORT_KIDD_NÅR_LANG'
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     ffovfl1    if   e           k disk    rename(fovfpfr:fovfl1r)
+     fiordst    o    e           k disk    rename(iordst:iordstr)
+6.31 fsohel1    if   e           k disk    rename(sohepfr:sohel1r)
+6.33 fikonir    if   e           k disk    rename(ikonst:ikonstr)
+6.35 ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+8.05 faforl1    if   e           k disk    rename(aforpfr:aforl1r)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+8.04 d l_filg                931    933
+     d l_firm                944    946  0
+      *
+      * Definering av variabler i nøkler
+      *
+     d fovfl1_peri     s                   like(ffperi)
+6.31 d sohel1_aarr     s                   like(soaarr)
+6.31 d sohel1_binr     s                   like(sobinr)
+6.33 d ikonir_bfra     s                   like(ikbfra)
+      *
+      * Definering av variable
+      *
+     d w_firm          s              3  0
+     d w_date          s               d   datfmt(*iso)
+     d w_time          s               t   timfmt(*iso)
+6.33 d w_bilk          s              2  0
+     d w_kidr          s              9  0
+6.31 d w_aarr          s              4  0
+6.31 d w_kidd          s                   like(sokidd)
+6.32 d w_kida          s              9
+6.31 d w_obil          s                   like(faabil)
+7.00 d w_sign          s              1
+7.00 d w_type          s              4
+8.02 d w_depo          s             11  2
+8.02 d w_depb          s             11  2
+8.03 d w_bilm          s              2  0
+8.03 d w_bily          s              4  0
+8.03 d w_perm          s              2  0
+8.03 d w_pery          s              2  0
+8.03 d w_bdat          s               d   datfmt(*iso)
+8.03 d w_data          s             10
+8.03 d w_pema          s              2
+8.03 d w_peya          s              2
+8.03 d w_peyy          s              4
+8.05 d w_langk         s              1
+8.04  *
+8.04  * Rutine for å hente switch informasjon
+8.04  *
+8.04 d u_bokd          s              1    inz(*off)
+8.06 d u_ikknl         s              1    inz(*off)
+8.04  *
+8.04   dcl-s co402_verdi1  char(1);
+8.04   dcl-s co402_verdi2  char(2048);
+8.04   DCL-PR CO402R EXTPGM('CO402R');
+8.04     p_filgrp            char(3)     const;
+8.04     p_firm              packed(3:0) const;
+8.04     p_lager             packed(2:0) const;
+8.04     p_nokkel            char(50)    const;
+8.04     p_verdi1            char(1);
+8.04     p_verdi2            char(2048);
+8.04   END-PR;
+
+     c/Exec SQL
+     c+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR,
+     c+             commit=*none
+     c/End-Exec
+
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Hovedprogram - leser poster fra FOVFL1 og skriver til IORDST
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      fovfl1_peri = 0
+     c     fovfl1_key    setll     fovfl1
+     c                   read      fovfl1
+     c                   dow       not %eof
+8.01  *
+8.01  * Sjekker om "0" - bilag
+8.01  *
+8.01 c                   if        ffbelp = 0
+8.01 c                   goto      les_neste
+8.01 c                   endif
+6.33  *
+6.33  * Konverterer bilagskoder for øreavrunding
+6.33  *
+6.35 c                   if        ffbilk <> w_obil
+6.33 c                   eval      w_bilk = ffbilk
+6.33 c                   else
+6.33 c                   eval      ikonir_bfra = w_bilk
+6.33 c     ikonir_key    chain     ikonir
+6.33 c                   if        %found
+6.33 c                   eval      ffbilk = ikbtil
+6.33 c                   endif
+6.33 c                   endif
+6.31  *
+6.31 c                   exsr      finn_kid
+6.32 c                   eval      w_kida = %EditC(w_kidr :'X')
+7.00  *
+7.00 c                   exsr      finn_type
+8.03  *
+8.03 c                   exsr      finn_bdat
+7.00 c                   eval      iotype = w_type
+7.01 c                   eval      iobetb = sobetb
+      *
+     c                   eval      iofirm = fffirm
+     c                   eval      iobiln = ffbiln
+     c                   eval      iobdat = ffbdat
+     c                   eval      iofdat = fffdat
+     c                   eval      iobilk = ffbilk
+     c                   eval      iotext = fftext
+     c                   eval      iodavd = ffdavd
+     c                   eval      iodkto = ffdkto
+     c                   eval      iodsps = ffdsps
+     c                   eval      iodmom = ffdmom
+     c                   eval      iocavd = ffcavd
+     c                   eval      iockto = ffckto
+     c                   eval      iocsps = ffcsps
+     c                   eval      iocmom = ffcmom
+     c                   if        ffckto > 0
+     c                   eval      iobelp = ffbelp * -1
+     c                   else
+     c                   eval      iobelp = ffbelp
+     c                   endif
+     c                   eval      iomvag = ffmvag
+     c                   eval      iokund = ffkund
+     c                   eval      iokref = ffkref
+6.34 c                   eval      iokidi = w_kidd
+      *
+6.32 c                   eval      w_kida = %EditC(w_kidr :'X')
+6.32 c*                  movel     ffkidr        w_kidr
+6.32 c*                  move      ffksif        w_kidr
+6.32 c                   eval      iokidr = w_kida
+8.05 c                   if        w_langk = 'J'
+8.06 c                             and u_ikknl = *on
+8.05 c                   eval      iokidr = *blank
+8.05 c                   endif
+      *
+8.03 c                   eval      ioboda = w_bdat
+      *
+     c                   eval      iovalk = ffvalk
+     c                   eval      iovalb = ffvalb
+     c                   eval      ioproj = ffproj
+     c                   eval      ioakti = ffakti
+     c                   eval      ioodat = w_date
+     c                   eval      iootim = w_time
+     c                   eval      ioousr = l_user
+8.02 c                   if        w_depb > 0
+8.02 c                   eval      iodepo = 'J'
+8.02 c                   else
+8.02 c                   eval      iodepo = 'N'
+8.02 c                   endif
+      *
+     c                   write     iordstr
+      *
+8.01 c     les_neste     tag
+     c                   read      fovfl1
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      *inlr = *on
+     c                   return
+6.31  *
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  * Subrutine for å hente kid-informasjon fra fakturaregister
+6.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.31  *
+6.31 c     finn_kid      begsr
+6.31  *
+6.31 c                   eval      w_kidd = *blank
+6.31 c                   eval      w_kidr = 0
+6.31 c                   eval      w_aarr = %subdt(ffbdat:*years)
+6.31 c                   eval      sohel1_aarr = w_aarr
+6.31 c                   eval      sohel1_binr = ffbiln
+6.31  *
+6.31 c     sohel1_key    setll     sohel1
+6.31 c     sohel1_key    reade     sohel1
+6.31 c                   dow       not %eof
+8.02 c                   eval      w_depo = sodepo
+8.02 c                   eval      w_depb = sodepb
+6.31 c                   if        sokidd <> *blanks or
+6.31 c                             sokidr <> 0
+6.31 c                   eval      w_kidd = sokidd
+6.31 c                   eval      w_kidr = sokidr
+6.31 c                   goto      end_kid
+6.31 c                   endif
+6.31 c     sohel1_key    reade     sohel1
+6.31 c                   enddo
+6.31  *
+6.31 c     end_kid       endsr
+7.00  *
+7.00  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.00  * Subrutine for å hente transaksjonstype fra fakturaregister.
+7.00  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.00  *
+7.00 c     finn_type     begsr
+7.00  *
+       /FREE
+          w_sign = ' ';
+          w_type = '   ';
+
+          exec sql
+            select vaokre
+            into :w_sign
+            from votypf
+             where vaofir = :w_firm and vaotyp = :sootyp
+                       fetch first 1 rows only;
+
+         if w_sign = '-';
+           w_type = 'KRED';
+          else;
+           w_type = 'FAKT';
+         endif;
+
+      /END-FREE
+
+7.00  *
+7.00 c     end_type      endsr
+8.03  *
+8.03  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.03  * Subrutine for å beregne bokføringsdato
+8.03  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.03  *
+8.03 c     finn_bdat     begsr
+8.04  *
+8.04 c                   if        u_bokd = *off
+8.04 c                   eval      w_bdat = ffbdat
+8.04 c                   goto      end_bdat
+8.04 c                   endif
+8.03  *
+8.03 c                   movel     ffperi        w_perm
+8.03 c                   move      ffperi        w_pery
+8.03 c                   eval      w_bilm = %subdt(ffbdat:*m)
+8.03 c                   eval      w_bily = %subdt(ffbdat:*y)
+8.03 c                   if        w_perm = w_bilm
+8.03 c                   eval      w_bdat = ffbdat
+8.03 c                   else
+8.03 c                   eval      w_pema = %editc(w_perm : 'X')
+8.03 c                   eval      w_peya = %editc(w_pery : 'X')
+8.03 c                   eval      w_peyy = '20' + w_peya
+8.03 c                   eval      w_data = %char(ffbdat)
+8.03 c                   eval      w_data = %replace(w_pema:w_data:6)
+8.03 c                   eval      w_data = %replace(w_peyy:w_data:1)
+8.03 c                   eval      w_data = %replace('01':w_data:9)
+8.03 c                   eval      w_bdat = %date(w_data:*iso)
+8.03 c                   endif
+8.03  *
+8.03 c     end_bdat      endsr
+6.01  *
+6.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.21  * Subrutine for initiering av program
+6.21  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.21  *
+6.21 c     *inzsr        begsr
+      *
+      * Key for posisjonering på posteringsfil
+      *
+     c     fovfl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fovfl1_peri
+6.31  *
+6.31  * Key for oppslag på fakturanummer
+6.31  *
+6.31 c     sohel1_key    klist
+6.31 c                   kfld                    w_firm
+6.31 c                   kfld                    sohel1_aarr
+6.31 c                   kfld                    sohel1_binr
+6.33  *
+6.33  * Key for les på konverteringstabell
+6.33  *
+6.33 c     ikonir_key    klist
+6.33 c                   kfld                    w_firm
+6.33 c                   kfld                    ikonir_bfra
+6.35  *
+6.35  * Key for les på status-register
+6.35  *
+6.35 c     fstsl1_key    klist
+6.35 c                   kfld                    w_firm
+6.33  *
+6.35  * Klargjør for øreavrundings konvertering
+     c                   eval      w_firm = l_firm
+     c                   time                    w_date
+     c                   time                    w_time
+6.35 c     fstsl1_key    chain     fstsl1
+6.35 c                   eval      w_obil = faabil
+8.05  *
+8.05  *   Benyttes lang eller kort kidd?
+8.05  *
+8.05 c     'FFAKT     '  chain     aforl1
+8.05 c                   if        %found(aforl1)
+8.05 c                             and afkidk = 1
+8.05 c                   eval      w_langk = 'J'
+8.05 c                   else
+8.05 c                   eval      w_langk = 'N'
+8.05 c                   endif
+8.04  *
+8.04  * Skal bokføringsdato overstyres ved periodeavvik
+8.04  *
+8.04   CallP CO402R(l_filg:w_firm:0:'POSTDAT_EKSTOKO':
+8.04                   co402_verdi1:co402_verdi2);
+8.04     if co402_verdi1 = '1';
+8.04         u_bokd = *on;
+8.04     endif;
+
+8.06  *
+8.06  * Skal Kort kidd fjernes når lang kidd benyttes
+8.06  *
+8.06   CallP CO402R(l_filg:w_firm:0:'IKKE_KORT_KIDD_NÅR_LANG':
+8.06                   co402_verdi1:co402_verdi2);
+8.06     if co402_verdi1 = '1';
+8.06         u_ikknl = *on;
+8.06     endif;
+
+6.21  *
+6.21 c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

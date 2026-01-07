@@ -1,0 +1,693 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : VV611R
+      * Beskrivelse . . : Vare, utskrift dekningskontroll
+      *
+      *                   Utskrift av DG pr. rabattkategori pr. overgruppe,
+      *                   hovedgruppe og undergruppe
+      *                   Programmet er begrenset til å håndtere 21
+      *                   rabattkategorier
+      *                   Behandler kun leveringstype 0
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       010699 HKO  Nytt program
+      *       161203 HKO  Endret parameter ved kall til VP900R
+      *       120804 HKO  Endret parameter ved kall til VP900R
+      *       041104 HKO  Endret parameter ved kall til VP900R
+5.70  * PRGR  041108 bof  Utvidet med prisgruppe
+6.nu  *       160614 bof  Endret ihht. nummerutvidelse
+      *
+8.01  *PRG2   150622 bsa  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvarl8    if   e           k disk    rename(vvarpfr:vvarl8r)
+     fra06pf    if   e           k disk    rename(ra06pfr:ra06pfr)
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+      *
+     fvv611p    o    e             printer
+      *
+      * Definering av array
+      *
+     d a_rkat          s              3  0 dim(21) perrcd(1) ctdata              Array søketekst
+     d a_sapr_ogrp     s             13  2 dim(21) perrcd(1) ctdata              Array søketekst
+     d a_sapr_hgrp     s             13  2 dim(21) perrcd(1) ctdata              Array søketekst
+     d a_sapr_ugrp     s             13  2 dim(21) perrcd(1) ctdata              Array søketekst
+     d a_kopr_ogrp     s             13  2 dim(21) perrcd(1) ctdata              Array søketekst
+     d a_kopr_hgrp     s             13  2 dim(21) perrcd(1) ctdata              Array søketekst
+     d a_kopr_ugrp     s             13  2 dim(21) perrcd(1) ctdata              Array søketekst
+     d a_dekn          s              5  2 dim(21) perrcd(1) ctdata              Array søketekst
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+      *
+      * Definering av datastrukturer
+      *
+      * Datastruktur for parameterliste -inn
+      *
+     d                 ds
+     d d_list                        32
+     d  p_firm                        3  0 overlay(d_list:1)
+     d  p_ogrp                        2  0 overlay(d_list:4)
+     d  p_hgrp                        2  0 overlay(d_list:6)
+     d  p_ugrp                        3  0 overlay(d_list:8)
+     d  p_dato                         d   overlay(d_list:11) datfmt(*iso)
+      *
+      * Datastruktur - parametre inn til VP900R
+      *
+     d                 ds
+     d hirec                        120
+     d  hifirm                        3  0 overlay(hirec)
+     d  hirkat                        3  0 overlay(hirec:4)
+     d  hikund                        6  0 overlay(hirec:7)
+     d  hikpro                        6  0 overlay(hirec:13)
+     d  hivare                       15    overlay(hirec:19)
+     d  hilety                        1  0 overlay(hirec:34)
+     d  hienhe                        3    overlay(hirec:35)
+     d  hidato                         d   overlay(hirec:38) datfmt(*iso)
+     d  hitime                         t   overlay(hirec:48) timfmt(*iso)
+6.nu d  hinumm                        8  0 overlay(hirec:56)
+6.nu d  hikode                        1    overlay(hirec:64)
+6.nu d  hidekn                        5  2 overlay(hirec:65)
+6.nu d  hiavgf                        1  0 overlay(hirec:70)
+6.nu d  hipriv                        1  0 overlay(hirec:71)
+6.nu d  hitilb                        1    overlay(hirec:72)
+6.nu d  hiskaf                        1    overlay(hirec:73)
+6.nu d  hildor                        6  0 overlay(hirec:74)
+6.nu d  hisapr                        9  2 overlay(hirec:80)
+6.nu d  hikopr                        9  2 overlay(hirec:89)
+8.01 d  hiprgr                        2    overlay(hirec:98)
+     d  hiinlr                        1    overlay(hirec:120)
+      *
+      * Datastruktur - parametre ut fra VP900R
+      *
+     d                 ds
+     d d_orec                        80
+     d  d_kpri                        1    overlay(d_orec:2)
+     d  d_sapr                        9  2 overlay(d_orec:12)
+     d  d_kopr                        9  2 overlay(d_orec:21)
+     d  d_rab1                        5  2 overlay(d_orec:30)
+     d  d_rab2                        5  2 overlay(d_orec:35)
+8.01 d  hoprgr                        2    overlay(d_orec:71)
+      *
+      * Definering av parametre
+      *
+     d p_parm          s             32
+      *
+      * Definering av variabler i nøkler
+      *
+     d vvarl8_ogrp     s                   like(vvogrp)
+     d vvarl8_hgrp     s                   like(vvhgrp)
+     d vvarl8_ugrp     s                   like(vvugrp)
+      *
+      * Definering av variable
+      *
+     d b_frst          s              1    inz(*on)
+      *
+     d x               s              2  0
+     d w_sapr          s              9  2
+     d w_bupr          s              9  2
+     d w_kopr          s              9  2
+     d w_inpr          s              9  2
+     d w_lety          s              1  0
+     d w_inlr          s              1
+     d w_timestamp     s             12  0
+     d w_sapr_ogrp     s             13  2
+     d w_sapr_hgrp     s             13  2
+     d w_sapr_ugrp     s             13  2
+     d w_kopr_ogrp     s             13  2
+     d w_kopr_hgrp     s             13  2
+     d w_kopr_ugrp     s             13  2
+      *
+     d w_firm          s                   like(vvfirm)
+     d w_ogrp_gml      s                   like(vvogrp)
+     d w_hgrp_gml      s                   like(vvhgrp)
+     d w_ugrp_gml      s                   like(vvugrp)
+      *
+8.01 d w_prgr          s              2
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Fyller opp array for rabattkategori
+      *
+     c                   eval      x = 0
+      *
+     c     ra06pf_key    setll     ra06pf
+     c     ra06pf_key    reade     ra06pf                                 90
+     c                   dow       *in90 = *off and
+     c                             x < 21
+     c     rafkod        ifne      0
+     c                   eval      x = x + 1
+     c                   eval      a_rkat(x) = rafkod
+     c                   endif
+     c     ra06pf_key    reade     ra06pf                                 90
+     c                   enddo
+      *
+      * Utskrift av header
+      *
+     c                   exsr      hode
+      *
+      * Behandling
+      *
+     c                   exsr      behandling
+      *
+      * Avslutt
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering og utskrift av hode-opplysninger
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hode          begsr
+      *
+      * Legger inn arb.stasjon og bruker i faste felter
+      *
+     c                   eval      a1firm = w_firm
+     c                   eval      a1user = l_user
+     c                   eval      a1wsid = l_wsid
+     c                   time                    w_timestamp
+     c                   move      w_timestamp   a1date
+     c                   movel     w_timestamp   a1time
+      *
+      * Henter firmaopplysninger
+      *
+     c     afirl1_key    chain     afirl1r                            90
+     c                   eval      a1fnav = aafnav
+      *
+      * Henter utplukksparametre
+      *
+     c                   eval      a2ogrp = p_ogrp
+     c                   eval      a2hgrp = p_hgrp
+     c                   eval      a2ugrp = p_ugrp
+      *
+     c     *dmy          move      p_dato        a2dato
+      *
+      * Henter rabattkategori til overskrift
+      *
+     c                   eval      a3rkat01 = a_rkat(01)
+     c                   eval      a3rkat02 = a_rkat(02)
+     c                   eval      a3rkat03 = a_rkat(03)
+     c                   eval      a3rkat04 = a_rkat(04)
+     c                   eval      a3rkat05 = a_rkat(05)
+     c                   eval      a3rkat06 = a_rkat(06)
+     c                   eval      a3rkat07 = a_rkat(07)
+     c                   eval      a3rkat08 = a_rkat(08)
+     c                   eval      a3rkat09 = a_rkat(09)
+     c                   eval      a3rkat10 = a_rkat(10)
+     c                   eval      a3rkat11 = a_rkat(11)
+     c                   eval      a3rkat12 = a_rkat(12)
+     c                   eval      a3rkat13 = a_rkat(13)
+     c                   eval      a3rkat14 = a_rkat(14)
+     c                   eval      a3rkat15 = a_rkat(15)
+     c                   eval      a3rkat16 = a_rkat(16)
+     c                   eval      a3rkat17 = a_rkat(17)
+     c                   eval      a3rkat18 = a_rkat(18)
+     c                   eval      a3rkat19 = a_rkat(19)
+     c                   eval      a3rkat20 = a_rkat(20)
+     c                   eval      a3rkat21 = a_rkat(21)
+      *
+      * Skriver heading
+      *
+     c                   write     a1hdr
+     c                   write     a2hdr
+     c                   write     a3hdr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandling    begsr
+      *
+     c                   eval      vvarl8_ogrp = p_ogrp
+     c                   eval      vvarl8_hgrp = p_hgrp
+     c                   eval      vvarl8_ugrp = p_ugrp
+     c     vvarl8_key    setll     vvarl8
+     c                   read      vvarl8                                 90
+     c                   dow       *in90 = *off
+      *
+      * Tester om varen skal være med
+      *
+     c                   if        vvfirm <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   if        p_ogrp <> 0 and
+     c                             vvogrp <> p_ogrp
+     c                   leave
+     c                   endif
+      *
+     c                   if        p_hgrp <> 0 and
+     c                             vvhgrp <> p_hgrp
+     c                   leave
+     c                   endif
+      *
+     c                   if        p_ugrp <> 0 and
+     c                             vvugrp <> p_ugrp
+     c                   leave
+     c                   endif
+      *
+      * Behandling ved brudd
+      *
+     c                   if        b_frst = *off
+     c                   if        vvogrp <> w_ogrp_gml or
+     c                             vvhgrp <> w_hgrp_gml or
+     c                             vvugrp <> w_ugrp_gml
+     c                   exsr      brudd_ugrp
+     c                   endif
+     c                   if        vvogrp <> w_ogrp_gml or
+     c                             vvhgrp <> w_hgrp_gml
+     c                   exsr      brudd_hgrp
+     c                   endif
+     c                   if        vvogrp <> w_ogrp_gml
+     c                   exsr      brudd_ogrp
+     c                   endif
+     c                   endif
+      *
+     c                   eval      b_frst = *off
+     c                   eval      w_ogrp_gml = vvogrp
+     c                   eval      w_hgrp_gml = vvhgrp
+     c                   eval      w_ugrp_gml = vvugrp
+      *
+      * Henter og summer kostpris og salgspris på vare før rabatter
+      *
+     c                   eval      w_lety = 0
+     c                   eval      w_inlr = *on
+      *
+     c                   call      'VP701R'
+     c                   parm                    w_firm
+     c                   parm                    vvvare
+5.70 c                   parm                    w_prgr
+     c                   parm                    vvenhe
+     c                   parm                    w_lety
+     c                   parm                    p_dato
+     c                   parm                    w_inlr
+     c                   parm                    w_sapr
+     c                   parm                    w_bupr
+     c                   parm                    w_kopr
+     c                   parm                    w_inpr
+      *
+     c                   eval      w_sapr_ogrp = w_sapr_ogrp + w_sapr
+     c                   eval      w_sapr_hgrp = w_sapr_hgrp + w_sapr
+     c                   eval      w_sapr_ugrp = w_sapr_ugrp + w_sapr
+      *
+     c                   eval      w_kopr_ogrp = w_kopr_ogrp + w_kopr
+     c                   eval      w_kopr_hgrp = w_kopr_hgrp + w_kopr
+     c                   eval      w_kopr_ugrp = w_kopr_ugrp + w_kopr
+      *
+      * Summerer opp kostpris og salgspris pr. rabattkategori pr. vare
+      *
+     c                   do        21            x
+      *
+     c                   if        a_rkat(x) = 0
+     c                   leave
+     c                   endif
+      *
+     c                   eval      hifirm = w_firm
+     c                   eval      hirkat = a_rkat(x)
+     c                   eval      hikund = 0
+     c                   eval      hikpro = 0
+     c                   eval      hivare = vvvare
+     c                   eval      hilety = 0
+     c                   eval      hienhe = vvenhe
+     c                   eval      hidato = p_dato
+     c                   eval      hitime = *loval
+     c                   eval      hinumm = 0
+     c                   eval      hikode = *blank
+     c                   eval      hidekn = 0
+     c                   eval      hitilb = *on
+     c                   eval      hiavgf = 0
+     c                   eval      hipriv = 0
+     c                   eval      hiskaf = *off
+     c                   eval      hildor = 0
+     c                   eval      hisapr = 0
+     c                   eval      hikopr = 0
+5.70 c                   eval      hiprgr = w_prgr
+     c                   eval      hiinlr = *on
+      *
+     c                   call      'VP900R'
+     c                   parm                    hirec
+     c                   parm                    d_orec
+      *
+     c                   eval      w_sapr = d_sapr
+      *
+     c                   if        d_rab1 > 0
+     c                   eval(h)   w_sapr = w_sapr - (w_sapr * d_rab1 / 100)
+     c                   endif
+     c                   if        d_rab2 > 0
+     c                   eval(h)   w_sapr = w_sapr - (w_sapr * d_rab2 / 100)
+     c                   endif
+      *
+     c                   eval      a_sapr_ogrp(x) = a_sapr_ogrp(x) + w_sapr
+     c                   eval      a_sapr_hgrp(x) = a_sapr_hgrp(x) + w_sapr
+     c                   eval      a_sapr_ugrp(x) = a_sapr_ugrp(x) + w_sapr
+      *
+     c                   eval      a_kopr_ogrp(x) = a_kopr_ogrp(x) + d_kopr
+     c                   eval      a_kopr_hgrp(x) = a_kopr_hgrp(x) + d_kopr
+     c                   eval      a_kopr_ugrp(x) = a_kopr_ugrp(x) + d_kopr
+      *
+     c                   enddo
+      *
+     c                   read      vvarl8                                 90
+     c                   enddo
+      *
+      * Behandling ved brudd
+      *
+     c                   if        vvogrp <> w_ogrp_gml or
+     c                             vvhgrp <> w_hgrp_gml or
+     c                             vvugrp <> w_ugrp_gml
+     c                   exsr      brudd_ugrp
+     c                   endif
+      *
+     c                   if        vvogrp <> w_ogrp_gml or
+     c                             vvhgrp <> w_hgrp_gml
+     c                   exsr      brudd_hgrp
+     c                   endif
+      *
+     c                   if        vvogrp <> w_ogrp_gml
+     c                   exsr      brudd_ogrp
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine utskrift av detaljlinje (brudd på hovedgruppe/undergruppe)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     brudd_ugrp    begsr
+      *
+     c                   eval      d1ogrp = w_ogrp_gml
+     c                   eval      d1hgrp = w_hgrp_gml
+     c                   eval      d1ugrp = w_ugrp_gml
+      *
+      * Kalkulerer generell DG
+      *
+     c                   eval      d1dekn = 0
+     c                   if        w_sapr_ugrp <> 0
+     c                   select
+     c                   when      (100 - (w_kopr_ugrp * 100 / w_sapr_ugrp))
+     c                             < -999,99
+     c                   eval      d1dekn = -999,99
+     c                   when      (100 - (w_kopr_ugrp * 100 / w_sapr_ugrp))
+     c                             > 999,99
+     c                   eval      d1dekn = 999,99
+     c                   other
+     c                   eval(h)   d1dekn = 100 -
+     c                             (w_kopr_ugrp * 100 / w_sapr_ugrp)
+     c                   endsl
+     c                   endif
+      *
+      * Kalkulerer DG for hver rabattkategori
+      *
+     c                   movea     *zeros        a_dekn
+     c
+     c                   do        21            x
+     c                   if        a_sapr_ugrp(x) <> 0
+     c                   select
+     c                   when      (100 -
+     c                             (a_kopr_ugrp(x) * 100 / a_sapr_ugrp(x)))
+     c                             < -999,99
+     c                   eval      a_dekn(x) = -999,99
+     c                   when      (100 -
+     c                             (a_kopr_ugrp(x) * 100 / a_sapr_ugrp(x)))
+     c                             > 999,99
+     c                   eval      a_dekn(x) = 999,99
+     c                   other
+     c                   eval(h)   a_dekn(x) = 100 -
+     c                             (a_kopr_ugrp(x) * 100 / a_sapr_ugrp(x))
+     c                   endsl
+     c                   endif
+     c                   enddo
+      *
+     c                   eval      d1dg01 = a_dekn(01)
+     c                   eval      d1dg02 = a_dekn(02)
+     c                   eval      d1dg03 = a_dekn(03)
+     c                   eval      d1dg04 = a_dekn(04)
+     c                   eval      d1dg05 = a_dekn(05)
+     c                   eval      d1dg06 = a_dekn(06)
+     c                   eval      d1dg07 = a_dekn(07)
+     c                   eval      d1dg08 = a_dekn(08)
+     c                   eval      d1dg09 = a_dekn(09)
+     c                   eval      d1dg10 = a_dekn(10)
+     c                   eval      d1dg11 = a_dekn(11)
+     c                   eval      d1dg12 = a_dekn(12)
+     c                   eval      d1dg13 = a_dekn(13)
+     c                   eval      d1dg14 = a_dekn(14)
+     c                   eval      d1dg15 = a_dekn(15)
+     c                   eval      d1dg16 = a_dekn(16)
+     c                   eval      d1dg17 = a_dekn(17)
+     c                   eval      d1dg18 = a_dekn(18)
+     c                   eval      d1dg19 = a_dekn(19)
+     c                   eval      d1dg20 = a_dekn(20)
+     c                   eval      d1dg21 = a_dekn(21)
+      *
+      * Skriv detaljlinje
+      *
+     c                   write     d1dtl                                30
+     c                   exsr      overflow
+      *
+      * Nullstiller summeringsfelt og array for undergruppe
+      *
+     c                   eval      w_sapr_ugrp = 0
+     c                   eval      w_kopr_ugrp = 0
+      *
+     c                   movea     *zeros        a_sapr_ugrp
+     c                   movea     *zeros        a_kopr_ugrp
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine utskrift ved brudd på hovedgruppe
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     brudd_hgrp    begsr
+      *
+      * Kalkulerer generell DG
+      *
+     c                   eval      d2dekn = 0
+     c                   if        w_sapr_hgrp <> 0
+     c                   select
+     c                   when      (100 - (w_kopr_hgrp * 100 / w_sapr_hgrp))
+     c                             < -999,99
+     c                   eval      d2dekn = -999,99
+     c                   when      (100 - (w_kopr_hgrp * 100 / w_sapr_hgrp))
+     c                             > 999,99
+     c                   eval      d2dekn = 999,99
+     c                   other
+     c                   eval(h)   d2dekn = 100 -
+     c                             (w_kopr_hgrp * 100 / w_sapr_hgrp)
+     c                   endsl
+     c                   endif
+      *
+      * Kalkulerer DG for hver rabattkategori
+      *
+     c                   movea     *zeros        a_dekn
+     c
+     c                   do        21            x
+     c                   if        a_sapr_hgrp(x) <> 0
+     c                   select
+     c                   when      (100 -
+     c                             (a_kopr_hgrp(x) * 100 / a_sapr_hgrp(x)))
+     c                             < -999,99
+     c                   eval      a_dekn(x) = -999,99
+     c                   when      (100 -
+     c                             (a_kopr_hgrp(x) * 100 / a_sapr_hgrp(x)))
+     c                             > 999,99
+     c                   eval      a_dekn(x) = 999,99
+     c                   other
+     c                   eval(h)   a_dekn(x) = 100 -
+     c                             (a_kopr_hgrp(x) * 100 / a_sapr_hgrp(x))
+     c                   endsl
+     c                   endif
+     c                   enddo
+      *
+     c                   eval      d2dg01 = a_dekn(01)
+     c                   eval      d2dg02 = a_dekn(02)
+     c                   eval      d2dg03 = a_dekn(03)
+     c                   eval      d2dg04 = a_dekn(04)
+     c                   eval      d2dg05 = a_dekn(05)
+     c                   eval      d2dg06 = a_dekn(06)
+     c                   eval      d2dg07 = a_dekn(07)
+     c                   eval      d2dg08 = a_dekn(08)
+     c                   eval      d2dg09 = a_dekn(09)
+     c                   eval      d2dg10 = a_dekn(10)
+     c                   eval      d2dg11 = a_dekn(11)
+     c                   eval      d2dg12 = a_dekn(12)
+     c                   eval      d2dg13 = a_dekn(13)
+     c                   eval      d2dg14 = a_dekn(14)
+     c                   eval      d2dg15 = a_dekn(15)
+     c                   eval      d2dg16 = a_dekn(16)
+     c                   eval      d2dg17 = a_dekn(17)
+     c                   eval      d2dg18 = a_dekn(18)
+     c                   eval      d2dg19 = a_dekn(19)
+     c                   eval      d2dg20 = a_dekn(20)
+     c                   eval      d2dg21 = a_dekn(21)
+      *
+      * Skriv detaljlinje
+      *
+     c                   write     d2dtl                                30
+     c                   exsr      overflow
+      *
+      * Nullstiller summeringsfelt og array for hovedgruppe
+      *
+     c                   eval      w_sapr_hgrp = 0
+     c                   eval      w_kopr_hgrp = 0
+      *
+     c                   movea     *zeros        a_sapr_hgrp
+     c                   movea     *zeros        a_kopr_hgrp
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine utskrift ved brudd på overgruppe
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     brudd_ogrp    begsr
+      *
+      * Kalkulerer generell DG
+      *
+     c                   eval      d3dekn = 0
+     c                   if        w_sapr_ogrp <> 0
+     c                   select
+     c                   when      (100 - (w_kopr_ogrp * 100 / w_sapr_ogrp))
+     c                             < -999,99
+     c                   eval      d3dekn = -999,99
+     c                   when      (100 - (w_kopr_ogrp * 100 / w_sapr_ogrp))
+     c                             > 999,99
+     c                   eval      d3dekn = 999,99
+     c                   other
+     c                   eval(h)   d3dekn = 100 -
+     c                             (w_kopr_ogrp * 100 / w_sapr_ogrp)
+     c                   endsl
+     c                   endif
+      *
+      * Kalkulerer DG for hver rabattkategori
+      *
+     c                   movea     *zeros        a_dekn
+     c
+     c                   do        21            x
+     c                   if        a_sapr_ogrp(x) <> 0
+     c                   select
+     c                   when      (100 -
+     c                             (a_kopr_ogrp(x) * 100 / a_sapr_ogrp(x)))
+     c                             < -999,99
+     c                   eval      a_dekn(x) = -999,99
+     c                   when      (100 -
+     c                             (a_kopr_ogrp(x) * 100 / a_sapr_ogrp(x)))
+     c                             > 999,99
+     c                   eval      a_dekn(x) = 999,99
+     c                   other
+     c                   eval(h)   a_dekn(x) = 100 -
+     c                             (a_kopr_ogrp(x) * 100 / a_sapr_ogrp(x))
+     c                   endsl
+     c                   endif
+     c                   enddo
+      *
+     c                   eval      d3dg01 = a_dekn(01)
+     c                   eval      d3dg02 = a_dekn(02)
+     c                   eval      d3dg03 = a_dekn(03)
+     c                   eval      d3dg04 = a_dekn(04)
+     c                   eval      d3dg05 = a_dekn(05)
+     c                   eval      d3dg06 = a_dekn(06)
+     c                   eval      d3dg07 = a_dekn(07)
+     c                   eval      d3dg08 = a_dekn(08)
+     c                   eval      d3dg09 = a_dekn(09)
+     c                   eval      d3dg10 = a_dekn(10)
+     c                   eval      d3dg11 = a_dekn(11)
+     c                   eval      d3dg12 = a_dekn(12)
+     c                   eval      d3dg13 = a_dekn(13)
+     c                   eval      d3dg14 = a_dekn(14)
+     c                   eval      d3dg15 = a_dekn(15)
+     c                   eval      d3dg16 = a_dekn(16)
+     c                   eval      d3dg17 = a_dekn(17)
+     c                   eval      d3dg18 = a_dekn(18)
+     c                   eval      d3dg19 = a_dekn(19)
+     c                   eval      d3dg20 = a_dekn(20)
+     c                   eval      d3dg21 = a_dekn(21)
+      *
+      * Skriv detaljlinje
+      *
+     c                   write     d3dtl                                30
+     c                   exsr      overflow
+      *
+      * Nullstiller summeringsfelt og array for overgruppe
+      *
+     c                   eval      w_sapr_ogrp = 0
+     c                   eval      w_kopr_ogrp = 0
+      *
+     c                   movea     *zeros        a_sapr_ogrp
+     c                   movea     *zeros        a_kopr_ogrp
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for håndtering av overflow
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     overflow      begsr
+      *
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   write     a3hdr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_parm
+      *
+      * Key for les på vareregister med varegruppe
+      *
+     c     vvarl8_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl8_ogrp
+     c                   kfld                    vvarl8_hgrp
+     c                   kfld                    vvarl8_ugrp
+      *
+      * Key for les på rabattkategori-register
+      *
+     c     ra06pf_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på firmaregister
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      *
+      *
+      * Splitter datastruktur i parametre og variable
+      *
+     c                   eval      d_list = p_parm
+      *
+     c                   eval      w_firm = p_firm
+5.70  *
+5.70  * Henter prisgruppe
+5.70  *
+5.70 c                   call      'VL711R   '
+5.70 c                   parm                    w_prgr
+      *
+      *
+     c                   endsr

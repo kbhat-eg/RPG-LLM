@@ -1,0 +1,849 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASPGPL
+      * Program . . . . : AF120R
+      * Beskrivelse . . : Vedlikehold av filgrupper pr. server
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       171120 bof  Nytt program
+8.01  *       130421 bof  Utvidet med kjede
+8.02  *       190521 bof  Utvidet med miljø
+8.03  *       200521 bof  Endret servernavn
+8.04  *       021122 bsa  Ny server
+8.05  *       040325 bof  Endret ledetekster og utvide med beskrivelse/spørrekode
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fafgri1    if   e           k disk    rename(afgrst:afgri1r)
+     fafgrir    if   e           k disk    rename(afgrst:afgrlrr)
+     fafgriu    uf a e           k disk    rename(afgrst:afgriur)
+      *
+     faf120d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - displax feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d afgri1_gsrv     s                   like(afgsrv)
+     d afgri1_gfgr     s                   like(afgfgr)
+     d afgrir_gsrv     s                   like(afgsrv)
+     d afgrir_gfgr     s                   like(afgfgr)
+     d afgriu_gsrv     s                   like(afgsrv)
+     d afgriu_gfgr     s                   like(afgfgr)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_ktxt          s             30
+     d w_gsrv          s                   like(afgsrv)
+     d w_gfgr          s                   like(afgfgr)
+     d sqlquery        s           4096
+      *
+      *
+     d w_seqe          s              1
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+     d b_open_sok      s              1    inz(*off)
+      *
+     d s_gsrv          s                   like(afgsrv)
+     d s_gfgr          s                   like(afgfgr)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meldingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      * K1WIN  - K1 Vindu for kopiere
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2gsrv <> *blank   or
+     c                             b2gfgr <> *blank
+     c                   exsr      sØk
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   eval      b_open_sok = *on
+      *
+     c                   eval      afgri1_gsrv = b1gsrv
+     c                   eval      afgri1_gfgr = b1gfgr
+     c     afgri1_key    setll     afgri1
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sØk           begsr
+      *
+     c                   eval      b_open_sok = *on
+      *
+     c                   select
+     c                   when      b2gfgr <> *Blank
+     c                   eval      w_seqe = 'F'
+     c                   eval      s_gfgr = b2gfgr
+     c                   eval      w_gfgr = b2gfgr
+     c                   other
+     c                   eval      w_seqe = *blank
+     c                   eval      s_gsrv = b2gsrv
+     c                   eval      w_gsrv = b2gsrv
+     c                   endsl
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2gfgr = *blank
+     c                   eval      b2gsrv = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   eval      c1gsrv = b1gsrv
+     c                   eval      c1gfgr = b1gfgr
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Kopier
+      *
+     c                   if        b1valg = 3
+     c                   eval      k1gsrv = b1gsrv
+     c                   eval      k1gfgr = b1gfgr
+     c                   exsr      xk1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1gsrv = b1gsrv
+     c                   eval      d1gfgr = b1gfgr
+     c                   exsr      xd1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1gsrv = b1gsrv
+     c                   eval      c1gfgr = b1gfgr
+     c                   eval      *in30 = *on
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   eval      *in30 = *off
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      b_oppr = *on
+     c                   eval      b_forn = *off
+      *
+     c                   eval      c1gsrv = b2gsrv
+     c                   eval      c1gfgr = b2gfgr
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_c1bld
+     c                   endsl
+      *
+      * Spørring
+      *
+     c                   if        *inkd
+     c                   goto      c1taga
+     c                   endif
+      *
+     c                   if        c1gfgr = *blank
+     c                   eval      *in31 = *on
+     c                   goto      c1taga
+     c                   endif
+      *
+     c                   if        c1gsrv = *blank
+     c                   goto      end_c1bld
+     c                   endif
+      *
+8.04 c                   if        c1gsrv <> 'MGRTST01' and
+8.04 c                             c1gsrv <> 'EGUTVK01' and
+     c                             c1gsrv <> 'EGTEST' and
+     c                             c1gsrv <> 'XLBYGG' and
+8.03 c                             c1gsrv <> 'OES' and
+     c                             c1gsrv <> 'STASKOV' and
+     c                             c1gsrv <> 'BYGGMAKK' and
+     c                             c1gsrv <> 'BYGGNIB' and
+     c                             c1gsrv <> 'OPTIMERA' and
+     c                             c1gsrv <> 'MESTERGR' and
+     c                             c1gsrv <> 'ASDRIFT' and
+     c                             c1gsrv <> 'MAXBO' and
+     c                             c1gsrv <> 'EGTEST'
+     c                   eval      *in32 = *on
+     c                   goto      c1taga
+     c                   endif
+      * Sender opp informasjonsbilde dersom rad finnes fra før
+      *
+     c                   eval      afgrir_gsrv = c1gsrv
+     c                   eval      afgrir_gfgr = c1gfgr
+     c     afgrir_key    chain     afgrir
+     c                   if        %found
+     c                   exsr      xc1msg
+     c                   if        b_anul = *on
+     c                   goto      c1taga
+     c                   endif
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   exsr      xc2bld
+      *
+     c                   eval      c1gfgr = *blank
+     c                   eval      c1gsrv = *blank
+      *
+     c                   goto      c1taga
+      *
+     c     end_c1bld     tag
+      *
+     c                   eval      b_oppr = *off
+     c                   eval      b2gfgr = *blank
+     c                   eval      b2gsrv = *blank
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+      *
+     c                   eval      afgrir_gsrv = c1gsrv
+     c                   eval      afgrir_gfgr = c1gfgr
+     c     afgrir_key    chain     afgrir
+      *
+8.01 c                   if        %found
+8.01 c                   eval      c2gkjd = afgkjd
+8.01 c                   eval      c2gver = afgver
+8.02 c                   eval      c2gmil = afgmil
+     c                   eval      c2glev = afglev
+     c                   eval      c2gakt = afgakt
+     c                   eval      c2gko1 = afgko1
+     c                   eval      c2gko2 = afgko2
+     c                   eval      c2gko3 = afgko3
+     c                   eval      c2gko4 = afgko4
+     c                   eval      c2gko5 = afgko5
+     c                   eval      c2gkod = afgkod
+8.05 c                   eval      c2gtxt = afgtxt
+     c                   eval      c2geus = afgeus
+8.01 c                   if        afgeda <> *loval
+     c     *dmy          move      afgeda        c2geda
+8.01 c                   else
+8.01 c                   eval      c2geda = 0
+8.01 c                   endif
+     c                   else
+8.01 c                   eval      c2gkjd = *blank
+     c                   eval      c2gver = *blank
+     c                   eval      c2glev = *blank
+8.02 c                   eval      c2gmil = *blank
+     c                   eval      c2gakt = 0
+     c                   eval      c2gko1 = 0
+     c                   eval      c2gko2 = 0
+     c                   eval      c2gko3 = 0
+     c                   eval      c2gko4 = 0
+     c                   eval      c2gko5 = 0
+     c                   eval      c2gkod = *blank
+8.05 c                   eval      c2gtxt = *blank
+     c                   eval      c2geus = *blank
+     c                   eval      c2goda = 0
+     c                   eval      c2geda = 0
+     c                   endif
+      *
+     c                   if        b1valg = 3
+     c                   eval      c1gsrv = k1gsrv
+     c                   eval      c1gfgr = k1gfgr
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30 = *on
+     c                   endif
+      *
+     c     c2taga        tag
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      * Spørring
+      *
+     c                   if        *inkd
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Oppdatering
+      *
+     c                   clear                   afgriur
+      *
+     c                   eval      afgriu_gsrv = c1gsrv
+     c                   eval      afgriu_gfgr = c1gfgr
+     c     afgriu_key    chain     afgriur
+      *
+8.01 c                   eval      afgkjd = c2gkjd
+8.02 c                   eval      afgmil = c2gmil
+     c                   eval      afgver = c2gver
+     c                   eval      afglev = c2glev
+     c                   eval      afgakt = c2gakt
+     c                   eval      afgko1 = c2gko1
+     c                   eval      afgko2 = c2gko2
+     c                   eval      afgko3 = c2gko3
+     c                   eval      afgko4 = c2gko4
+     c                   eval      afgko5 = c2gko5
+     c                   eval      afgkod = c2gkod
+8.05 c                   eval      afgtxt = c2gtxt
+     c                   time                    afgeda
+     c                   time                    afgeti
+     c                   eval      afgeus = l_user
+      *
+     c                   if        %found
+     c                   update    afgriur
+     c                   else
+     c                   eval      afgsrv = c1gsrv
+     c                   eval      afgfgr = c1gfgr
+     c                   time                    afgoda
+     c                   write     afgriur
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c                   if        b1valg = 2
+8.01 c                   eval      b1gkjd = afgkjd
+     c                   eval      b1gver = afgver
+     c                   eval      b1gakt = afgakt
+8.02 c                   eval      b1gmil = afgmil
+8.05 c                   eval      b1gko1 = afgko1
+     c                   endif
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      afgrir_gsrv = d1gsrv
+     c                   eval      afgrir_gfgr = d1gfgr
+     c     afgrir_key    chain     afgrir
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter rad
+      *
+     c                   eval      afgriu_gsrv = d1gsrv
+     c                   eval      afgriu_gfgr = d1gfgr
+     c     afgriu_key    chain     afgriur
+      *
+     c                   delete    afgriur
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle kopierings-bildet (K1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xk1win        begsr
+      *
+      * Tar vare på nøkkel til rad det skal kopieres fra
+      *
+     c                   eval      s_gsrv = k1gsrv
+     c                   eval      s_gfgr = k1gfgr
+      *
+      * Fyller kopierings-bildet
+      *
+     c                   eval      afgrir_gsrv = k1gsrv
+     c                   eval      afgrir_gfgr = k1gfgr
+     c     afgrir_key    chain     afgrir
+      *
+     c     k1taga        tag
+      *
+     c                   eval      k1gsrv = b1gsrv
+     c                   eval      k1gfgr = b1gfgr
+     c                   exfmt     k1win
+      *
+     c                   if        *inkc or *inkl
+     c                   leavesr
+     c                   endif
+      *
+      * Sjekk om utfylt
+      *
+     c                   if        k1gfgr = *blank
+     c                   eval      *in31 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+     c                   if        k1gsrv = *blank
+     c                   eval      *in31 = *on
+     c                   goto      k1taga
+     c                   endif
+8.04 c                   if        c1gsrv <> 'MGRTST01' and
+8.04 c                             k1gsrv <> 'EGUTVK01' and
+     c                             k1gsrv <> 'EGTEST' and
+     c                             k1gsrv <> 'XLBYGG' and
+8.03 c                             k1gsrv <> 'OES' and
+     c                             k1gsrv <> 'STASKOV' and
+     c                             k1gsrv <> 'BYGGMAKK' and
+     c                             k1gsrv <> 'BYGGNIB' and
+     c                             k1gsrv <> 'OPTIMERA' and
+     c                             k1gsrv <> 'MESTERGR' and
+     c                             k1gsrv <> 'MAXBO' and
+     c                             K1gsrv <> 'ASDRIFT' and
+     c                             k1gsrv <> 'EGTEST'
+     c                   eval      *in32 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Sjekker om rad finnes fra før
+      *
+     c                   eval      afgrir_gsrv = k1gsrv
+     c                   eval      afgrir_gfgr = k1gfgr
+     c     afgrir_key    chain     afgrir
+     c                   if        %found
+     c                   eval      *in32 = *on
+     c                   goto      k1taga
+     c                   endif
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   eval      c1gsrv = s_gsrv
+     c                   eval      c1gfgr = s_gfgr
+     c                   exsr      xc2bld
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+     c                   if        b_open_sok = *on
+     c/exec sql
+     c+ close STMT
+     c/end-exec
+      *
+     c                   eval      sqlquery  = 'select +
+6.45 c                             afgsrv, +
+6.45 c                             afgfgr, +
+8.01 c                             afgkjd, +
+8.02 c                             afgmil, +
+6.45 c                             afgver, +
+6.45 c                             afgakt, +
+8.05 c                             afgko1  +
+6.45 c                             from   afgrst      '
+      *
+     c                   if        w_seqe = 'F'
+     c                   eval      sqlquery  = %trim(sqlquery)      +
+     c                             ' where  afgfgr >=  ?   +
+     c                             order by afgfgr, afgsrv   '
+     c                   else
+     c                   eval      sqlquery  = %trim(sqlquery)  +
+6.48 c                             ' where  afgsrv >= ?  +
+6.48 c                             order by afgsrv, afgfgr   '
+     c                   endif
+     c
+     c/exec sql
+     c+ PREPARE SQL_STMT FROM :sqlquery
+     c/end-exec
+     c
+     c/exec sql
+     c+ DECLARE STMT CURSOR FOR SQL_STMT
+     c/end-exec
+     c                   if        sqlcod < 0
+     c                   eval      *in15 = *on
+     c                   leavesr
+     c                   endif
+     c
+     c                   if        w_seqe = 'F'
+     c/exec sql
+6.48 c+ OPEN STMT using :w_gfgr
+     c/end-exec
+     c                   else
+     c/exec sql
+6.48 c+ OPEN STMT using  :w_gsrv
+     c/end-exec
+     c                   endif
+      *
+     c                   endif                                                  b_open_sok
+     c
+
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c/exec sql
+     c+                  fetch STMT
+     c+                  into  :afgsrv,
+6.45 c+                        :afgfgr,
+8.01 c+                        :afgkjd,
+8.02 c+                        :afgmil,
+6.45 c+                        :afgver,
+8.05 c+                        :afgakt,
+8.05 c+                        :afgko1
+     c/end-exec
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c                   eval      *in15 = *on
+6.46 c                   leave
+     c                   endif
+     c                   if        sqlcod < 0
+     c                   eval      *in15 = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c*                  eval      afgri1_gfgr = afgfgr
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1gsrv = afgsrv
+     c                   eval      b1gfgr = afgfgr
+8.01 c                   eval      b1gkjd = afgkjd
+8.02 c                   eval      b1gmil = afgmil
+     c                   eval      b1gver = afgver
+     c                   eval      b1gakt = afgakt
+8.05 c                   eval      b1gko1 = afgko1
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   eval      b_open_sok = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for displax av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av spørring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     spØrring      begsr
+      *
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+      * Key for posisjonering på gfgrandler
+      *
+     c     afgri1_key    klist
+     c                   kfld                    afgri1_gsrv
+     c                   kfld                    afgri1_gfgr
+      *
+      * Key for les på gfgrandler
+      *
+     c     afgrir_key    klist
+     c                   kfld                    afgrir_gsrv
+     c                   kfld                    afgrir_gfgr
+      *
+      * Key for oppdatering av gfgrandler
+      *
+     c     afgriu_key    klist
+     c                   kfld                    afgriu_gsrv
+     c                   kfld                    afgriu_gfgr
+      *
+      * Henter verdier fra LDA, og initierer skjermbildet
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+6.45 c                   eval      w_seqe = ' '
+6.45 c                   eval      b_open_sok = *on
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

@@ -1,0 +1,727 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOKON
+      * Program . . . . : RB100R
+      * Beskrivelse . . : Gammel/Ny bilagskode  Vedlikehold
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+7.xx  * 7.00  020316 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frb10l1    if   e           k disk    rename(rb10pfr:rb10l1r)
+     frb10l2    if   e           k disk    rename(rb10pfr:rb10l2r)
+     frb10lr    if   e           k disk    rename(rb10pfr:rb10lrr)
+     frb10lu    uf a e           k disk    rename(rb10pfr:rb10lur)
+     fra01l1    if   e           k disk    rename(ra01pfr:ra01l1r)
+     f                                     prefix(x:1)
+      *
+     frb100d    cf   e             workstn sfile(b1sfl:w_srrn)
+      *
+      * Definering av parametre
+      *
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av variabler i nøkler
+      *
+     d rb10l1_gkod     s                   like(raakod)
+     d rb10l2_vtxt     s                   like(raatxt)
+     d rb10lr_gkod     s                   like(raakod)
+     d rb10lu_gkod     s                   like(raakod)
+     d ra01l1_akod     s                   like(raakod)
+      *
+      * Definering av variable
+      *
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+     d b_oppr          s              1    inz(*off)
+     d b_forn          s              1    inz(*off)
+     d b_anul          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(raafir)
+      *
+     d s_gkod          s                   like(raakod)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(14)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siden
+      * w_ssrn - Siste recordnummer på siden
+      * w_curn - Current recordnummer på siden
+      * w_virn - Siden som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meldingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      * D1WIN  - D1 Vindu for slette (Delete)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *inkf
+     c                   exsr      xc1bld
+     c                   goto      b2taga
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+      *
+      * Posisjonering
+      *
+     c                   if        b2gkod <> 0 or
+     c                             b2vtxt <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_sfrn <> 0
+     c     w_sfrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      rb10l2_vtxt = b1vtxt
+     c     rb10l2_key    setll     rb10l2
+     c                   other
+     c                   eval      rb10l1_gkod = b1gkod
+     c     rb10l1_key    setll     rb10l1
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c     end_forny     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Bilagskoder
+      *
+     c                   if        b2gkod <> 0
+     c                   eval      w_seqe = *blank
+     c                   eval      rb10l1_gkod = b2gkod
+     c     rb10l1_key    setll     rb10l1
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Beskrivelse
+      *
+     c                   if        b2vtxt <> *blank
+     c                   eval      w_seqe = 'B'
+     c                   eval      rb10l2_vtxt = b2vtxt
+     c     rb10l2_key    setll     rb10l2
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2gkod = 0
+     c                   eval      b2vtxt = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   if        w_curn > 0
+     c                   eval      w_virn = w_curn
+     c                   endif
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   eval      c1gkod = b1gkod
+     c***                eval      c1nkod = b1nkod
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Slett
+      *
+     c                   if        b1valg = 4
+     c                   eval      d1gkod = b1gkod
+     c                   exsr      xd1win
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      c1gkod = b1gkod
+     c                   eval      *in34 = '1'
+     c                   exsr      xc2bld
+     c                   eval      *in34 = '0'
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c     end_subfile   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av skjermbilde for ny rad (C1BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1bld        begsr
+      *
+     c                   eval      b_oppr = *on
+     c                   eval      b_forn = *off
+      *
+     c                   eval      c1gkod = b2gkod
+      *
+     c     c1taga        tag
+      *
+     c                   exfmt     c1bld
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      end_c1bld
+     c                   endsl
+      *
+      * Spørring
+      *
+     c                   if        *inkd
+     c                   goto      c1taga
+     c                   endif
+     c                   if        c1gkod = 0
+     c                   goto      end_c1bld
+     c                   endif
+      *
+     c***                if        c1gkod = 0
+     c***                eval      *in31  = *on
+     c***                goto      c1taga
+     c***                endif
+      *
+      * Sender opp informasjonsbilde dersom rad finnes fra før
+      *
+     c                   eval      rb10lr_gkod = c1gkod
+     c     rb10lr_key    chain     rb10lr
+     c                   if        %found
+     c                   eval      *in31 = '1'
+     c                   exsr      xc1msg
+     c                   goto      c1taga
+     c                   endif
+      *
+     c                   eval      ra01l1_akod = c1gkod
+     c     ra01l1_key    chain     ra01l1
+     c                   if        not %found
+     c                   eval      *in32 = '1'
+     c                   exsr      xc1msg
+     c                   goto      c1taga
+     c                   endif
+      *
+      *
+      * Kaller vedlikeholdsprogram
+      *
+     c                   exsr      xc2bld
+      *
+     c                   eval      c1gkod = 0
+      *
+     c                   goto      c1taga
+      *
+     c     end_c1bld     tag
+      *
+     c                   eval      b_oppr = *off
+     c                   eval      b2gkod = 0
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for utlegging av opprettelsesmelding
+      * Meldingsbildet legges ut dersom det forsøkes å opprette en rad som
+      * finnes fra før.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc1msg        begsr
+      *
+     c                   eval      b_anul = *off
+      *
+     c                   exfmt     c1msg
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   if        *inkc or *inkl
+     c                   eval      b_anul = *on
+     c                   goto      end_c1msg
+     c                   endif
+      *
+     c     end_c1msg     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å behandle bilde for ny/endring/vise (C2BLD)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+     c                   eval      w_arow = 0
+     c                   eval      w_acol = 0
+      *
+     c                   eval      rb10lr_gkod = c1gkod
+     c     rb10lr_key    chain     rb10lr
+      *
+     c                   if        %found
+     c                   eval      c2vtxt = raatxt
+     c                   eval      c2nkod = rankod
+     c                   movel     rafirb        c2firb
+     c                   eval      c2eusr = raausr
+     c     *dmy          move      raadat        c2edat
+     c                   else
+     c                   eval      c2nkod = *zeros
+     c                   eval      c2vtxt = *blank
+     c                   eval      c2firb = *blank
+     c                   eval      c2eusr = *blank
+     c                   eval      c2edat = 0
+     c                   endif
+      *
+     c                   if        b1valg = 5
+     c                   eval      *in30 = *on
+     c                   endif
+      *
+     c     c2taga        tag
+      *
+      * Validering
+     c                   eval      ra01l1_akod = c1gkod
+     c     ra01l1_key    chain     ra01l1
+     c                   if        %found
+     c                   eval      c2vtxt = xaatxt
+     c                   endif
+      *
+     c                   exfmt     c2bld
+      *
+     c                   if        *inkc or *inkl or *in30
+     c                   goto      end_c2bld
+     c                   endif
+      *
+      * Spørring
+      *
+     c                   if        *inkd
+     c                   goto      c2taga
+     c                   endif
+      *
+      * Validering av input
+     c                   if        c2nkod = *zeros
+     c                   eval      *in33 = *on
+     c                   exsr      xc1msg
+     c                   goto      c2taga
+     c                   endif
+      *
+      *
+      * Oppdatering
+      *
+     c                   clear                   rb10lur
+      *
+     c                   eval      rb10lu_gkod = c1gkod
+     c     rb10lu_key    chain     rb10lur
+      *
+     c                   eval      raatxt = c2vtxt
+     c                   eval      rankod = c2nkod
+     c                   movel     c2firb        rafirb
+      *
+     c                   time                    raadat
+     c                   time                    raatim
+     c                   eval      raausr = l_user
+      *
+     c                   if        %found
+     c                   update    rb10lur
+     c                   else
+     c                   eval      raafir = w_firm
+     c                   eval      raakod = c1gkod
+     c                   eval      rankod = c2nkod
+     c                   eval      raatxt = c2vtxt
+     c                   movel     c2firb        rafirb
+     c                   write     rb10lur
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c                   if        b1valg = 2
+     c                   eval      b1vtxt = raatxt
+     c                   eval      b1nkod = rankod
+     c                   endif
+      *
+     c                   if        b_oppr = *on or
+     c                             b1valg = 3
+     c                   eval      b_forn = *on
+     c                   endif
+      *
+     c     end_c2bld     tag
+      *
+     c                   eval      *in30  = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av slette-bildet (D1WIN)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xd1win        begsr
+      *
+     c                   eval      rb10lr_gkod = d1gkod
+     c     rb10lr_key    chain     rb10lr
+      *
+     c                   exfmt     d1win
+      *
+     c                   if        *inkc or *inkl
+     c                   goto      end_d1win
+     c                   endif
+      *
+     c                   eval      b_forn = *on
+      *
+      * Sletter rad
+      *
+     c                   eval      rb10lu_gkod = d1gkod
+     c     rb10lu_key    chain     rb10lur
+      *
+     c                   delete    rb10lur
+      *
+     c     end_d1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   read      rb10l2
+     c                   other
+     c                   read      rb10l1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             raafir <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      rb10l2_vtxt = raatxt
+     c                   other
+     c                   eval      rb10l1_gkod = raakod
+     c                   endsl
+      *
+     c                   eval      b1valg = 0
+     c                   eval      b1gkod = raakod
+     c                   eval      b1nkod = rankod
+     c                   eval      b1vtxt = raatxt
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        *in15
+     c                   select
+     c                   when      w_seqe = 'B'
+     c     rb10l2_key    setgt     rb10l2
+     c                   readp     rb10l2
+     c                   other
+     c     rb10l1_key    setgt     rb10l1
+     c                   readp     rb10l1
+     c                   endsl
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   readp     rb10l2
+     c                   other
+     c                   readp     rb10l1
+     c                   endsl
+      *
+     c                   if        %eof or
+     c                             raafir <> w_firm
+     c                   leave
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'B'
+     c                   eval      rb10l2_vtxt = raatxt
+     c                   other
+     c                   eval      rb10l1_gkod = raakod
+     c                   endsl
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c                   select
+     c                   when      w_seqe = 'B'
+     c     rb10l2_key    setll     rb10l2
+     c                   other
+     c     rb10l1_key    setll     rb10l1
+     c                   endsl
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+      * Key for posisjonering på bilagskode
+      *
+     c     rb10l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rb10l1_gkod
+      *
+      * Key for posisjonering på beskrivelse
+      *
+     c     rb10l2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rb10l2_vtxt
+      *
+      * Key for les på bilagskode
+      *
+     c     rb10lr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rb10lr_gkod
+      *
+      * Key for oppdatering av gammel/ny bilagskode
+      *
+     c     rb10lu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rb10lu_gkod
+      *
+      *
+      * Key for posisjonering på bilagskode
+      *
+     c     ra01l1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ra01l1_akod
+      *
+      *
+      * Henter verdier fra LDA, og initierer skjermbildet
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   eval      *in22 = *on
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      rb10l1_gkod = 0
+     c     rb10l1_key    setll     rb10l1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

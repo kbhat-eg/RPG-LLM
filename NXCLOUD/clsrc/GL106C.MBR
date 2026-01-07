@@ -1,0 +1,146 @@
+
+/* Programmet kalles opp med utfylt PLIST dersom det er et forslag   */
+/* som sendes banken.  ------->  Kun tilfelle dersom rutinen kalles  */
+/* opp i fra GL104R.  Da blir samlefile kun benyttet for å mellom-   */
+/* lagre utplukket før det skal legges ut på DIRREM for overføring.  */
+/* 240904 TSO Innlagt IFS som valgmulighet                           */
+/* 090605 RHO Modifisert TSO's tilpasning.                           */
+/* 130217 sst Fjernet mulighet til QDLS/pcfiler                      */
+
+             PGM        PARM(&FGRP &FIRM &BFNR)
+
+             DCL        VAR(&FGRP) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&FIRM) TYPE(*DEC) LEN(3 0)
+             DCL        VAR(&BFNR) TYPE(*DEC) LEN(3 0)
+             DCL        VAR(&KOMM) TYPE(*CHAR) LEN(4)
+             DCL        VAR(&POST) TYPE(*DEC) LEN(1 0) VALUE(0)
+
+/* Initiering av parametre for test på om program er aktivt:         */
+
+             DCL        VAR(&IN03) TYPE(*DEC) LEN(1 0)
+             DCL        VAR(&VALG) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&LINJ) TYPE(*DEC) LEN(2 0) VALUE(2)
+             DCL        VAR(&POSI) TYPE(*DEC) LEN(3 0) VALUE(43)
+             DCL        VAR(&KODE) TYPE(*DEC) LEN(1 0) VALUE(0)
+
+/* Parameter som brukes for å fortelle om file DIRxx skal bygges     */
+/* ved kall av rutinen GL200C:                                       */
+
+             DCL        VAR(&BYGG) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&BANK) TYPE(*CHAR) LEN(2)
+
+/* Parametre som brukes for å kontrollere om program er aktivt:      */
+
+             DCL        VAR(&PRGM) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&TYPE) TYPE(*DEC) LEN(1 0)
+             DCL        VAR(&AKTI) TYPE(*DEC) LEN(1 0)
+             GOTO       CMDLBL(OVER)
+
+             CHGVAR     VAR(&PRGM) VALUE('BANK      ')
+             CHGVAR     VAR(&TYPE) VALUE('1')
+             CHGVAR     VAR(&AKTI) VALUE('0')
+
+          CALL       PGM(GLCHKPGM) PARM(&PRGM &TYPE &AKTI)
+          IF   COND(&AKTI *EQ 1) THEN(DO)
+
+/* Sender opp informasjonsbilde om at program allerede er aktivt:    */
+
+             CHGVAR     VAR(&VALG) VALUE('4')
+             CALL       PGM(GL124R) PARM(&IN03 &VALG &LINJ +
+                          &POSI &KODE)
+             GOTO       CMDLBL(END)
+          ENDDO
+
+ OVER:
+
+/* Override av samlefiler.  GX-filene brukes i forbindelse med       */
+/* overføring av data via datastruktur og ut på DIRREM.  TOFILE      */
+/* velges avhengig av samlefile som har aktuell nøkkeloppbyggning:   */
+
+             OVRDBF     FILE(GX00PF) TOFILE(*LIBL/GU00L1) MBR(*ALL) +
+                          LVLCHK(*NO)
+             OVRDBF     FILE(GX01PF) TOFILE(*LIBL/GU01L1) MBR(*ALL) +
+                          LVLCHK(*NO)
+             OVRDBF     FILE(GX02PF) TOFILE(*LIBL/GU02L1) MBR(*ALL) +
+                          LVLCHK(*NO)
+             OVRDBF     FILE(GX03PF) TOFILE(*LIBL/GU03L1) MBR(*ALL) +
+                          LVLCHK(*NO)
+             OVRDBF     FILE(GX04PF) TOFILE(*LIBL/GU04L2) MBR(*ALL) +
+                          LVLCHK(*NO)
+             OVRDBF     FILE(GX21PF) TOFILE(*LIBL/GU21L1) MBR(*ALL) +
+                          LVLCHK(*NO)
+             OVRDBF     FILE(GX22PF) TOFILE(*LIBL/GU22L2) MBR(*ALL) +
+                          LVLCHK(*NO)
+             OVRDBF     FILE(GX23PF) TOFILE(*LIBL/GU23L2) MBR(*ALL) +
+                          LVLCHK(*NO)
+             OVRDBF     FILE(GX99PF) TOFILE(*LIBL/GU99L1) MBR(*ALL) +
+                          LVLCHK(*NO)
+
+             CALL       PGM(GL106R) PARM(&FGRP &FIRM &BFNR +
+                          &KOMM &POST)
+
+/* Avslutter dersom edt er lagt inn "END" i feltet &KOMM, d.v.s.   */
+/* en verdi som legges inn i program GL106R dersom rutinen allerede  */
+/* er i bruk, d.v.s. overføring mot banken pågår!                    */
+
+          IF         COND(&KOMM *EQ 'END ') THEN(DO)
+             GOTO       CMDLBL(END)
+          ENDDO
+
+/* Henter ut firmaets bankforbindelse i fra faste data, og kopierer  */
+/* deretter DIRREM over til DIRxx, hvor xx=type bank.  I GL200C      */
+/* vil også filen DIRxx bli bygd dersom den ikke finnes:             */
+
+             IF         COND(&KOMM *NE '    ') THEN(DO)
+             CALL       PGM(GL200C) PARM(&FGRP &FIRM &BYGG +
+                          &BANK)
+             ENDDO
+
+/* Starter FTP-kommunikasjonsprogram for å sende data, dersom        */
+/* FTP er valgt som kommunikasjonstype på firma.                     */
+
+       IF     COND(&KOMM *EQ 'FTP ') THEN(DO)
+             CALL       PGM(GL710C) PARM(&BANK)
+       ENDDO
+/*                                                                   */
+/* IFS:                                                              */
+/*                                                                   */
+
+       IF     COND(&KOMM *EQ 'IFS ') THEN(DO)
+             CALL       PGM(GL902C) PARM(&FGRP &FIRM) /* Kopierer +
+                          DIRREM til IFS-område  */
+                        MONMSG     MSGID(CPF0000)
+       ENDDO
+
+/* Dersom PC-kommunikasjon blir file DIRREM lagt ut i mappe          */
+/* PCFILER:                                                          */
+
+/*     IF     COND(&KOMM *EQ 'PC  ') THEN(DO)                        */
+/*           CRTFLR     FLR(PCFILER) /* Lager mappe PCFILER dersom + */
+/*                        denne ikke finnes */
+/*                      MONMSG     MSGID(CPF0000)                    */
+/*           CALL       PGM(*LIBL/GL103C) PARM(&FGRP &FIRM) /* +     */
+/*                        Kopierer utbetalinger fra DIRREM til +     */
+/*                        mappe PCFILER */
+/*                      MONMSG     MSGID(CPF0000)                    */
+/*     ENDDO                                                         */
+
+/* Sletter Kontrollmember:                                           */
+
+ EOJ:
+             CHGVAR     VAR(&TYPE) VALUE('2')
+             CHGVAR     VAR(&PRGM) VALUE('GL106C    ')
+             CALL       PGM(GLCHKPGM) PARM(&PRGM &TYPE &AKTI)
+
+             CHGVAR     VAR(&TYPE) VALUE('2')
+             CHGVAR     VAR(&PRGM) VALUE('BANK      ')
+             CALL       PGM(GLCHKPGM) PARM(&PRGM &TYPE &AKTI)
+
+ END:
+
+/* Fjerner lås på program:                                           */
+
+/*           CHKACTPGM  PGM(GL106C) ALLOCATE(*UNLOCK) */
+
+             ENDPGM
+

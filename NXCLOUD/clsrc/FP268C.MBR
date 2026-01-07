@@ -1,0 +1,155 @@
+             PGM       (&etik &fide &ovfa &filg &firm &lagr &mpty)
+
+/*-------------------------------------------------------------------*/
+/* Initiering av parametere                                          */
+/*                                                                   */
+/*8.01 250522 bsa Eget valg for REST API integrasjon                 */
+/*8.02 041021 bsa Ny leverandør av elektroniske etiketter, Delfi     */
+/*8.03 191022 bsa Feil i bruken av pricer                            */
+/*8.04 201022 bsa Kjør egen rutine for FTP overføring                */
+/*8.05 020223 bsa Kjør bestandig forslag på fullt uttrekk fra batch  */
+/*8.06 130323 bsa Kjør bestandig forslag på fullt uttrekk fra batch  */
+/*                                                                   */
+/*                                                                   */
+/*                                                                   */
+/*-------------------------------------------------------------------*/
+
+             DCL        VAR(&filg)     TYPE(*CHAR) LEN(3)
+             DCL        VAR(&clib)     TYPE(*CHAR) LEN(6) value('ADBxxx')
+             DCL        VAR(&firm)     TYPE(*dec) LEN(3 0)
+             DCL        VAR(&alle)     TYPE(*CHAR) LEN(1)
+             DCL        VAR(&etik)     TYPE(*CHAR) LEN(1)
+             DCL        VAR(&fide)     TYPE(*CHAR) LEN(50)
+             DCL        VAR(&ovfa)     TYPE(*CHAR) LEN(10)
+             DCL        VAR(&mpty)     TYPE(*CHAR) LEN(10)
+             DCL        VAR(&lagr)     TYPE(*dec) LEN(2 0)
+             DCL        VAR(&MEMB) TYPE(*CHAR) LEN(10) +
+                          VALUE('AUTOHYLLE')
+             DCL        VAR(&OVRF) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&FNA1)  TYPE(*CHAR) LEN(75)
+             DCL        VAR(&FNA2)  TYPE(*CHAR) LEN(75)
+             DCL        VAR(&tofi)  TYPE(*CHAR) LEN(100)
+             DCL        VAR(&STAT)  TYPE(*CHAR) LEN(1)
+             DCL        VAR(&SMSG)  TYPE(*CHAR) LEN(1) VALUE('1')
+/*8.05*/     DCL        VAR(&full)  TYPE(*dec) LEN(1 0) VALUE(2)
+/*8.03*/     DCL        VAR(&OVRF2) TYPE(*CHAR) LEN(10)
+
+             chgvar     var(%sst(&clib 4 3)) value(&filg)
+             CHGVAR     VAR(&OVRF) VALUE(&OVFA)
+/*8.03*/     CHGVAR     VAR(&ovrf2) VALUE('PRICERMG' *tcat %char(&lagr))
+/*8.03*/     if         cond(&lagr *lt 10) then(do)
+/*8.03*/     CHGVAR     VAR(&ovrf2) VALUE('PRICERMG0' *tcat %char(&lagr))
+/*8.03*/     enddo
+             CHGVAR     VAR(&alle) VALUE('L')
+ /*          CHGVAR     VAR(&fna1) VALUE(&fide *tcat '.dat')         */
+
+/*           Sjekk arbeidsregister                                   */
+
+             CHKOBJ     OBJ(VETXPF) OBJTYPE(*FILE) MBR(&MEMB)
+             MONMSG     MSGID(CPF9815) EXEC(DO)
+             ADDPFM     FILE(VETXPF) MBR(&MEMB) TEXT('Varer til +
+                          hylleforkanter ')
+             ENDDO
+
+/* Call av utplukksprogram                                           */
+
+             CLRPFM     FILE(VETXPF) MBR(&MEMB)
+             OVRDBF     FILE(VETXPF) TOFILE(VETXPF) MBR(&MEMB)
+
+/* Nixdorf/ESL */
+             if         cond(&etik *EQ 'E') then(do)
+             call       pgm(fp266r) parm(&lagr &alle &filg &firm &stat)
+/*8.03*/     call       pgm(fp264r) parm(&fide &fna1 &fna2)
+             enddo
+
+/* Pricer   */
+             if         cond(&etik *EQ 'P') then(do)
+/*8.03       call       pgm(fp261r) parm(&lagr &alle &stat)          */
+/*8.03*/     call       pgm(fp265r) parm(&lagr &alle &full &stat)
+             enddo
+
+/* 8.02 Delfi/Breece */
+             if         cond(&etik *EQ 'D') then(do)
+             call       pgm(fp267r) parm(&lagr &alle &filg &firm &stat)
+/*8.03*/     call       pgm(fp264r) parm(&fide &fna1 &fna2)
+             enddo
+
+/* Dersom poster er lagt ut - kopieres data til overføringsfil       */
+
+             IF         COND(&STAT *EQ '0') +
+             THEN(GOTO CMDLBL(END))
+
+/*8.03*/     if         cond(&etik *NE 'P') then(do)
+             CPYF       FROMFILE(&clib/VETXPF) +
+                          TOFILE(&clib/AUTHPF) FROMMBR(AUTOHYLLE) +
+                          TOMBR(AUTHPF) MBROPT(*REPLACE) FMTOPT(*NOCHK)
+/*8.03*/     enddo
+
+/*8.03*/     if         cond(&etik *EQ 'P') then(do)
+/*8.03*/     CPYF       FROMFILE(&clib/VETXPF) +
+/*8.03*/                  TOFILE(&clib/PRICER) FROMMBR(AUTOHYLLE) +
+/*8.03*/                  TOMBR(PRICER) MBROPT(*REPLACE) FMTOPT(*NOCHK)
+/*8.03*/     enddo
+
+/*8.03       call       pgm(fp264r) parm(&fide &fna1 &fna2)          */
+
+/* Sjekker kommuniksjonsform                                         */
+
+             IF         COND(&mpty *EQ 'FTP') +
+             THEN(GOTO CMDLBL(FTP))
+/*8.01*/     if         cond(&mpty *EQ 'SFTP') +
+/*8.01*/     then(goto cmdlbl(IFS))
+/*8.01*/     if         cond(&mpty *EQ 'IFS') +
+/*8.01*/     then(goto cmdlbl(IFS))
+/*8.01*/     if         cond(&mpty *EQ 'REST') +
+/*8.01*/     then(goto cmdlbl(REST))
+
+/* Starter FTP overføring til ESL server                             */
+
+/*  FTP: 8.03*/
+    FTP:     CALL       PGM(AF700C_SBM) PARM(&OVRF &STAT &FNA1 &SMSG) /*8.04*/
+             CALL       PGM(AF700C_SBM) PARM(&OVRF2 &STAT &FNA2 &SMSG) /*8.04*/
+             GOTO       CMDLBL(END)
+
+/* Starter kopiering til integret filsystem. Felles for IFS og SFTP  */
+/*   --- hovedfil -----                                              */
+
+ IFS:        CHGVAR     VAR(&TOFI) VALUE('/home/' *tcat &clib *TCAT +
+                                   '/hylleforkanter/' *TCAT +
+                                         &FNA1)
+
+             CPYTOSTMF  FROMMBR('/qsys.lib/' *TCAT &CLIB *TCAT +
+                          '.lib/authpf.file/authpf.mbr') +
+                          TOSTMF(&TOFI) STMFOPT(*REPLACE) +
+                          STMFCCSID(1208)
+
+
+/* Starter kopiering til integret filsystem. Felles fra IFS og SFTP  */
+/*   --- Flaggfil ---                                                */
+
+             CHGVAR     VAR(&TOFI) VALUE('/home/' *tcat &clib *TCAT +
+                                   '/hylleforkanter/' *TCAT +
+                                         &fna2)
+
+             CPYTOSTMF  FROMMBR('/qsys.lib/' *TCAT &CLIB *TCAT +
+                          '.lib/aflgpf.file/aflgpf.mbr') +
+                          TOSTMF(&TOFI) STMFOPT(*REPLACE) +
+                          STMFCCSID(1208)
+
+/*8.01*/     goto       cmdlbl(END)
+
+
+/* 8.01 Nytt valg for kommunikasjon REST                              */
+
+REST:        CHGVAR     VAR(&TOFI) VALUE('/home/felles/hylleforkanter_rest/' +
+/*8.06*/                           *TCAT &fna1)
+/*8.06                              &fna1)                            */
+
+/*8.01*/     CPYTOSTMF  FROMMBR('/qsys.lib/' *TCAT &CLIB *TCAT +
+/*8.01*/                  '.lib/authpf.file/authpf.mbr') +
+/*8.01*/                  TOSTMF(&TOFI) STMFOPT(*REPLACE) +
+/*8.01*/                  STMFCCSID(1208)
+
+
+ END:        RMVM       FILE(*LIBL/VETXPF) MBR(&MEMB)
+             ENDPGM

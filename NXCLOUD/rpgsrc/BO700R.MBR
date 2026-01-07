@@ -1,0 +1,597 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASSHOP
+      * Program . . . . : BO700R
+      * Beskrivelse . . : Bong hode, overføring til ordre
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       151004 HKO  Nytt program
+      *       280105 HKO  Avdeling på odre-linje hentes fra bong-linje
+      *       210405 HKO  Henter navn på kampanje
+      *       010605 HKO  Endret parameter ved rekalkulering av ordre
+      *                   Henter ordrerabatt-prosent fra linje og legger
+      *                   på hode
+      *       150709 MHA  La inn transaksjonsstyring
+6.10  * R6.10 021210 BSA  Vi har tatt i bruk prisliste suffix til korthåndtering
+6.10  *                   Feltet kan ikke endres i dette programmet.
+6.11  * R6.10 221210 BSA  Sjekker om kunden har BM Kort/Maxbo kort. Ordren merkes.
+6.12  * 6.10  250112 bof  Overstyrt kostpris skal ikke brukes på div.varer
+6.13  * 6.10  100512 AMD  Når et salg ble hentet inn til f.eks pakks.
+6.13  *                   negativ ble priser beregnet på nytt slik at
+6.13  *                   kreditnota ble høyere enn det opprinnelige
+6.13  *                   salget
+6.20  * 6.20  080312 bof  Utvidet med parameter VL710r
+6.21  * 6.20  120312 bof  Samme logikk vexr. lev./pakks.dato som FO614R
+6.22  * 6.20  300312 BSA  Innført GE Kort - samme håndtering som BM og Maxbo kort
+6.23  * 6.20  060613 AMD  Ved offline-salg må ordre rekalkuleres for å
+6.23  *                   få med riktige rabatter etc.
+6.24  * 6.20  131014 bof  Hvis RT så oppdat FOFSYS med 'RT' eller 'KAS'
+6.30  * 6.30  230615 bsa  Hvis kunden har kort, sjekk om infokode må settes.
+6.31  * 6.30  261015 bsa  Sjekk først mot lager, deretter kode 0.
+6.33  * 6.30  190116 bsa  Gebyrinfo hentes fra kunde/kundeprosjekt
+6.34  * 6.30  290116 bof  rettelse KAS / RT i
+6.35  * 6.30  130616 bsa  Legger over leverandør fra vare/lager, hvis den ikke
+6.35  *                   finnes på butikkregistre.
+6.36  * 6.30  170918 bkv  Utvidet med trelast sortiment
+7.01  *K000   050121 bsa  Pakkseddel negativ settes automatsk i hold
+7.01  *K000               når de kommer fra POS. Styres av kode i AFPSPF.
+7.02  *K000   130121 bsa  Endret logikk vedrørende levdato hvis pakkseddel.
+7.02  *K000               (Gipling)
+8.01  *PRG2   210622 bof  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fbohel1    if   e           k disk    rename(bohepfr:bohel1r)
+     fbodtl1    if   e           k disk    rename(bodtpfr:bodtl1r)
+6.11 frukrl5    if   e           k disk    rename(rukrpfr:rukrl5r)
+6.30 fruksl1    if   e           k disk    rename(rukspfr:ruksl1r)
+6.33 ffkprl1    if   e           k disk    rename(fkprpfr:fkprl1r)
+6.33 frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+     ffohelu    uf a e           k disk    rename(fohepfr:fohelur)
+      *                                    commit(COMFLAG)
+     ffodtlu    uf a e           k disk    rename(fodtpfr:fodtlur)
+      *                                    commit(COMFLAG)
+6.36 fvvlel1    if   e           k disk    rename(vvlepfr:vvlel1r)
+7.01 fafpslr    if   e           k disk    rename(afpspfr:afpslrr)
+7.01 fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+7.01  *
+7.01  * Definering av Local data area
+7.01  *
+7.01 d                uds
+7.01 d l_user                911    920
+7.01 d l_filg                931    933
+      *
+      * Definering av parametere
+      *
+     d p_firm          s                   like(bofirm)
+     d p_aarr          s                   like(boaarr)
+     d p_wsid          s                   like(bowsid)
+     d p_bong          s                   like(bobong)
+     d p_btyp          s              1  0
+6.23 d p_offl          s              1  0
+     d COMFLAG         s              1
+      *
+      * Definering av variable
+      *
+     d w_enor          s              1
+     d w_oakk          s              1  0
+6.11 d w_kort          s              2  0
+6.20 d w_udat          s               d   datfmt(*iso)
+6.20 d w_ldor          s              6  0
+6.20 d b_inlr          s              1    inz(*off)
+6.36 d w_lv_nobb       s                   like(vvlnob)
+6.36 d w_lv_modn       s                   like(vvlmod)
+6.36 d w_lv_lldo       s                   like(vvlnle)
+6.36 d w_lv_llva       s                   like(vvllva)
+      *
+     d w_firm          s                   like(bofirm)
+     d w_aarr          s                   like(boaarr)
+     d w_wsid          s                   like(bowsid)
+     d w_bong          s                   like(bobong)
+6.11 d rukrl5_ktyp     s                   like(ruktyp)
+6.11 d rukrl5_kkun     s                   like(rukkun)
+6.11 d rukrl5_kpro     s                   like(rukpro)
+6.30 d ruksl1_skty     s                   like(ruskty)
+6.30 d ruksl1_slag     s                   like(ruslag)
+6.33 d fkprl1_kund     s                   like(flkund)
+6.33 d fkprl1_kpro     s                   like(flkpro)
+6.33 d rkunl1_kund     s                   like(rkkund)
+7.01 d afpslr_ufil     s                   like(l_filg)
+7.01 d afpslr_uide     s                   like(afuide)
+7.01 d votyl1_otyp     s                   like(vaotyp)
+      *
+     d w_orab          s                   like(bdorab)
+6.12 d w_vtyp          s              1
+7.01 d w_hkod          s              2
+6.24  *
+6.24  * Definering av konstanter
+6.24  *
+6.24 d c_numm          c                   '0123456789 '
+      *
+7.02 d u_702           s              1    inz(*off)
+7.02  *
+7.02  * Eksternt program
+7.02   dcl-s co402_verdi1  char(1);
+7.02   dcl-s co402_verdi2  char(2048);
+7.02   DCL-PR CO402R EXTPGM('CO402R');
+7.02     p_filgrp            char(3)     const;
+7.02     p_firm              packed(3:0) const;
+7.02     p_lager             packed(2:0) const;
+7.02     p_nokkel            char(50)    const;
+7.02     p_verdi1            char(1);
+7.02     p_verdi2            char(2048);
+7.02   END-PR;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Henter bong-hode. Avbryter dersom bong ikke ble funnet
+      *
+     c     bohel1_key    chain     bohel1
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Skriver til ordre-linje
+      *
+     c                   exsr      ordre_linje
+      *
+      * Skriver til ordre-hode
+      *
+     c                   exsr      ordre_hode
+      *
+      * Rekalkulerer og oppdaterer orderen
+      *
+     c                   eval      w_enor = '1'
+6.23  *
+6.23  * Men dersom dette er pakkseddel, skal ikke
+6.23  * ordren rekalkuleres bortsett fra offline-
+6.23  * salg. Da må ordre rekalkuleres for å få med
+6.23  * riktige rabatter etc.
+6.13  *
+6.23 c                   if        p_offl = 0
+6.13 c                   if        p_btyp = 2
+6.13 c                   eval      w_enor = ' '
+6.13 c                   endif
+6.23 c                   endif
+      *
+     c                   call      'FO730R'
+     c                   parm                    w_enor
+     c                   parm                    w_firm
+     c                   parm                    boornr
+     c                   parm                    boorsu
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Skriver til ordre-linje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     ordre_linje   begsr
+      *
+     c                   eval      w_orab = 0
+      *
+      * Leser bong-linjer for bongen og skriver til ordre-linje
+      *
+     c     bodtl1_key    setll     bodtl1
+     c     bodtl1_key    reade     bodtl1
+     c                   dow       not %eof
+6.12  *
+6.12  * Hente varetype
+6.12  *
+6.12 c                   call      'VL710R'
+6.12 c                   parm                    w_firm
+6.12 c                   parm                    bdvare
+6.12 c                   parm                    bolage
+6.12 c                   parm                    w_vtyp
+6.20 c                   parm                    w_udat
+6.20 c                   parm                    w_ldor
+6.20 c                   parm                    b_inlr
+6.36 c                   parm                    w_lv_nobb
+6.36 c                   parm                    w_lv_modn
+6.36 c                   parm                    w_lv_lldo
+6.36 c                   parm                    w_lv_llva
+      *
+     c                   clear                   fodtlur
+      *
+     c                   eval      fdfirm = w_firm
+     c                   eval      fdnumm = boornr
+     c                   eval      fdsuff = boorsu
+     c                   eval      fdline = bdline
+     c                   eval      fdotyp = bootyp
+     c                   eval      fdltyp = bdltyp
+     c                   eval      fdlety = bdlety
+     c                   eval      fdvare = bdvare
+     c                   eval      fdenh1 = bdenh1
+     c                   eval      fdlage = bdlage
+     c                   eval      fdkakk = 0
+     c                   eval      fdkpri = bdkpri
+     c                   eval      fdkgeb = 0
+     c                   eval      fdlass = 0
+     c                   eval      fdkund = bokund
+     c                   eval      fdbenr = 0
+6.35 c                   if        bdldor <> 0
+     c                   eval      fdldor = bdldor
+6.35 c                   else
+6.35 c                   eval      fdldor = w_ldor
+6.35 c                   endif
+     c                   eval      fdldat = boldat
+     c                   eval      fdavde = bdavde
+     c                   eval      fdkont = bokont
+     c                   eval      fdspes = bospes
+     c                   eval      fdproj = boproj
+     c                   eval      fdakti = boakti
+     c                   eval      fdlvar = bdlvar
+     c                   eval      fdtek1 = bdtek1
+     c                   eval      fdtek2 = bdtek2
+     c                   eval      fdanta = bdanta
+     c                   eval      fdoppr = bdoppr
+     c                   eval      fdsapr = bdsapr
+     c                   eval      fdkopr = bdkopr
+6.12 c                   if        bdselk <> 0 and
+6.12 c                             w_vtyp <> 'D'
+     c                   eval      fdkopr = bdselk
+     c                   endif
+     c                   eval      fdrab1 = bdrab1
+     c                   eval      fdrab2 = bdrab2
+     c                   eval      fdpasl = 0
+      *
+     c                   eval      fdsums = 0
+     c                   eval      fdsumr = 0
+     c                   eval      fdsumk = 0
+      *
+     c                   eval      fdogrp = bdogrp
+     c                   eval      fdhgrp = bdhgrp
+     c                   eval      fdugrp = bdugrp
+     c                   eval      fdnobb = bdnobb
+     c                   eval      fdlvre = bdlvre
+      *
+     c                   eval      fdalme = bdalme
+     c                   eval      fdbrty = bdbrty
+     c                   eval      fdbrr1 = bdbrr1
+     c                   eval      fdbrr2 = bdbrr2
+     c                   eval      fdomva = bdkmva
+     c                   eval      fdpriv = bdpriv
+     c                   eval      fdkamp = bdkamp
+      *
+     c                   write     fodtlur
+      *
+     c                   if        bdorab <> 0
+     c                   eval      w_orab = bdorab
+     c                   endif
+      *
+     c     bodtl1_key    reade     bodtl1
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Skriver til ordre-hode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     ordre_hode    begsr
+      *
+6.33 c                   eval      rkunl1_kund = bokund
+6.33 c     rkunl1_key    chain     rkunl1
+      *
+     c                   eval      fofirm = w_firm
+     c                   eval      fonumm = boornr
+     c                   eval      fosuff = boorsu
+     c                   eval      foline = 0
+     c                   eval      footyp = bootyp
+     c                   eval      folage = bolage
+     c                   eval      fobinr = 0
+     c                   eval      fokref = bokref
+     c                   eval      fobdat = bobdat
+     c                   eval      foldat = boldat
+     c                   eval      fofkda = bofkda
+     c                   eval      foffda = boffda
+     c                   eval      fobetb = bobetb
+     c                   eval      foselg = boselg
+     c                   eval      fodist = bodist
+     c                   eval      folmat = bolmat
+     c                   eval      folbet = bolbet
+     c                   eval      fovalk = bovalk
+     c                   eval      forkat = borkat
+     c                   eval      fosped = bosped
+     c                   eval      fokjor = bokjor
+     c                   eval      fokjnr = bokjnr
+     c                   eval      fofaty = bofaty
+     c                   eval      fomkod = bomkod
+     c                   eval      folkun = bolkun
+     c                   eval      fokund = bokund
+     c                   eval      fokuna = bokuna
+     c                   eval      fonavn = bonavn
+     c                   eval      foadr1 = boadr1
+     c                   eval      foadr2 = boadr2
+     c                   eval      fosted = bosted
+     c                   eval      foavde = boavde
+     c                   eval      fokont = bokont
+     c                   eval      fospes = bospes
+     c                   eval      foproj = boproj
+     c                   eval      foakti = boakti
+     c                   eval      fokobk = 0
+6.33 c**                 eval      fokgfa = bokgfa
+6.33 c                   eval      fokgfa = rkfagb
+6.33 c**                 eval      fokgek = bokgfa
+6.33 c                   eval      fokgek = rkekgb
+6.33 c**                 eval      fokgfr = 0
+6.33 c                   eval      fokgfr = rkfrgb
+     c                   eval      foksob = 0
+     c                   eval      foktxt = 0
+     c                   eval      fokfak = 0
+     c                   eval      fokspr = 0
+     c                   eval      fovref = bovref
+     c                   eval      fodref = bodref
+     c                   eval      forekv = borekv
+     c                   eval      folmtx = bolmtx
+     c                   eval      folbtx = bolbtx
+     c                   eval      forabp = w_orab
+     c                   eval      fopasl = 0
+     c                   eval      fopask = *blank
+     c                   eval      fopord = bopord
+6.10 c**                 eval      fopsuf = bopsuf
+     c                   eval      fokoli = 0
+     c                   eval      fokonr = 0
+     c                   eval      fototx = 0
+     c                   eval      fotots = 0
+     c                   eval      fototr = 0
+     c                   eval      fototk = 0
+     c                   eval      fowsid = bowsid
+     c                   eval      fouser = bouser
+     c                   eval      fodate = bodate
+     c                   eval      fotime = botime
+     c                   eval      fokode = 0
+     c                   eval      fotdat = *loval
+     c                   eval      fokpro = bokpro
+     c                   eval      foneto = boneto
+     c                   eval      fobong = bobong
+6.33  * Slå opp på kundeprosjekt for å finne om prosjekt er
+6.33  * overstyrer verdi på kunde
+6.33 c                   if        fokpro > 0
+6.33 c                   eval      fkprl1_kund = fokund
+6.33 c                   eval      fkprl1_kpro = fokpro
+6.33 c     fkprl1_key    chain     fkprl1
+6.33 c                   if        %found(fkprl1)
+6.33 c                   eval      fokgfa = flfagb
+6.33 c                   eval      fokgek = flekgb
+6.33 c                   endif
+6.33 c                   endif
+6.24  *
+6.24  * Hvis bongnr er numerisk kommer det fra RT **
+6.24  *
+6.34 c                   if        %check(c_numm:bobong) = 0
+6.24 c                   eval      fofsys = 'RT'
+6.24 c                   else
+6.24 c                   eval      fofsys = 'KAS'
+6.24 c                   endif
+      *
+      * Dersom dette er en pakkseddel legges dagens dato inn
+      * som leveringsdato samt at ordren mekes med at pakkseddel er skrevt
+      *
+     c                   if        p_btyp = 2
+7.02 c                   eval      fopaks = 1
+7.02 c                   if        u_702 = *off
+6.21 c                   if        foldat = *loval
+     c                   time                    foldat
+6.21 c                   endif
+6.21 c                   if        fopdat = *loval
+     c                   eval      fopdat = boldat
+6.21 c                   endif
+6.21 c                   time                    fopada
+7.02 c                   else
+7.02 c                   time                    foldat
+7.02 c                   eval      fopdat = boldat
+7.02 c                   endif
+     c                   endif
+      *
+      * Dersom behandlingskode 2 eller 3, settes det kode for at
+      * lager er oppdatert, i motsatt fall, ikke.
+      *
+     c                   call      'VA750R'
+     c                   parm                    w_firm
+     c                   parm                    footyp
+     c                   parm                    w_oakk
+      *
+     c                   if        w_oakk = 2 or
+     c                             w_oakk = 3
+     c                   eval      foolag = 1
+     c                   else
+     c                   eval      foolag = 0
+     c                   endif
+6.11  * Sjekk om kunden har BM Kort
+6.11 c                   eval      w_kort = *zero
+6.11 c                   exsr      sjk_kort
+6.11 c                   eval      fopsuf = w_kort
+6.30  * Hvis kort er merket, sjekk om infokode også skal settes
+6.30 c                   if        fopsuf <> 0
+6.31  * m/lager
+6.31 c                   eval      ruksl1_skty = fopsuf
+6.31 c                   eval      ruksl1_slag = folage
+6.31 c     ruksl1_key    chain     ruksl1
+6.31 c                   if         not %found(ruksl1)
+6.31  * lager 0
+6.30 c                   eval      ruksl1_skty = fopsuf
+6.30 c                   eval      ruksl1_slag = 0
+6.30 c     ruksl1_key    chain     ruksl1
+6.30 c                   if        %found(ruksl1) and
+6.30 c                             rusity <> *blanks
+6.30 c                   eval      foityp = rusity
+6.30 c                   endif
+6.31 c                   else
+6.31 c                   if        rusity <> *blanks
+6.31 c                   eval      foityp = rusity
+6.31 c                   endif
+6.31 c                   endif
+6.31  *
+6.31 c                   endif
+7.01  *
+7.01  * Henter inn opplysninger om ordretypen. Hvis pakkseddel negativ, settes
+7.01  * evnt holdekode.
+7.01  *
+7.01 c                   eval      votyl1_otyp = footyp
+7.01 c     votyl1_key    chain     votyl1
+7.01 c                   if        %found
+7.01 c                   if        vaoakk = 2   and
+7.01 c                             vaokre = '-' and
+7.01 c                             foityp = *blanks
+7.01 c                   eval      foityp = w_hkod
+7.01 c                   endif
+7.01 c                   endif
+      *
+     c                   write     fohelur
+      *
+     c                   endsr
+      *
+6.11  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.11  * Subrutine for sjekk mot BM kort eller Maxbo kort
+6.11  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.11  *
+6.11 c     sjk_kort      begsr
+6.11  *
+6.11 c                   eval      rukrl5_ktyp = 5
+6.11 c                   eval      rukrl5_kkun = fokund
+6.11 c                   eval      rukrl5_kpro = 0
+6.11 c     rukrl5_key    chain     rukrl5
+6.11 c                   if        %found(rukrl5) and
+6.11 c                             rukspr <> 'J' and
+6.11 c                             rukobl = 1
+6.11 c                   eval      w_kort = 5
+6.11 c                   endif
+6.11  *
+6.11 c                   if        w_kort = *zeros
+6.11 c                   eval      rukrl5_ktyp = 3
+6.11 c                   eval      rukrl5_kkun = fokund
+6.11 c                   eval      rukrl5_kpro = 0
+6.11 c     rukrl5_key    chain     rukrl5
+6.11 c                   if        %found(rukrl5) and
+6.11 c                             rukspr <> 'J' and
+6.11 c                             rukobl = 1
+6.11 c                   eval      w_kort = 3
+6.11 c                   endif
+6.11 c                   endif
+6.11  *
+6.22 c                   if        w_kort = *zeros
+6.22 c                   eval      rukrl5_ktyp = 4
+6.22 c                   eval      rukrl5_kkun = fokund
+6.22 c                   eval      rukrl5_kpro = 0
+6.22 c     rukrl5_key    chain     rukrl5
+6.22 c                   if        %found(rukrl5) and
+6.22 c                             rukspr <> 'J' and
+6.22 c                             rukobl = 1
+6.22 c                   eval      w_kort = 4
+6.22 c                   endif
+6.22 c                   endif
+6.22  *
+6.11 c                   endsr
+6.11  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_aarr
+     c                   parm                    p_wsid
+     c                   parm                    p_bong
+     c                   parm                    p_btyp
+6.23 c                   parm                    p_offl
+     c                   parm                    COMFLAG
+      *
+      * Key for oppslag på bong-hode
+      *
+     c     bohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_wsid
+     c                   kfld                    w_bong
+      *
+      * Key for les på bong-linje
+      *
+     c     bodtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    w_wsid
+     c                   kfld                    w_bong
+6.11  *
+6.11  * Key for oppslag på kortregister
+6.11  *
+6.11 c     rukrl5_key    klist
+6.11 c                   kfld                    w_firm
+6.11 c                   kfld                    rukrl5_ktyp
+6.11 c                   kfld                    rukrl5_kkun
+6.11 c                   kfld                    rukrl5_kpro
+6.30  *
+6.30  * Key for oppslag på kortregister
+6.30  *
+6.30 c     ruksl1_key    klist
+6.30 c                   kfld                    w_firm
+6.30 c                   kfld                    ruksl1_skty
+6.30 c                   kfld                    ruksl1_slag
+6.33  *
+6.33  * Key for oppslag på kundeprosjekt
+6.33  *
+6.33 c     fkprl1_key    klist
+6.33 c                   kfld                    w_firm
+6.33 c                   kfld                    fkprl1_kund
+6.33 c                   kfld                    fkprl1_kpro
+6.33  *
+6.33  * Key for oppslag på kunde
+6.33  *
+6.33 c     rkunl1_key    klist
+6.33 c                   kfld                    w_firm
+6.33 c                   kfld                    rkunl1_kund
+7.01  *
+7.01  * Key for propertiesfil
+7.01  *
+7.01 c     afpslr_key    klist
+7.01 c                   kfld                    afpslr_ufil
+7.01 c                   kfld                    afpslr_uide
+7.01  *
+7.01  * Key for oppslag på Ordre-type
+7.01  *
+7.01 c     votyl1_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    votyl1_otyp
+      *
+      * Henter inn parametre
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      w_aarr = p_aarr
+     c                   eval      w_wsid = p_wsid
+     c                   eval      w_bong = p_bong
+7.02  *
+7.02  * Endring 7.02 Datoer fra bongens settes som pakkseddeldato (Gipling)
+7.02  *
+7.02   CallP CO402R(l_filg:w_firm:0:'BO700R_702':
+7.02                    co402_verdi1:co402_verdi2);
+7.02   if co402_verdi1 = '1';
+7.02     u_702 = *on;
+7.02   endif;
+7.01  *
+7.01  * Sjekk om pakkseddel negativ skal legges på holdekode
+7.01  *
+7.01 c                   eval      afpslr_ufil = l_filg
+7.01 c                   eval      w_hkod = *blanks
+7.01 c                   eval      afpslr_uide = 'POS.PNHOLD'
+7.01 c     afpslr_key    chain     afpslrr
+7.01 c                   if        %found(afpslr)
+7.01 c                   eval      w_hkod = %trim(afudss)
+7.01 c                   endif
+      *
+     c                   endsr

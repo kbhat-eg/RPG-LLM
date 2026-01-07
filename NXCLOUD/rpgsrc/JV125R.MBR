@@ -1,0 +1,595 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASVADM
+      * Program . . . . : JV125R
+      * Beskrivelse . . : Oppdatering av pris og vare, parameterprog
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       271196 HKO  Nytt program
+      *       131202 HKO  Lagt inn grossistløsning
+      *       220803 HKO  Lagt inn default at det kun vises varer hvor
+      *                   prisgiver sammefaller med leverandør i EVR
+      *       141003 HKO  Kaller programmer med leverandør som parameter
+      *       300505 HKO  Fjernet krav om at prisdato skal fylles ut
+      *                   Dersom prisdato ikke er utfylt benyttes Nobb
+      *                   prisdato
+      *       240605 HKO  Lagt inn valg av leveringstype
+      *       121105 HKO  Lagt inn valg for å utelate varer utgått på dato
+      *                   i EVR
+5.70  * PRGR  191108 bof  Utvidet med prisgruppe
+6.10  *       030909 bof  Utvidet med sortimentskode
+6.11  *       090909 bof  Hvis lev. er med iparm. sett til prisgiver
+6.20  *       120411 bof  Utvidet med valg på oppdatere flere prisgivere
+6.21  *       090312 bof  Gir melding hvis man har "ikke samsv" og ikke
+6.21  *                   valgt "flere prisgivere"
+6.22  *       251113 bof  Forhindre komb. ikke samsv.lev + ikke opp.salgspr.
+6.30  *       140714 bof  Utvidet med prisendringsdato + parm. vis utgåtte
+6.31  *       280814 bof  Ny feilmelding hvis p.giv eller lev. sperr/pass.
+6.32  *       250615 bof  Default "ta med utg.priser" = 1
+6.33  *       160916 bof  Ny datostyring på prisdato i EVR og prisdato l.dor
+7.xx  * 7.00  030316 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+8.01  *PRG2   140622 BOF  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjlevl1    if   e           k disk    rename(jlevpfr:jlevl1r)
+     fvogrl1    if   e           k disk    rename(vogrpfr:vogrl1r)
+     fvhgrl1    if   e           k disk    rename(vhgrpfr:vhgrl1r)
+     fvugrl1    if   e           k disk    rename(vugrpfr:vugrl1r)
+     fvltpl1    if   e           k disk    rename(vltppfr:vltpl1r)
+5.70 fra30l1    if   e           k disk    rename(ra30pfr:ra30l1r)
+6.10 fjsorl1    if   e           k disk    rename(jsorpfr:jsorl1r)
+     fjstsl1    if   e           k disk    rename(jstspfr:jstsl1r)
+      *
+     fjv125d    cf   e             workstn
+      *
+      * Definering av parametre
+      *
+     d p_ldor_alf      s              6
+      *
+      * Local data area
+      *
+     d                uds
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av variable i nøkler
+      *
+     d jlevl1_ldor     s                   like(jlldor)
+     d vogrl1_oogr     s                   like(vgoogr)
+     d vhgrl1_hogr     s                   like(vghogr)
+     d vhgrl1_hhgr     s                   like(vghhgr)
+     d vugrl1_uogr     s                   like(vguogr)
+     d vugrl1_uhgr     s                   like(vguhgr)
+     d vugrl1_uugr     s                   like(vguugr)
+     d vltpl1_lety     s                   like(vylety)
+5.70 d ra30l1_dkod     s                   like(redkod)
+6.10 d jsorl1_osor     s                   like(jsosor)
+      *
+      * Definering av variable
+      *
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s              3  0
+     d w_udat          s               d   datfmt(*iso)
+6.33 d w_edat          s               d   datfmt(*iso)
+6.33 d w_pdat          s               d   datfmt(*iso)
+6.31 d w_retk          s              1
+6.31 d w_levr          s                   like(jlenum)
+6.31 d w_navn          s             30
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Behandler bildet
+      *
+     c     b1taga        tag
+      *
+     c                   exfmt     b1bld
+      *
+      * Behandling av standad funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      b1taga
+     c                   endsl
+      *
+      * Sjekker input-felter
+      *
+     c                   exsr      sjekk_input
+     c                   if        b_feil = *on
+     c                   goto      b1taga
+     c                   endif
+      *
+      * Snur datoer, og kaller overføringsprogram
+      *
+6.33 c                   eval      w_edat = *loval
+6.33 c                   eval      w_pdat = *loval
+      *
+6.33 c                   if        b1edat <> 0
+6.33 c     *dmy          move      b1edat        w_edat
+     c                   endif
+6.33  *
+6.33 c                   if        b1pdat <> 0
+6.33 c     *dmy          move      b1pdat        w_pdat
+6.33 c                   endif
+6.33  *
+6.33 c                   if        w_edat = *loval
+6.33 c                   time                    w_edat
+6.33 c                   endif
+6.33  *
+6.33 c                   if        w_pdat = *loval
+6.33 c                   if        w_edat > w_udat
+6.33 c                   eval      w_pdat = w_edat
+6.33 c                   else
+6.33 c                   time                    w_pdat
+6.33 c                   endif
+6.33 c                   endif
+      *
+     c                   call      'JV126R'
+     c                   parm                    w_firm
+     c                   parm                    b1otyp
+6.33 c                   parm                    w_edat
+6.33 c                   parm                    w_pdat
+     c                   parm                    b1lety
+5.70 c                   parm                    b1prgr
+     c                   parm                    b1ldor
+     c                   parm                    b1ogrp
+     c                   parm                    b1hgrp
+     c                   parm                    b1ugrp
+     c                   parm                    b1pgiv
+     c                   parm                    b1sams
+     c                   parm                    b1utgd
+     c                   parm                    b1inio
+     c                   parm                    b1koio
+     c                   parm                    b1saio
+6.10 c                   parm                    b1osor
+6.20 c                   parm                    b1flpr
+6.30 c                   parm                    b1utgp
+      *
+     c                   goto      b1taga
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av spørringer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     spØrring      begsr
+      *
+      * Leveringstype
+      *
+     c                   if        w_afld = 'B1LETY'
+     c                   call      'VY500R'
+     c                   parm                    w_firm
+     c                   parm                    b1lety
+     c                   parm                    b1lbes
+     c                   leavesr
+     c                   endif
+5.70  *
+5.70  * Prisgruppe
+5.70  *
+5.70 c                   if        w_afld = 'B1PRGR'
+5.70 c                   call      'RA530R'
+5.70 c                   parm                    w_firm
+5.70 c                   parm                    b1prgr
+5.70 c                   parm                    b1pbes
+5.70 c                   leavesr
+5.70 c                   endif
+      *
+      * Leverandør
+      *
+     c                   if        w_afld = 'B1LDOR'
+     c                   call      'JL500R'
+     c                   parm                    b1ldor
+     c                   parm                    b1navn
+     c                   leavesr
+     c                   endif
+      *
+      * Overgruppe
+      *
+     c                   if        w_afld = 'B1OGRP'
+     c                   eval      b1hgrp = 0
+     c                   eval      b1ugrp = 0
+     c                   call      'VG510R'
+     c                   parm                    w_firm
+     c                   parm                    b1ogrp
+     c                   parm                    b1utxt
+     c                   leavesr
+     c                   endif
+      *
+      * Hovedgruppe
+      *
+     c                   if        w_afld = 'B1HGRP'
+     c                   eval      b1ugrp = 0
+     c                   call      'VG511R'
+     c                   parm                    w_firm
+     c                   parm                    b1ogrp
+     c                   parm                    b1hgrp
+     c                   parm                    b1utxt
+     c                   leavesr
+     c                   endif
+      *
+      * Undergruppe
+      *
+     c                   if        w_afld = 'B1UGRP'
+     c                   call      'VG512R'
+     c                   parm                    w_firm
+     c                   parm                    b1ogrp
+     c                   parm                    b1hgrp
+     c                   parm                    b1ugrp
+     c                   parm                    b1utxt
+     c                   leavesr
+     c                   endif
+      *
+      * Prisgivende leverandør
+      *
+     c                   if        w_afld = 'B1PGIV'
+     c                   call      'JL500R'
+     c                   parm                    b1pgiv
+     c                   parm                    b1pnav
+     c                   leavesr
+     c                   endif
+6.10  *
+6.10  * Sortimentskode
+6.10  *
+6.10 c                   if        w_afld = 'B1OSOR'
+6.10 c                   call      'JS510R'
+6.10 c                   parm                    b1osor
+6.10 c                   parm                    b1stxt
+6.10 c                   leavesr
+6.10 c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for sjekking av input-felter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_input   begsr
+      *
+     c                   eval      b_feil = *off
+     c                   eval      b1lbes = *blank
+     c                   eval      b1navn = *blank
+     c                   eval      b1utxt = *blank
+     c                   eval      b1pnav = *blank
+      *
+      * Type oppdatering må være valgt
+      *
+     c                   if        b1otyp = 0
+     c                   eval      *in31 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+      *
+      * Prisendringsdato
+      *
+6.33 c                   if        b1edat <> 0
+      *
+6.33 c     *dmy          test (d)                b1edat                 33
+     c                   if        *in33 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+      *
+6.33 c     *dmy          move      b1edat        w_edat
+6.33 c                   if        w_edat < w_udat
+     c                   eval      *in34 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   endif
+6.33 c                   if        b1pdat <> 0
+6.33  *
+6.33 c     *dmy          test (d)                b1pdat                 48
+6.33 c                   if        *in48 = *on
+6.33 c                   eval      b_feil = *on
+6.33 c                   leavesr
+6.33 c                   endif
+6.33  *
+6.33 c     *dmy          move      b1pdat        w_pdat
+6.33 c                   if        w_pdat < w_udat
+6.33 c                   eval      *in49 = *on
+6.33 c                   eval      b_feil = *on
+6.33 c                   leavesr
+6.33 c                   endif
+6.33  *
+6.33 c                   endif
+      *
+      * Leveringstype
+      *
+     c                   eval      vltpl1_lety = b1lety
+     c     vltpl1_key    chain     vltpl1                             42
+     c                   if        *in42 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+     c                   eval      b1lbes = vybesk
+5.70  *
+5.70  * prisgruppe
+5.70  *
+5.70 c                   eval      b1pbes = *blank
+     c                   if        b1prgr <> *blank
+5.70 c                   eval      ra30l1_dkod = b1prgr
+5.70 c     ra30l1_key    chain     ra30l1                             43
+5.70 c                   if        *in43 = *on
+5.70 c                   eval      b_feil = *on
+5.70 c                   leavesr
+5.70 c                   endif
+5.70 c                   eval      b1pbes = redtxt
+     c                   endif
+      *
+      * Leverandør
+      *
+     c                   if        b1ldor = 0 and
+     c                             b1pgiv = 0
+     c                   eval      *in35 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        b1ldor <> 0
+     c                   eval      jlevl1_ldor = b1ldor
+     c     jlevl1_key    chain     jlevl1                             36
+     c                   if        *in36 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+6.31 c                   eval      w_retk = *blank
+6.31 c                   eval      w_levr = jlenum
+6.31 c                   call      'RS760R  '
+6.31 c                   parm                    w_retk
+6.31 c                   parm                    w_levr
+6.31 c                   parm                    w_navn
+6.31  *
+6.31 c                   if        w_retk = 'P' or
+6.31 c                             w_retk = 'S'
+6.31 c                   eval      *in46  = *on
+6.31 c                   eval      b_feil = *on
+6.31 c                   leavesr
+6.31 c                   endif
+     c                   eval      b1navn = jlnavn
+     c                   endif
+      *
+      * Overgruppe
+      *
+     c                   if        b1ogrp <> 0 and
+     c                             b1hgrp = 0 and
+     c                             b1ugrp = 0
+     c                   eval      vogrl1_oogr = b1ogrp
+     c     vogrl1_key    chain     vogrl1                             37
+     c                   if        *in37 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+     c                   eval      b1utxt = vgotxt
+     c                   endif
+      *
+      * Hovedgruppe
+      *
+     c                   if        b1hgrp <> 0 and
+     c                             b1ugrp = 0
+     c                   eval      vhgrl1_hogr = b1ogrp
+     c                   eval      vhgrl1_hhgr = b1hgrp
+     c     vhgrl1_key    chain     vhgrl1                             38
+     c                   if        *in38 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+     c                   eval      b1utxt = vghtxt
+     c                   endif
+      *
+      * Undergruppe
+      *
+     c                   if        b1ugrp <> 0
+     c                   eval      vugrl1_uogr = b1ogrp
+     c                   eval      vugrl1_uhgr = b1hgrp
+     c                   eval      vugrl1_uugr = b1ugrp
+     c     vugrl1_key    chain     vugrl1                             39
+     c                   if        *in39 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+     c                   eval      b1utxt = vgutxt
+     c                   endif
+      *
+      * Prisgivende leverandør
+      *
+     c                   if        b1pgiv <> 0
+     c                   eval      jlevl1_ldor = b1pgiv
+     c     jlevl1_key    chain     jlevl1                             40
+     c                   if        *in40 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+6.31 c                   eval      w_retk = *blank
+6.31 c                   eval      w_levr = jlenum
+6.31 c                   call      'RS760R  '
+6.31 c                   parm                    w_retk
+6.31 c                   parm                    w_levr
+6.31 c                   parm                    w_navn
+6.31  *
+6.31 c                   if        w_retk = 'P' or
+6.31 c                             w_retk = 'S'
+6.31 c                   eval      *in47  = *on
+6.31 c                   eval      b_feil = *on
+6.31 c                   leavesr
+6.31 c                   endif
+     c                   eval      b1pnav = jlnavn
+     c                   endif
+6.22  *
+6.22  * Forhindre kombinasjon "kun samsv.lev" 0g Ikke oppdat.salgspris
+6.22  *
+6.22 c                   if        b1sams = 0 and
+6.22 c                             b1saio = 1
+6.22 c                   eval      *in45 = *on
+6.22 c                   eval      b_feil = *on
+6.22 c                   leavesr
+6.22 c                   endif
+      *
+      * Alle priser være kan ikke være utelatt for prisoppdatering
+      *
+     c                   if        b1inio = 1 and
+     c                             b1koio = 1 and
+     c                             b1saio = 1
+     c                   eval      *in41 = *on
+     c                   eval      b_feil = *on
+     c                   leavesr
+     c                   endif
+6.10  *
+6.10  * Sortimentskode
+6.10  *
+6.10 c                   eval      b1stxt = *blank
+6.10 c                   if        b1osor <> *blank
+6.10 c                   eval      jsorl1_osor = b1osor
+6.10 c     jsorl1_key    chain     jsorl1                             44
+6.10 c                   if        *in44 = *on
+6.10 c                   eval      b_feil = *on
+6.10 c                   leavesr
+6.10 c                   endif
+6.10 c                   eval      b1stxt = jsosor
+6.10 c                   endif
+      *
+6.21  * hvis ikke samsvarende leverandør er valgt og ikke flere prisgiver
+6.21  * er valgt, så melding
+6.21 c                   if        b1sams = 0 and
+6.21 c                             b1flpr = 0
+6.21 c                   exsr      xc1msg
+6.21 c                   endif
+      *
+     c                   endsr
+      *
+6.21  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.21  * Subrutine for utlegging av melding
+6.21  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.21  *
+6.21 c     xc1msg        begsr
+6.21  *
+6.21 c                   exfmt     c1msg
+6.21  *
+6.21  * Behandling av funksjonstaster
+6.21  *
+6.21 c                   if        *inkc or *inkl
+6.21 c                   leavesr
+6.21 c                   endif
+6.21  *
+6.21 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_ldor_alf
+      *
+      * Key for oppslag på leverandør
+      *
+     c     jlevl1_key    klist
+     c                   kfld                    jlevl1_ldor
+      *
+      * Key for oppslag på overgruppe
+      *
+     c     vogrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vogrl1_oogr
+      *
+      * Key for oppslag på hovedgruppe
+      *
+     c     vhgrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vhgrl1_hogr
+     c                   kfld                    vhgrl1_hhgr
+      *
+      * Key for oppslag på undergruppe
+      *
+     c     vugrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vugrl1_uogr
+     c                   kfld                    vugrl1_uhgr
+     c                   kfld                    vugrl1_uugr
+      *
+      * Key for oppslag på leveringstype
+      *
+     c     vltpl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vltpl1_lety
+5.70  *
+5.70  * Key for oppslag på prisgruppe
+5.70  *
+5.70 c     ra30l1_key    klist
+5.70 c                   kfld                    w_firm
+5.70 c                   kfld                    ra30l1_dkod
+6.10  *
+6.10  * Key for oppslag på sortimentskode
+6.10  *
+6.10 c     jsorl1_key    klist
+6.10 c                   kfld                    jsorl1_osor
+      *
+      *
+      * Key for oppslag på status
+      *
+     c     jstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      *
+      * Henter firma fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Henter dagens dato
+      *
+     c                   time                    w_udat
+      *
+      * Initierer til skjermbildet
+      *
+6.11 c                   move      p_ldor_alf    b1pgiv
+      *
+     c                   eval      vltpl1_lety = b1lety
+     c     vltpl1_key    chain     vltpl1
+     c                   if        %found
+     c                   eval      b1lbes = vybesk
+     c                   endif
+      *
+6.11 c                   if        b1pgiv <> 0
+6.11 c                   eval      jlevl1_ldor = b1pgiv
+     c     jlevl1_key    chain     jlevl1
+     c                   if        %found
+6.11 c                   eval      b1pnav = jlnavn
+     c                   endif
+     c                   endif
+      *
+6.11 c                   eval      *in22 = *on
+      *
+     c                   eval      b1otyp = 1
+     c                   eval      b1sams = 1
+     c                   eval      b1utgd = 1
+6.32 c                   eval      b1utgp = 1
+      *
+     c     jstsl1_key    chain     jstsl1
+     c                   if        %found
+     c                   eval      b1inio = jaaini
+     c                   endif
+      *
+     c                   endsr

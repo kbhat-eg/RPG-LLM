@@ -1,0 +1,411 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : VV591R
+      * Beskrivelse . . : Vare, pris/etikett - radioterminal - velge vare
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       121000 HKO  Nytt program
+      *       090305 HKO  Lagt inn ny logikk for scanning
+6.11  * 6.10  290609 bof  Utivdet eannr til 14 og brukt std. oppslag
+6.12  * 6.10  191109 bsa  Sender med hvilken enhet som GTIN nr tilhører
+6.21  * 6.20  061210 bof  Gir melding hvis skaffevare
+6.22  * 6.20  190511 bø   Utvidet vl710r med div. info
+6.30  * 6.30  170918 bkv  Utvidet med trelast sortiment
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvarl4    if   e           k disk    rename(vvarpfr:vvarl4r)
+6.30 fvvlel1    if   e           k disk    rename(vvlepfr:vvlel1r)
+      *
+     fvv591d    cf   e             workstn
+      *
+      * Definering av parametre
+      *
+     d p_firm          s                   like(vvfirm)
+     d p_kund          s              6  0
+      *
+      * Datastruktur - EAN128
+      *
+     d                 ds
+     d d_e128                        26
+6.11 d  d_fast                        2  0 overlay(d_e128)
+6.11 d  d_eann                       14  0 overlay(d_e128:3)
+     d  d_kode                        4  0 overlay(d_e128:17)
+     d  d_anta                        6  2 overlay(d_e128:21)
+      *
+      * Definering av variabler i nøkler
+      *
+     d vvarl1_vare     s                   like(vvvare)
+     d vvarl4_lvar     s                   like(vvlvar)
+      *
+      * Definering av variable
+      *
+     d b_feil          s              1    inz(*off)
+     d b_skaf          s              1    inz(*off)
+6.22 d b_inlr          s              1    inz(*off)
+      *
+     d w_scan          s             26
+     d w_leng          s              2  0
+     d w_posi          s              2  0
+6.11 d w_eanx          s             14
+     d w_stek          s             35
+6.11 d w_eann          s             14  0
+6.11 d w_eava          s                   like(vvvare)
+6.11 d w_eaen          s                   like(vvenhe)
+6.11 d w_east          s              1
+6.12 d w_enhe          s                   like(vvenhe)
+6.21 d w_lage          s              2  0
+      *
+     d w_firm          s                   like(vvfirm)
+     d w_vare          s                   like(vvvare)
+6.21 d w_vtyp          s                   like(vvvtyp)
+6.22 d w_udat          s               d   datfmt(*iso)
+6.22 d w_ldor          s                   like(vvldor)
+6.30 d w_lv_nobb       s                   like(vvlnob)
+6.30 d w_lv_modn       s                   like(vvlmod)
+6.30 d w_lv_lldo       s                   like(vvlnle)
+6.30 d w_lv_llva       s                   like(vvllva)
+6.31 d w_lv_vare       s                   like(vvlvar)
+      *
+      * Definering av konstanter
+      *
+     d c_digi          s             11    inz('0123456789 ')
+     d c_null          c                   '0000000000000'
+6.21  *
+6.21  * Definering av Local data area
+6.21  *
+6.21 d                uds
+6.21 d l_user                911    920
+6.21 d l_lage               1001   1002  0
+      *
+6.31 C/Exec SQL
+6.31 C+  Set Option DatFmt=*ISO
+6.31 C/End-Exec
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B1BLD Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     b1taga        tag
+      *
+     c                   exfmt     b1bld
+      *
+      * Behandling av standard funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc
+     c                   goto      avslutt
+     c                   endsl
+      *
+      * F4=Spørring på vare
+      *
+     c                   if        *inkd
+     c                   eval      b1sca1 = *blank
+     c                   eval      b1sca2 = *blank
+     c                   call      'VV580R'
+     c                   parm                    w_firm
+     c                   parm                    b1sca1
+     c                   parm                    w_stek
+     c                   if        b1sca1 = *blank
+     c                   goto      b1taga
+     c                   endif
+     c                   endif
+      *
+      * F5=Forny
+      *
+     c                   if        *inke
+     c                   eval      b1sca1 = *blank
+     c                   eval      b1sca2 = *blank
+     c                   goto      b1taga
+     c                   endif
+      *
+      * Validering av input
+      *
+     c                   exsr      sjekk_input
+     c                   if        b_feil = *on
+     c                   goto      b1taga
+     c                   endif
+      *
+      * Kaller program for pris/etikett
+      *
+     c                   call      'VV592R'
+     c                   parm                    w_firm
+     c                   parm                    p_kund
+     c                   parm                    w_vare
+6.12 c                   parm                    w_enhe
+      *
+     c                   eval      b1sca1 = *blank
+     c                   eval      b1sca2 = *blank
+      *
+     c                   goto      b1taga
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for sjekking av input-felter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_input   begsr
+      *
+     c                   eval      b_feil = *off
+     c                   eval      w_vare = *blank
+      *
+     c                   if        b1sca1 = *blank and
+     c                             b1sca2 = *blank
+     c                   eval      b_feil = *on
+     c                   eval      *in31 = *on
+     c                   leavesr
+     c                   endif
+      *
+     c                   exsr      scanning
+      *
+     c                   if        w_vare = *blank
+     c                   eval      *in32 = *on
+     c                   eval      b_feil = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av scanning
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     scanning      begsr
+      *
+      * Identifisering av vare foregår etter følgende rekkefølge, hvor
+      * lengden på varenummeret, og om varenummer er alfa eller numerisk
+      * er avgjørende:
+      *
+      * 1) alfa:
+      *      - Lev. varenummer (første 15 pos.)
+      * 2) num + lengde = 26:
+      *      - EAN-128
+      * 3) num + lengde <= 8:
+      *      - Varenr
+      * 4) num + lengde <= 13:
+      *      - EAN-nummer
+      * 5) num + lengde < 26:
+      *      - Lev. varenummer (første 15 pos.)
+      *
+     c                   eval      w_scan = %trim(b1sca1) + %trim(b1sca2)
+      *
+     c                   eval      w_leng = %len(%trim(w_scan))
+      *
+      * Sjekker om scannefelt inneholder alfa-verdi
+      *
+     c     c_digi        check     w_scan        w_posi
+      *
+      * Behandling dersom alfa
+      *
+     c                   if        w_posi > 0
+6.31  * sjekker om logistikk-vare
+6.31 c                   eval      w_lv_vare = *blank
+6.31 c/exec sql
+6.31 c+ select vvlvnr
+6.31 c+ into   :w_lv_vare
+6.31 c+ from   vvlepf
+6.31 c+ where  vvllva = :w_scan
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+6.31 c                   if        w_lv_vare <> *blank
+6.31 c                   movel     w_lv_vare     w_vare
+6.31 c                   leavesr
+6.31 c                   endif
+      *
+     c                   eval      vvarl4_lvar = w_scan
+     c     vvarl4_key    chain     vvarl4
+     c                   if        %found
+     c                   eval      w_vare = vvvare
+     c                   leavesr
+     c                   endif
+      *
+     c                   leavesr
+      *
+     c                   endif
+      *
+      * Behandling dersom lengde = 26
+      *
+     c                   if        w_leng = 26
+      *
+     c                   eval      d_e128 = w_scan
+6.11 c                   eval      w_eann = d_eann
+6.11 c                   call      'VE710R  '
+6.11 c                   parm                    w_firm
+6.11 c                   parm                    w_eann
+6.11 c                   parm                    w_eava
+6.11 c                   parm                    w_eaen
+6.11 c                   parm                    w_east
+6.11 c                   if        w_east = '1'
+6.11 c                   eval      vvarl1_vare = w_eava
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+6.21 c                   eval      b_skaf  = *off
+6.21 c                   exsr      sjk_skaff
+6.21 c                   if        b_skaf  = *on
+6.21 c                   leavesr
+6.21 c                   endif
+     c                   eval      w_vare = vvvare
+6.12 c                   eval      w_enhe = w_eaen
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   leavesr
+      *
+     c                   endif
+      *
+      * Behandling dersom lengde <= 8
+      *
+     c                   if        w_leng <= 8
+      *
+     c                   eval      vvarl1_vare = %subst(c_null:1:8-w_leng) +
+     c                                           w_scan
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+6.21 c                   eval      b_skaf  = *off
+6.21 c                   exsr      sjk_skaff
+6.21 c                   if        b_skaf  = *on
+6.21 c                   leavesr
+6.21 c                   endif
+     c                   eval      w_vare = vvvare
+     c                   leavesr
+     c                   endif
+      *
+     c                   endif
+      *
+6.11  * Behandling dersom lengde <= 14
+      *
+6.11 c                   if        w_leng <= 14
+      *
+6.11 c                   eval      w_eanx = %subst(c_null:1:14-w_leng) +
+     c                                      w_scan
+      *
+6.11 c                   movel     w_eanx        w_eann
+6.11 c                   call      'VE710R  '
+6.11 c                   parm                    w_firm
+6.11 c                   parm                    w_eann
+6.11 c                   parm                    w_eava
+6.11 c                   parm                    w_eaen
+6.11 c                   parm                    w_east
+6.11 c                   if        w_east = '1'
+6.11 c                   eval      vvarl1_vare = w_eava
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+6.21 c                   eval      b_skaf  = *off
+6.21 c                   exsr      sjk_skaff
+6.21 c                   if        b_skaf  = *on
+6.21 c                   leavesr
+6.21 c                   endif
+     c                   eval      w_vare = vvvare
+6.12 c                   eval      w_enhe = w_eaen
+     c                   leavesr
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+      * Behandling dersom lengde < 26 (samlepost)
+      *
+6.31  * sjekker om logistikk-vare
+6.31 c                   eval      w_lv_vare = *blank
+6.31 c/exec sql
+6.31 c+ select vvlvnr
+6.31 c+ into   :w_lv_vare
+6.31 c+ from   vvlepf
+6.31 c+ where  vvllva = :w_scan
+6.31 c+ fetch first 1 rows only
+6.31 c/end-exec
+6.31 c                   if        w_lv_vare <> *blank
+6.31 c                   movel     w_lv_vare     w_vare
+6.31 c                   leavesr
+6.31 c                   endif
+
+     c                   eval      vvarl4_lvar = w_scan
+     c     vvarl4_key    chain     vvarl4
+     c                   if        %found
+6.21 c                   eval      b_skaf  = *off
+6.21 c                   exsr      sjk_skaff
+6.21 c                   if        b_skaf  = *on
+6.21 c                   leavesr
+6.21 c                   endif
+     c                   eval      w_vare = vvvare
+     c                   leavesr
+     c                   endif
+      *
+     c                   endsr
+6.21  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.21  *   Subrutine som sjekker om varen er skaffevare for lageret
+6.21  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.21 c     sjk_skaff     begsr
+6.21  *
+6.21 c                   eval      w_lage = l_lage
+6.21 c                   call      'VL710R'
+6.21 c                   parm                    w_firm
+6.21 c                   parm                    vvvare
+6.21 c                   parm                    w_lage
+6.21 c                   parm                    w_vtyp
+0.22 c                   parm                    w_udat
+6.22 c                   parm                    w_ldor
+6.22 c                   parm                    b_inlr
+6.30 c                   parm                    w_lv_nobb
+6.30 c                   parm                    w_lv_modn
+6.30 c                   parm                    w_lv_lldo
+6.30 c                   parm                    w_lv_llva
+6.21  *
+6.21 c                   if        w_vtyp = 'S'
+6.21 c                   exfmt     m1msg
+6.21  *
+6.21 c                   if        *inkc
+6.21 c                   eval      b_skaf =*on
+6.21 c                   leavesr
+6.21 c                   endif
+6.21 c                   endif
+     c                   eval      b1sca1 = *blank
+     c                   eval      b1sca2 = *blank
+6.21  *
+6.21 c                   endsr
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_kund
+      *
+      * Key for oppslag på vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for oppslag på vare m/lev.varenummer
+      *
+     c     vvarl4_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl4_lvar
+      *
+      *
+      * Henter firma fra parameter
+      *
+     c                   eval      w_firm = p_firm
+      *
+     c                   endsr

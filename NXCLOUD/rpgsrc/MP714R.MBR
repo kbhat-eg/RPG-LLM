@@ -1,0 +1,541 @@
+      /TITLE  XML utlegg for vanlige utskrifter
+     H DECEDIT('0.') DATEDIT(*DMY.) option(*nodebugio)
+     h DftActgrp(*No) BndDir('CGIDEV2/CGIDEV2')
+      *
+      /copy hspecsbnd
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Program . . . . : MP714R
+      * Beskrivelse . . : Genererer XML for vanlige utkrifter
+      *                   NB Ved kompilering kreves CGIDEV2 i bibliotekslista
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- - - - - - - - - - - - - - - - - - - - - - - - - -
+      * R6.20 010410 BSA  Nytt program
+6.20  * R6.20 100511 bsa  Legger ut rutinetekst som metatagg.
+6.21  * R6.20 120212 bsa  Problemer hvis PROA ikker aktivert
+6.22  * R6.20 041212 bsa  Legger ut nytt unikt refno, utvidet metatagger
+6.nu  * R6.30 170614 bof  Endring ihht. nummerutvidelse
+6.30  * 6.30  280115 bsa  Skriver til datakø for å trigge java sniffer
+6.31  * 6.30  050615 bsa  Nullstill minne for bruk av XML
+6.32  * 6.30  040915 bsa  Legger ut avdeling som tagg for arkiveringsformål.
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+     fafpslr    if   e           k disk    rename(afpspfr:afpslrr)
+     faforlr    if   e           k disk    rename(aforpfr:aforlrr)
+     fmppalr    if   e           k disk    rename(mppapfr:mppalrr)
+      *
+      * Definering av parametre
+      *
+     d p_spfnam        s             10a
+     d p_jobnam        s             10a
+     d p_usrnam        s             10a
+     d p_jobnbr        s              6a
+     d p_spfnbr        s             10i 0
+      *
+     d p_serv          s             35
+     d p_stat          s              1
+     d p_pers          s             50
+     d p_inif          s             40
+     d p_in03          s              1
+     d p_jkey          s             41
+     d p_btyp          s            100
+     d p_str_in        s            512
+     d p_str_out       s            512
+     d p_lr            s              1
+     d p_ldor          s              6  0
+     d p_lnum          s              3  0
+6.30 d p_filg          s             10
+6.30 d p_xmlf          s            256
+      *
+      * Definering av variabler i nøkler
+      *
+     d afpslr_ufil     s                   like(l_filg)
+     d afpslr_uide     s                   like(afuide)
+     d aforlr_ruti     s                   like(afruti)
+     d mppalr_ldor     s                   like(mpldor)
+     d mppalr_lnum     s                   like(mplnum)
+      *
+      * Definering av variable
+      *
+     d w_date          s               d   datfmt(*iso)
+     d w_jnav          s             15
+     d w_jkey          s             41
+     d w_lstat         s              2  0
+     d w_ltxt          s            200
+     d w_kode          s              1
+     d w_firm          s              3  0
+     d w_fell          s              6
+     d w_type          s              2
+     d w_fast          s             10
+     d w_ruti          s                   like(l_ruti)
+6.nu d w_numm          s              8  0
+     d w_jtxt          s             35
+     d w_mtxt          s            200
+     d w_land          s              9
+     d w_jstat         s              2  0
+     d w_jtext         s            200
+     d w_path          s            256
+     d w_draw1         s             10
+     d w_draw2         s             10
+     d w_spol          s              5
+     d w_remo          s              5
+     d w_rel           s              5
+     d w_dspl          s            100
+     d w_txt1          s             40
+     d w_x             s              3  0
+     d w_til           s             50
+     d w_fra           s             50
+     d w_subj          s            250
+6.21 d w_pdf           s              1  0
+6.21 d w_pdf_ds        s            512
+6.22 d w_refn          s             50
+      *
+6.21 d d_pdf_ds        ds
+6.21 d  d_xmlm                       75
+6.21 d  d_jasm                       75
+6.21 d  d_logo                       75
+6.21 d  d_path                      100
+6.21 d  d_emal                       50
+6.30 d  d_fifo                       75
+6.30 d  d_fkop                        1
+6.30 d  d_dtaq                        1
+6.30 d  d_sign                        1
+      *
+     d XML_Output      s            256a   Varying
+     d XML_path        s            256a   Varying
+     d                                     Inz('/home/asp/print/adb')
+     d XML_dftspl      s            256a   Varying
+     d                                     Inz('/home/asp/print/maler/+
+     d                                     Spool.xml')
+     d jasper_logo     s            256a   Varying
+     d tmpdate         s               D
+     d tmptime         s               T
+      *
+      * - - - - - - - - - - - - - -
+      * Henter inn data fra LDA
+      * - - - - - - - - - - - - - -
+      *
+     d                uds
+6.21 d l_poff                584    584
+     d l_utqm                585    594
+     d l_bach                595    635
+     d l_arch                636    636  0
+     d l_skje                637    637  0
+     d l_land                638    638  0
+     d l_exlp                639    639  0
+     d l_mail                640    640  0
+     d l_ruti                800    809
+     d l_akop                838    843  0
+     d l_outq                810    819
+     d l_wsid                901    910
+     d l_user                911    920
+     d l_filg                931    933
+     d l_firm                944    946  0
+6.32 D  l_avde               947    950  0
+      /copy prototypeb
+      /copy usec
+      *
+      * Definering av variable
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Vi genererer unikt jobbnummer for dette utskriften              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     c                   eval      w_numm = *zero
+      *
+     c                   if        p_jkey <> *blanks
+     c                   eval      w_jkey = p_jkey
+     c                   else
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_numm
+      *
+      * Vi logger at jobben har startet
+      *
+     c                   eval      w_jnav = 'PDF' + %char(w_numm)
+     c                   eval      w_jtxt = 'Utskrift av '+%trim(l_ruti)
+     c                   eval      w_jtxt = w_jtxt + ' har startet !'
+      *
+     c                   call      'AB700R'
+     c                   parm                    w_jnav
+     c                   parm                    w_jkey
+     c                   parm                    w_jtxt
+      *
+     c*                  eval      l_bach = w_jkey
+     c                   endif
+      *
+      * Vi logger at vi genererer xml for utskriften
+      *
+6.21 c                   if        l_poff = '1'
+     c                   eval      w_jstat = 10
+     c                   eval      w_jtext = 'Generering av xml for ' + w_jnav
+      *
+     c                   call      'AB705R'
+     c                   parm                    w_jkey
+     c                   parm                    w_jstat
+     c                   parm                    w_jtext
+      *
+      * Hvis mail skal skrives, må vi hente mail informasjon
+      *
+     c                   exsr      xml_mail
+      *
+      * Skriver xml for videre utskrift håndtering
+      *
+     c                   exsr      xml_print
+      *
+6.21 c                   else
+6.21 c                   eval      w_jstat = 10
+6.21 c                   eval      w_jtext = 'Rutine er ikke PROA aktivert. Ing+
+6.21 c                                        en mail kan sendes.'
+6.21  *
+6.21 c                   call      'AB705R'
+6.21 c                   parm                    w_jkey
+6.21 c                   parm                    w_jstat
+6.21 c                   parm                    w_jtext
+6.21 c                   endif
+      *
+      * Avslutt jobbiden
+      *
+     c                   call      'AB710R'
+     c*                  parm                    l_bach
+     c                   parm                    w_jkey
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Avslutt program                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutiner for XML/PDF print integrasjon                        *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     c     xml_print     begsr
+      * Lagres ikke i spoolfile
+     c                   eval      w_spol = 'false'
+      * Spool frigjøres ikke
+     c                   eval      w_rel = 'false'
+      * Spool fjernes uten utskrift
+     c                   eval      w_remo = 'true'
+      *
+     c                   eval      p_btyp = 'BESTILLINGSFORSLAG'
+      *
+      * Skriv xmlfila til disk
+      /Free
+           // Finne nytt batch nummer
+               UpdHTMLVar('BatchNo':                  w_jkey);
+          //   UpdHTMLVar('Batchtype':               'SPOOL');
+               UpdHTMLVar('Batchtype':                p_btyp);
+               UpdHTMLVar('Username':                 l_user);
+               WrtSection('Topp');
+
+           // Finne credentials
+               UpdHTMLVar('User':                      'xxx');
+               UpdHTMLVar('PW':                   'xxxxxxxx');
+               UpdHTMLVar('IPAdr':              'xx.x.xx.xx');
+               UpdHTMLVar('Schema':             'ADB'+l_filg);
+               UpdHTMLVar('Companyno':         %char(l_firm));
+6.32           UpdHTMLVar('Departmentnoarkiv': %char(l_avde));
+               WrtSection('Credential');
+
+           // Finn spool info
+               UpdHTMLVar('Logo':                jasper_logo);
+               UpdHTMLVar('Keepspool':                w_spol);
+               WrtSection('SpoolReportCommandStart');
+
+               UpdHTMLVar('Spoolfilename':          p_spfnam);
+               UpdHTMLVar('Spoolfilenumber': %char(p_spfnbr));
+               UpdHTMLVar('Jobname':                p_jobnam);
+               UpdHTMLVar('Jobuser':                p_usrnam);
+               UpdHTMLVar('Jobnumber':              p_jobnbr);
+               UpdHTMLVar('Removespool':              w_remo);
+               UpdHTMLVar('Releasespool':            'false');
+               UpdHTMLVar('Copytospool':          'PDFPRINT');
+               WrtSection('SpoolReportCommand');
+
+               WrtSection('SpoolReportCommandEnd');
+
+      /End-free
+      *
+      * I denne versjonen skal vi kun sende email. Ikke behov for å legge
+     c* ut informasjon om arkivering eller print.
+     c                   if        1 = 2
+      *
+     c                   if        l_land = 1
+     c                   eval      w_land = 'LANDSCAPE'
+     c                   else
+     c                   eval      w_land = 'PORTRAIT'
+     c                   endif
+      * Hent inn skuffinformasjon for skriveren
+      *
+     c                   eval      w_draw1 = *blank
+     c                   eval      w_draw2 = *blank
+     c                   call      'AP611R'
+     c                   parm                    l_filg
+     c                   parm                    l_utqm
+     c                   parm                    w_draw1
+     c                   parm                    w_draw2
+      *
+      /Free
+
+           // Finn print informasjon
+               UpdHTMLVar('Printername':             l_utqm);
+               UpdHTMLVar('Copies':                     '1');
+               UpdHTMLVar('Papersource':            w_draw1);
+               UpdHTMLVar('Lastpagedrawer':             ' ');
+               UpdHTMLVar('Duplex':                 'false');
+               UpdHTMLVar('Quality':                    ' ');
+               UpdHTMLVar('Sorting':                    ' ');
+               UpdHTMLVar('Staple':                  'true');
+               UPDHTMLVar('Alignment':               w_land);
+               WrtSection('PrintCommand');
+      /End-free
+      *
+     c                   endif
+      *
+      /Free
+           // Skriv mailinformasjon
+               UpdHTMLVar('Receivers':               w_til);
+               UpdHTMLVar('CC':                        ' ');
+               UpdHTMLVar('BCC':                     w_fra);
+               UpdHTMLVar('Sender':                  w_fra);
+               UpdHTMLVar('Subject':                w_subj);
+               UpdHTMLVar('Message':                w_mtxt);
+               UpdHTMLVar('SMTPServer':             p_serv);
+               UPDHTMLVar('SMTPUser':                  ' ');
+               UPDHTMLVar('SMTPPw':                    ' ');
+               WrtSection('MailCommand');
+      /End-free
+      *
+     c                   if        l_arch = 1
+      * Hent inn beskrivelse av rutine.
+     c                   eval      w_txt1 = *blank
+     c                   eval      aforlr_ruti = l_ruti
+     c     aforlr_key    chain     aforlr
+     c                   if        %found
+     c                   eval      w_txt1 = aftxt1
+     c                   endif
+      *
+     c                   eval      p_lr = '0'
+     c                   eval      p_str_in = *blanks
+     c                   eval      p_str_out = *blanks
+     c                   movel     w_txt1        p_str_in
+     c                   call      'AP613R'
+     c                   parm                    p_str_in
+     c                   parm                    p_str_out
+     c                   parm                    p_lr
+     c                   movel     p_str_out     w_txt1
+      *
+      * Lag tag for visning i arkivklienten
+      *
+     c                   eval      w_dspl = *blank
+     c                   eval      w_dspl = 'Rutine: '+%trim(l_ruti)+
+     c                             ' ' + %trim(aftxt1) +
+     c                             ' Bruker: ' +  %trim(l_user)
+6.22  * Referansetagg
+6.22 c                   eval      w_refn = *blank
+6.22 c                   eval      w_refn = 'BFF-' + %char(w_date)
+      /Free
+
+           // Skriv metattags
+6.22           UpdHTMLVar('Refno':          %trim(w_refn));
+               UpdHTMLVar('Displaytag':     %trim(w_dspl));
+               WrtSection('ArchiveCommandStart');
+
+               UpdHTMLVar('Metavalue':            l_user);
+               UpdHTMLVar('Metakey':            'BRUKER');
+               WrtSection('MetaTag');
+
+               UpdHTMLVar('Metavalue':            l_ruti);
+               UpdHTMLVar('Metakey':            'RUTINE');
+               WrtSection('MetaTag');
+
+               UpdHTMLVar('Metavalue':   %char(w_date :*iso));
+               UpdHTMLVar('Metakey':              'DATO');
+               WrtSection('MetaTag');
+6.20
+6.20           UpdHTMLVar('Metavalue':             aftxt1);
+6.20           UpdHTMLVar('Metakey':         'RUTINETEKST');
+6.20           WrtSection('MetaTag');
+6.22
+6.22           UpdHTMLVar('Metavalue':             l_wsid);
+6.22           UpdHTMLVar('Metakey':             'SKJERM');
+6.22           WrtSection('MetaTag');
+6.22
+6.22           UpdHTMLVar('Metavalue':      %char(l_firm));
+6.22           UpdHTMLVar('Metakey':              'FIRMA');
+6.22           WrtSection('MetaTag');
+
+               WrtSection('ArchiveCommandEnd');
+      /End-free
+      *
+     c                   endif
+      * Skriv siste tagger
+      /Free
+               WrtSection('Footer');
+      /End-free
+     c                   eval      XML_Output = XML_path + l_filg + '/'+
+     c                             %trim(l_ruti)+'_' + %trim(w_jkey) + '.xml'
+     c                   callp     WrtHtmlToStmf(XML_Output: 819)
+6.30  * Skriver til datakø for å aktivere sniffer, hvis dataq er aktiv
+6.30 c                   if        d_dtaq = '1'
+6.30 c                   eval      p_xmlf = xml_output
+6.30 c                   eval      p_filg = 'ADB'+l_filg
+6.30 c                   call      'AP629C'
+6.30 c                   parm                    p_filg
+6.30 c                   parm                    p_xmlf
+6.30 c                   endif
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutiner for å legge inn mail                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     c     xml_mail      begsr
+      * Henter tilbake mailserver
+     c                   eval      p_serv = *blank
+     c                   eval      p_stat = *blank
+     c                   eval      p_in03 = *off
+      *
+     c                   call      'AM705C'
+     c                   parm                    p_serv
+     c                   parm                    p_stat
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     *inzsr        begsr
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+     c                   parm                    p_spfnam
+     c                   parm                    p_jobnam
+     c                   parm                    p_usrnam
+     c                   parm                    p_jobnbr
+     c                   parm                    p_spfnbr
+     c                   parm                    p_ldor
+     c                   parm                    p_lnum
+      *
+      * Key for propertiesfil
+      *
+     c     afpslr_key    klist
+     c                   kfld                    afpslr_ufil
+     c                   kfld                    afpslr_uide
+      *
+      * Key for rutineregister
+      *
+     c     aforlr_key    klist
+     c                   kfld                    aforlr_ruti
+      *
+      * Key for les på parameter pr. lev.
+      *
+     c     mppalr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    mppalr_ldor
+     c                   kfld                    mppalr_lnum
+      *
+     c                   eval      afpslr_ufil = l_filg
+      *
+      * Hent inn malen som skal brukes
+      *
+     c                   eval      afpslr_uide = 'DFTXMLSPL '
+     c     afpslr_key    chain     afpslrr
+     c                   if        %found
+     c                   eval      XML_dftspl = *blanks
+     c                   movel     afudss        XML_dftspl
+     c                   endif
+     c                   callp     GetHTMLIFS(XML_dftspl :'<AS400>')
+6.31 c                   callp     ClrHtmlBuffer
+     c**                 callp     GetHTMLIFS('/home/asp/print/maler/+
+     c**                           Spool.xml' :'<AS400>')
+      *
+      * Finn hvor xml'en skal legges
+      *
+     c                   eval      afpslr_uide = 'XMLPATH   '
+     c     afpslr_key    chain     afpslrr
+     c                   if        %found
+     c                   eval      XML_path = *blanks
+     c                   eval      w_path = *blanks
+     c                   movel     afudss        w_path
+     c                   eval      XML_path = %trim(w_path)
+     c                   endif
+      *
+      * Finn path til logo
+      *
+     c                   eval      afpslr_uide = 'LOGO      '
+     c     afpslr_key    chain     afpslrr
+     c                   if        %found
+     c                   eval      jasper_logo = *blanks
+     c                   movel     afudss        jasper_logo
+     c                   endif
+     c                   eval      w_kode = '0'
+     c                   eval      w_firm = l_firm
+     c                   eval      w_fell = 'NXTKLI'
+     c                   eval      w_type = *blank
+     c                   eval      w_fast = *blank
+     c                   eval      w_numm = *zero
+      *
+      * Finn avsender til mail
+      *
+     c                   eval      afpslr_uide = 'DFTEMAIL  '
+     c     afpslr_key    chain     afpslrr
+     c                   if        %found
+     c                   eval      w_fra = *blanks
+     c                   movel     afudss        w_fra
+     c                   endif
+      *
+     c                   eval      w_kode = '0'
+     c                   eval      w_firm = l_firm
+     c                   eval      w_fell = 'NXTKLI'
+     c                   eval      w_type = *blank
+     c                   eval      w_fast = *blank
+     c                   eval      w_numm = *zero
+      *
+     c                   time                    w_date
+      * Hent informasjon fra bestillingsforslags parametre
+     c                   eval      w_til = *blank
+     c                   eval      w_subj = *blank
+     c                   eval      mppalr_ldor = p_ldor
+     c                   eval      mppalr_lnum = p_lnum
+     c     mppalr_key    chain     mppalr
+     c                   if        %found
+      *
+     c                   eval      w_til = mpmail
+     c                   eval      w_subj  = 'Forslag til bestillingsforslag'
+     c                   eval      w_mtxt  = 'Forslag til bestillingsforslag ' +
+     c                                        'fra leverandør :' + ' ' +
+     c                                         %char(mpldor) + ' ' +
+     c                                         %trim(mpbesk) +
+     c                                         ' er kjørt'
+      *
+     c                   endif
+      *
+     c                   if        w_til = *blank
+     c                   eval      w_til = w_fra
+     c                   endif
+     c                   eval      l_ruti = 'MP710'
+6.21 c                   eval      w_pdf = 0
+6.21 c                   eval      w_pdf_ds = *blanks
+6.21  *
+6.21 c                   call      'AP609R'
+6.21 c                   parm                    l_ruti
+6.21 c                   parm                    w_pdf
+6.21 c                   parm                    w_pdf_ds
+6.21 c                   eval      d_pdf_ds = w_pdf_ds
+6.21  * PROA er ikke aktivert for rutina, vi avslutter uten videre.
+6.21 c                   if        w_pdf = 0
+6.21 c                   eval      l_poff= '0'
+6.21 c                   endif
+      *
+     c                   endsr
+      *

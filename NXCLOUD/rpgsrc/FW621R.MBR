@@ -1,0 +1,684 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FW621R
+      * Beskrivelse . . : Oppretting av nye varer, kontr./journal
+      *                   Programmet overfører nye varer fra leverandør
+      *                   til vareregisteret
+      *                   Skriver ut kontroll- eller journalliste.
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       090699 HKO  Nytt program
+      *       011099 HKO  Oppretter kun rabattgruppe i rabattgruppe-
+      *                   knytningsregisteret dersom denne ikke finnes på
+      *                   høyere nivå.
+      *       291099 HKO  Sletter vare fra vare-slettet-register dersom
+      *                   den finnes
+      *       250300 HKO  Fjernet oppdatering av dimmensjon, og lagt inn
+      *                   oppdatering av høyde, bredde og lengde
+      *       051100 HKO  Legger inn lagerenhet ved opprettelse av vare
+      *                   i lager
+      *       130102 HKO  Kaller program for oppretting av vare i lager
+      *       211003 HKO  Utvidet med cross-docking informasjon
+      *       161103 HKO  Fjernet behandling av rabattgruppe
+      *       290304 GRO  Lagt til leveringstype
+      *       010805 HKO  Fjernet skriving til VELINJ
+      *                   Utvidet vare-enhet med opprettet dato
+      *       040805 HKO  Flyttet vekt og voluminformasjon fra vare til
+      *                   vare-enhet.
+5.70  * PRGR  041108 BOF  Utivdet med prisgruppe
+      * 6.10  260609 BSA  Oppdatert med sporingsinformasjon
+6.11  * 6.10  250909 bof  Oppdaterer ean-nr på vare-enhet-prisgiver
+6.20  * 6.20  030411 bof  Utvidet vvprpf med vpldor
+6.30  * 6.30  280514 BKV  LVAR økt fra 15 til 20
+6.31  * 6.30  120618 bof  Alltid danne lager på varer som opprettes
+8.01  *PRG2   100622 BOF  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fflval3    if   e           k disk    rename(flvapfr:flval3r)
+     fvvarl5    if   e           k disk    rename(vvarpfr:vvarl5r)
+     fvvarlu    uf a e           k disk    rename(vvarpfr:vvarlur)
+     fvvprlu    uf a e           k disk    rename(vvprpfr:vvprlur)
+     fvvenlu    uf a e           k disk    rename(vvenpfr:vvenlur)
+6.11 fvveplu    uf a e           k disk    rename(vveppfr:vveplur)
+     fveanlu    uf a e           k disk    rename(veanpfr:veanlur)
+6.11 fvvepl2    if   e           k disk    rename(vveppfr:vvepl2r)
+     ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
+     fvvaslu    uf   e           k disk    rename(vvaspfr:vvaslur)
+     fflvalu    uf   e           k disk    rename(flvapfr:flvalur)
+     fafirl1    if   e           k disk    rename(afirpfr:afirl1r)
+     frlevl1    if   e           k disk    rename(rlevpfr:rlevl1r)
+     fvugrl1    if   e           k disk    rename(vugrpfr:vugrl1r)
+      *
+     ffw621p    o    e             printer
+      *
+      * Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+      *
+      * Datastruktur for parameterliste -inn
+      *
+     d                 ds
+     d d_list                       120
+     d  d_firm                        3  0 overlay(d_list)
+     d  d_ldor                        6  0 overlay(d_list:4)
+6.30 d  d_lvaf                       20    overlay(d_list:10)
+6.30 d  d_lvat                       20    overlay(d_list:30)
+6.30 d  d_dato                         d   overlay(d_list:50) datfmt(*iso)
+6.30 d  d_ipro                        5  2 overlay(d_list:60)
+6.30 d  d_kpro                        5  2 overlay(d_list:65)
+6.30 d  d_spro                        5  2 overlay(d_list:70)
+6.30 d  d_ogrp                        2  0 overlay(d_list:75)
+6.30 d  d_hgrp                        2  0 overlay(d_list:77)
+6.30 d  d_ugrp                        3  0 overlay(d_list:79)
+6.30 d  d_vtyp                        1    overlay(d_list:89)
+6.30 d  d_kpri                        1    overlay(d_list:90)
+6.30 d  d_varf                       15    overlay(d_list:91)
+6.30 d  d_kvar                        1  0 overlay(d_list:106)
+6.30 d  d_oppd                        1  0 overlay(d_list:107)
+      *
+      * Definering av parametre
+      *
+     d p_list          s            120
+      *
+      * Definering av variabler i nøkler
+      *
+     d vvarl5_lvar     s                   like(vvlvar)
+6.11 d veanlu_eann     s                   like(vxeann)
+     d flvalu_line     s                   like(fwline)
+     d vvaslu_vare     s                   like(vvvare)
+     d rlevl1_levr     s                   like(rllevr)
+     d vugrl1_uogr     s                   like(vguogr)
+     d vugrl1_uhgr     s                   like(vguhgr)
+     d vugrl1_uugr     s                   like(vguugr)
+6.11 d vveplu_pvar     s                   like(vepvar)
+6.11 d vveplu_penh     s                   like(vepenh)
+6.11 d vveplu_pldo     s                   like(vepldo)
+6.11 d vvepl2_pgti     s                   like(vepgti)
+      *
+      * Definering av variable
+      *
+     d w_indi          s              2  0
+     d w_stat          s              1  0
+     d w_timestamp     s             12  0
+     d w_mvap          s              6  2
+     d w_mvat          s              5  4
+     d w_mvaf          s             10  9
+     d w_kode          s              1  0
+     d w_kvar          s              1  0
+      *
+     d w_firm          s                   like(fwfirm)
+     d w_ldor          s                   like(fwldor)
+     d w_vare          s                   like(vvvare)
+6.11 d w_eann          s                   like(vepgti)
+      *
+6.11 d b_dupp          s              1    inz(*off)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Utskrift av header
+      *
+     c                   exsr      hode
+      *
+      * Behandling av kontrolliste/journalliste, og utskrift av deltajlinjer
+      *
+     c                   exsr      behandling
+      *
+      * Avslutt
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering og utskrift av hode-opplysninger
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hode          begsr
+      *
+      * Legger inn arb.stasjon og bruker i faste felter
+      *
+     c                   eval      a1firm = w_firm
+     c                   eval      a1user = l_user
+     c                   eval      a1wsid = l_wsid
+     c                   time                    w_timestamp
+     c                   move      w_timestamp   a1date
+     c                   movel     w_timestamp   a1time
+     c                   if        d_oppd = 2
+     c                   eval      a1otxt = 'Journalliste'
+     c                   else
+     c                   eval      a1otxt = 'Kontrolliste'
+     c                   endif
+      *
+      * Henter firmaopplysninger
+      *
+     c     afirl1_key    chain     afirl1r                            90
+     c                   eval      a1fnav = aafnav
+      *
+      * Henter parametre med beskrivelse
+      *
+     c                   eval      a2ldor = d_ldor
+     c                   eval      a2lvaf = d_lvaf
+     c                   eval      a2lvat = d_lvat
+     c                   eval      a2ipro = d_ipro
+     c                   eval      a2kpro = d_kpro
+     c                   eval      a2spro = d_spro
+      *
+     c                   eval      rlevl1_levr = d_ldor
+     c     rlevl1_key    chain     rlevl1                             90
+     c                   if        *in90 = *off
+     c                   eval      a2lnav = rlnavn
+     c                   endif
+      *
+     c     *dmy          move      d_dato        a2dato
+      *
+      * Henter standardverdier med beskrivelse
+      *
+     c                   eval      a2ogrp = d_ogrp
+     c                   eval      a2hgrp = d_hgrp
+     c                   eval      a2ugrp = d_ugrp
+     c                   eval      a2vtyp = d_vtyp
+     c                   eval      a2kpri = d_kpri
+     c                   eval      a2varf = d_varf
+     c                   eval      a2kvar = d_kvar
+      *
+     c                   eval      vugrl1_uogr = d_ogrp
+     c                   eval      vugrl1_uhgr = d_hgrp
+     c                   eval      vugrl1_uugr = d_ugrp
+     c     vugrl1_key    chain     vugrl1                             90
+     c                   if        *in90 = *off
+     c                   eval      a2utxt = vgutxt
+     c                   endif
+      *
+      * Skriver heading
+      *
+     c                   write     a1hdr
+     c                   write     a2hdr
+     c                   write     a3hdr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av poster som matcher utplukkskriteriene
+      * Behandler utskrift av detaljlinje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandling    begsr
+      *
+     c     flval3_key    setll     flval3
+     c     flval3_key    reade     flval3                                 90
+      *
+     c                   dow       *in90 = *off
+      *
+      * Sjekker om varene skal være med på utplukket
+      *
+     c                   if        d_lvaf <> *blank and
+     c                             fwlvar <  d_lvaf
+     c                   goto      les_neste
+     c                   endif
+      *
+     c                   if        d_lvat <> *blank and
+     c                             fwlvar >  d_lvat
+     c                   goto      les_neste
+     c                   endif
+      *
+     c                   if        fwhkod = 1
+     c                   goto      les_neste
+     c                   endif
+      *
+     c                   eval      vvarl5_lvar = fwlvar
+     c     vvarl5_key    chain     vvarl5                             91
+     c                   if        *in91 = *off
+     c                   goto      les_neste
+     c                   endif
+      *
+      * Kaller sub-program for validering av vare, og retur av statuskode
+      *
+     c                   eval      w_kvar = d_kvar
+      *
+     c                   call      'FW113R'
+     c                   parm                    w_firm
+     c                   parm                    w_ldor
+     c                   parm                    fwline
+     c                   parm                    fwlvar
+     c                   parm                    fwtek1
+     c                   parm                    fweann
+     c                   parm                    fwnobb
+     c                   parm                    fwenhe
+     c                   parm                    fwinpr
+     c                   parm                    fwsapr
+     c                   parm                    fwtvar
+     c                   parm                    w_kvar
+     c                   parm                    w_stat
+     c                   parm                    w_indi
+      *
+      * Oppdaterer vareregister dersom journalliste
+      *
+     c                   if        d_oppd = 2
+     c                   exsr      oppdater
+     c                   endif
+      *
+      * Skriver detaljlinje på kvittering/journalliste.
+      *
+     c                   exsr      detalj
+      *
+      * Leser neste rad
+      *
+     c     les_neste     tag
+      *
+     c     flval3_key    reade     flval3                                 90
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for oppdatering av vareregister dersom journalliste
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     oppdater      begsr
+      *
+     c                   eval      w_vare = *blank
+      *
+     c                   if        w_stat <> 0
+     c                   goto      end_oppd
+     c                   endif
+      *
+      * Tildeling av varenummer
+      * Dersom 'benytt lev. varenummer' er valgt, og tildelt varenummer er
+      * forskjellig fra blank, settes varenummer lik tildelt varenummer.
+      * Ellers kalles program for å finne neste ledige varenummer
+      * Avbryter oppdateringen dersom neste ledige varenummer ikke ble
+      * funnet eller dersom dette er lik eller overstiger 10000000
+      *
+     c                   if        d_kvar = 1 and
+     c                             fwtvar <> *blank
+     c                   eval      w_vare = fwtvar
+     c                   endif
+      *
+     c                   if        w_vare = *blank
+     c                   call      'VV700R'
+     c                   parm                    w_firm
+     c                   parm                    d_varf
+     c                   parm                    w_vare
+     c                   endif
+      *
+     c                   if        w_vare = *blank or
+     c                             w_vare >= '10000000'
+     c                   goto      end_oppd
+     c                   endif
+      *
+      * Legger inn data og oppretter vare
+      *
+     c                   clear                   vvarlur
+      *
+     c                   eval      vvfirm = w_firm
+     c                   eval      vvvare = w_vare
+     c                   eval      vvogrp = d_ogrp
+     c                   eval      vvhgrp = d_hgrp
+     c                   eval      vvugrp = d_ugrp
+     c                   eval      vvtek1 = fwtek1
+     c                   eval      vvtek2 = fwtek2
+     c                   eval      vvldor = fwldor
+     c                   eval      vvlvar = fwlvar
+     c                   eval      vvnobb = fwnobb
+     c                   eval      vvkpri = d_kpri
+     c                   eval      vvvtyp = d_vtyp
+     c                   eval      vvkhev = *blank
+     c                   eval      vvenhe = fwenhe
+     c                   eval      vvdesi = 2
+     c                   eval      vvkstr = 00
+     c                   eval      vvbmen = fwbmen
+     c                   eval      vvcrdo = fwcrdo
+     c                   eval      vvenhs = fwenhe
+     c                   eval      vvenhl = fwenhe
+      *
+     c                   time                    vvedat
+     c                   time                    vvetim
+     c                   eval      vveusr = l_user
+     c                   time                    vvodat
+6.10 c                   time                    vvotim
+6.10 c                   eval      vvousr = l_user
+      *
+     c                   write     vvarlur
+      *
+      * Oppretter vare-pris
+      *
+     c                   eval      vpfirm = w_firm
+     c                   eval      vpvare = vvvare
+6.20 c                   eval      vpldor = vvldor
+5.70 c                   eval      vpprgr = *blank
+     c*                  eval      vplety = 0
+     c                   eval      vplety = fwlety
+     c                   eval      vpenhe = fwenhe
+     c                   eval      vppdat = d_dato
+     c                   eval(h)   vpsapr = fwsapr + (fwsapr * d_spro / 100)
+     c                   eval(h)   vpinpr = fwinpr + (fwinpr * d_ipro / 100)
+     c                   eval(h)   vpkopr = vpinpr + (vpinpr * d_kpro / 100)
+     c                   eval      vpbupr = 0
+6.10 c                   time                    vpodat
+6.10 c                   time                    vpotim
+6.10 c                   eval      vpousr = l_user
+     c                   time                    vpedat
+     c                   time                    vpetim
+     c                   eval      vpeusr = l_user
+      *
+     c                   write     vvprlur
+      *
+6.11 c                   clear                   vvenlur
+      *
+      * Oppretter vare-enhet
+      *
+     c                   eval      vefirm = w_firm
+     c                   eval      vevare = vvvare
+     c                   eval      veenhe = fwenhe
+     c                   eval      vesaen = 1
+     c                   eval      veinen = 1
+     c                   eval      vepben = 1
+     c                   eval      veomre = 1
+     c                   eval      veleng = fwleng
+     c                   eval      vebred = fwbred
+     c                   eval      vehoyd = fwhoyd
+     c                   eval      vevekt = fwvekt
+     c                   eval      vevolu = fwvolu
+     c                   eval      veeusr = l_user
+      *
+     c                   if        vevolu = 0 and
+     c                             veleng <> 0 and
+     c                             vebred <> 0 and
+     c                             vehoyd <> 0
+     c                   eval(h)   vevolu = (veleng / 1000) *
+     c                                      (vebred / 1000) *
+     c                                      (vehoyd / 1000)
+     c                   endif
+      *
+6.10 c                   time                    veotim
+6.10 c                   eval      veousr = l_user
+     c                   time                    veodat
+     c                   time                    veedat
+     c                   time                    veetim
+      *
+     c                   write     vvenlur
+6.11  *
+6.11 c                   eval      w_eann = fweann
+6.11 c                   exsr      sjekk_ean
+6.11 c                   if        b_dupp = *off
+6.11 c                   clear                   vveplur
+6.11 c                   eval      vveplu_pvar = vevare
+6.11 c                   eval      vveplu_penh = veenhe
+6.11 c                   eval      vveplu_pldo = w_ldor
+6.11 c     vveplu_key    chain     vveplu
+6.11 c                   eval      vepgti = w_eann
+6.11 c                   if        %found(vveplu)
+6.11 c                   eval      vepeus = l_user
+6.11 c                   time                    vepeti
+6.11 c                   time                    vepeda
+6.11 c                   update    vveplur
+6.11 c                   else
+6.11 c                   eval      vepvar = vveplu_pvar
+6.11 c                   eval      vepenh = vveplu_penh
+6.11 c                   eval      vepldo = vveplu_pldo
+6.11 c                   eval      vepeus = l_user
+6.11 c                   time                    vepeti
+6.11 c                   time                    vepeda
+6.11 c                   eval      vepous = l_user
+6.11 c                   time                    vepoti
+6.11 c                   time                    vepoda
+6.11 c                   write     vveplur
+6.11 c                   endif
+6.11 c                   endif
+      *
+6.11  * Hvis den finnes på ean-reg. så slettes den - skal
+6.11  * ligge på vareenhet.
+6.11  *
+6.11 c                   eval      veanlu_eann = fweann
+6.11 c     veanlu_key    chain     veanlu                             91
+6.11 c                   if        %found(veanlu)
+6.11 c                   delete    veanlur
+6.11 c                   endif
+      *
+      * Oppretter vare i hovedlager dersom det er lagervare
+      *
+6.31 c*                   if        vvvtyp = 'L'
+     c     fstsl1_key    chain     fstsl1                             91
+     c                   if        *in91 = *off
+6.31 c*                            faalag = 1
+     c                   call      'LL760R'
+     c                   parm                    w_firm
+     c                   parm                    vvvare
+     c                   endif
+6.31 c*                  endif
+      *
+      * Sletter vare i register over slettede vare
+      *
+     c                   eval      vvaslu_vare = vvvare
+     c     vvaslu_key    chain     vvaslur                            91
+     c                   if        *in91 = *off
+     c                   delete    vvaslur
+     c                   endif
+      *
+      * Kaller program for oppdatering av søketekster
+      *
+     c                   call      'VV750R'
+     c                   parm                    w_firm
+     c                   parm                    vvvare
+      *
+      * Legger varen på Hold
+      *
+     c                   eval      flvalu_line = fwline
+     c     flvalu_key    chain     flvalur                            91
+     c                   if        *in91 = *off
+     c                   eval      fwhkod = 1
+6.10 c                   time                    fwedat
+6.10 c                   time                    fwetim
+6.10 c                   eval      fweusr = l_user
+     c                   update    flvalur
+     c                   endif
+      *
+     c     end_oppd      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine utskrift av detaljlinje
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     detalj        begsr
+      *
+      * Flytter felter til kvitteringsvariable
+      *
+     c                   eval      d1stat = w_stat
+     c                   eval      d1tek1 = fwtek1
+     c                   eval      d1tek2 = fwtek2
+6.30 c*                  eval      d1lvar = fwlvar
+6.30 c                   movel     fwlvar        d1lvar
+     c                   eval      d1vare = w_vare
+     c                   eval      d1eann = fweann
+     c                   eval      d1nobb = fwnobb
+     c                   eval      d1dato = 0
+     c                   eval      d1enhe = fwenhe
+     c                   eval(h)   d1inpr = fwinpr + (fwinpr * d_ipro / 100)
+     c                   eval(h)   d1kopr = d1inpr + (d1inpr * d_kpro / 100)
+     c                   eval(h)   d1sapr = fwsapr + (fwsapr * d_spro / 100)
+     c                   eval      d1saim = 0
+     c                   eval      d1dekn = 0
+      *
+     c                   if        d_oppd = 1 and
+     c                             d_kvar = 1 and
+     c                             fwtvar <> *blank
+     c                   eval      d1vare = fwtvar
+     c                   endif
+      *
+     c                   if        fwdato <> *loval
+     c     *dmy          move      fwdato        d1dato
+     c                   endif
+      *
+     c                   if        d_oppd = 2
+     c                   eval      w_vare = vvvare
+     c                   else
+     c                   eval      w_vare = *blank
+     c                   endif
+      *
+     c                   if        d1sapr <> 0
+     c                   eval      d1saim = d1sapr * w_mvat
+     c                   eval      w_kode = 4
+     c                   call      'FA909R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    w_kode
+     c                   parm                    d1saim
+     c                   endif
+      *
+     c                   if        d1sapr <> 0
+     c                   select
+     c                   when      (100 - (d1kopr * 100 / d1sapr)) < -999,99
+     c                   eval      d1dekn = -999,99
+     c                   when      (100 - (d1kopr * 100 / d1sapr)) > 999,99
+     c                   eval      d1dekn = 999,99
+     c                   other
+     c                   eval(h)   d1dekn = 100 - (d1kopr * 100 / d1sapr)
+     c                   endsl
+     c                   endif
+      *
+      * Skriv detaljlinje
+      *
+     c                   write     d1dtl                                30
+     c                   exsr      overflow
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av overflow
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     overflow      begsr
+      *
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   write     a3hdr
+     c                   endif
+      *
+     c                   endsr
+      *
+6.11  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.11  * Subrutine for å sjekke om ean-nr ligger inne fra før
+6.11  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.11  *
+6.11 c     sjekk_ean     begsr
+6.11 c                   eval      b_dupp = *off
+6.11  *
+6.11 c                   eval      vvepl2_pgti = w_eann
+6.11 c     vvepl2_key    chain     vvepl2
+6.11 c                   if        %found(vvepl2)
+6.11 c                   eval      b_dupp = *on
+6.11 c                   endif
+6.11  *
+6.11 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_list
+      *
+      * Key for les på leverandør vareregister
+      *
+     c     flval3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_ldor
+      *
+      * Key for oppslag på vareregister
+      *
+     c     vvarl5_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_ldor
+     c                   kfld                    vvarl5_lvar
+      *
+      * Key for oppslag på EAN-register
+      *
+6.11 c     veanlu_key    klist
+     c                   kfld                    w_firm
+6.11 c                   kfld                    veanlu_eann
+      *
+      * Key for oppdatering av leverandør vareregister
+      *
+     c     flvalu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_ldor
+     c                   kfld                    flvalu_line
+      *
+      * Key for oppdatering av vare-sletter-register
+      *
+     c     vvaslu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvaslu_vare
+      *
+      * Key for oppslag på firmaregister
+      *
+     c     afirl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på OFAK-koderegister
+      *
+     c     fstsl1_key    klist
+     c                   kfld                    w_firm
+      *
+      * Key for oppslag på leverandør-register
+      *
+     c     rlevl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rlevl1_levr
+      *
+      * Key for oppslag på undergruppe-register
+      *
+     c     vugrl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vugrl1_uogr
+     c                   kfld                    vugrl1_uhgr
+     c                   kfld                    vugrl1_uugr
+6.11  *
+6.11  * Key for oppdatering på vare enhet prisgiver
+6.11  *
+6.11 c     vveplu_key    klist
+6.11 c                   kfld                    w_firm
+6.11 c                   kfld                    vveplu_pvar
+6.11 c                   kfld                    vveplu_penh
+6.11 c                   kfld                    vveplu_pldo
+6.11  *
+6.11  * Key for les på vare enhet prisgiver
+6.11  *
+6.11 c     vvepl2_key    klist
+6.11 c                   kfld                    w_firm
+6.11 c                   kfld                    vvepl2_pgti
+      *
+      *
+      * Kopierer parameter til datastruktur
+      *
+     c                   eval      d_list = p_list
+      *
+      * Henter firma og leverandør fra parameter
+      *
+     c                   eval      w_firm = d_firm
+     c                   eval      w_ldor = d_ldor
+      *
+      * Henter mva-sats
+      *
+     c                   call      'FÅ705R'
+     c                   parm                    w_firm
+     c                   parm                    d_dato
+     c                   parm                    w_mvap
+     c                   parm                    w_mvat
+     c                   parm                    w_mvaf
+      *
+     c                   endsr

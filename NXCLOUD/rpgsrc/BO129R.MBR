@@ -1,0 +1,560 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Program . . . . : BO129R
+      * Beskrivelse . . : Danner kostpristransaksjoner fra salgsstatistikk
+      *
+      * Spesialversjon. : SWITCHSTYRT fra BO128C
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       201020 ASK  Nytt program
+7.01  * 7.01  011220 ASK  Fjernet interrims føring og negative beløp
+8.01  * 800   070722 ASK  Lagt inn logging til "RLOG"
+8.02  * 800   211022 ASK  Lagt sjekk mot fakturakunde i statistikk
+8.03  * 800   150323 ask  Lagt inn nye felter i utvodet logregister for regnskapstranser
+8.04  * 800   130423 ask  Henter forfallsdato fra tidligere loggede transer på bilagsnummer
+8.05  * 800   120523 ask  Lagt inn bilagsdato i tillegg bilagsnummer i sql mot RLOG
+8.06  * 800   160523 ask  Lagt inn sjekk på at ikke poster fra ordre blir med
+8.07  * 800   131023 ask  Lagt inn oppdatering av buntsummer etter utlegg av kosttranser
+8.08  * 800   171023 ask  Lagt les av parameterfil - erstatter SFERAP
+8.09  * 800   261023 ask  Snur fortegen dersom det er negativ transaksjon i kassa
+8.10  * 800   011123 ask  Sjekker om lagervare -hvis ikke så dropp kostpostering
+8.11  * 800   091123 ask  Lagt inn oppdatering av sum bunt etter utlegg av kosttranser
+8.12  * 800   190224 ask  Lagt inn switchstyring på om alle varer
+      *                   eller bare lagervarer skal ha kostføring
+8.13  *PRG2   220622 BOF  Utvidet prisgruppe fra 1 til 2 posisjoner - COMP
+8.14  * 800   180225 ask  Omskrevet for å sikre riktig summering i RLOG tabeller
+8.15  * 800   060325 ask  Lagt inn fast mvakode '0' på alle kostposteringer
+8.16  * 800   041024 ask  Lagt inn ny funksjonalitet for føring varekost i regnskap
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+8.08 fsovki1    uf   e           k disk    rename(sovkst:sovki1r)
+8.08 fsstal1    if   e           k disk    rename(sstapfr:sstal1r)
+     fvgkkir    if   e           k disk    rename(vgkkst:vgkkirr)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     fvkhvl1    if   e           k disk    rename(vkhvpfr:vkhvl1r)
+8.07 frlobi1    uf   e           k disk    rename(rlobst:rlobi1r)
+8.14 frlodi1    if   e           k disk    rename(rlodst:rlodi1r)
+     fbovfpf    o  a e             disk
+      *
+      * Definering av Local data area
+      *
+     d                uds
+8.01 d l_tmst                751    776
+8.12 d l_filg                931    933
+     d l_firm                944    946  0
+      *
+      * Definering av variable i nøkler
+      *
+8.08 d sovki1_vopd     s                   like(sovopd)
+8.08 d sstal1_paar     s                   like(sfpaar)
+8.08 d sstal1_binr     s                   like(sfbinr)
+8.08 d sstal1_line     s                   like(sfline)
+     d votyl1_otyp     s                   like(vaotyp)
+     d vkhvl1_kkod     s                   like(vakkod)
+8.07 d rlobi1_bts1     s                   like(rlbts1)
+8.14 d rlodi1_dts1     s                   like(rldts1)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(sffirm)
+     d w_peri          s                   like(bfperi)
+     d w_belp          s                   like(sfsumk)
+8.16 d w_kost          s                   like(sfsumk)
+8.02 d w_kund          s                   like(sfvkun)
+8.04 d w_fdat          s                   like(bffdat)
+8.04 d w_bunt          s                   like(bfbunt)
+8.01 d w_logg          s               z
+8.01 d w_lintel        s              8  0
+8.01 d w_dumkki        s              8  0
+8.01 d w_dumkkk        s              1  0
+8.03 d w_dumd20        s              2  0
+8.01 d w_dumaki        s             25
+8.01 d w_dumpru        s              6
+8.07 d w_dsum          s                   like(rlbsd1)
+8.07 d w_ksum          s                   like(rlbsk1)
+8.07 d w_antd          s                   like(rlban1)
+8.07 d w_antk          s                   like(rlban1)
+8.10 d w_vtyp          s              1
+8.16 d w_ktyp          s              1
+      *
+     d b_feil          s              1    inz(*off)
+     d b_negp          s              1    inz(*off)
+8.12 d u_alle          s              1    inz(*off)
+8.12  *
+8.12   dcl-s co402_verdi1  char(1);
+8.12   dcl-s co402_verdi2  char(2048);
+8.12   dcl-pr co402r extpgm('CO402R');
+8.12     p_filgrp            char(3)     const;
+8.12     p_firm              packed(3:0) const;
+8.12     p_lager             packed(2:0) const;
+8.12     p_nokkel            char(50)    const;
+8.12     p_verdi1            char(1);
+8.12     p_verdi2            char(2048);
+8.12   end-pr;
+8.01  *
+8.01 c/Exec SQL
+8.01 c+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR,
+8.01 c+             commit=*none
+8.01 c/End-Exec
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.08  *
+8.08  * Leser parameterfil for oppslag mot statistikk
+8.08  *
+8.08 c     sovki1_key    reade     sovki1
+8.08 c                   dow       not %eof
+8.08 c                   eval      b_feil = *off
+      *
+      * Leser salgsstatistikk, og danner kostpristransaksjoner
+      *
+8.08 c                   eval      sstal1_paar = sovaar
+8.08 c                   eval      sstal1_binr = sovbil
+8.08 c                   eval      sstal1_line = sovbli
+8.08 c     sstal1_key    chain     sstal1r
+8.08 c                   if        not %found
+8.08 c                   eval      b_feil = *on
+8.08 c                   goto      mrk_stat
+8.08 c                   endif
+      *
+8.06  * Hopper over statistikkposter fra ordre
+8.06  *
+8.06 c                   if        sfbong = ' '
+8.06 c                   goto      les_neste
+8.06 c                   endif
+8.06  *
+8.12 c                   if        u_alle = *off
+8.10 c                   exsr      sjekk_vtyp
+8.10 c                   if        b_feil = *on
+8.10 c                   goto      mrk_stat
+8.10 c                   endif
+8.12 c                   endif
+8.10  *
+     c                   exsr      sjekk_otyp
+     c                   if        b_feil = *on
+     c                   goto      mrk_stat
+     c                   endif
+      *
+     c                   exsr      finn_kost
+     c                   if        b_feil = *on
+     c                   goto      mrk_stat
+     c                   endif
+      *
+8.02 c                   if        sffkun <> sfvkun and
+8.02 c                             sffkun <> 0
+8.02 c                   eval      w_kund = sffkun
+8.02 c                   else
+8.02 c                   eval      w_kund = sfvkun
+8.02 c                   endif
+8.02  *
+     c                   exsr      bygg_post
+      *
+      * Merker salget med at det er rapportert
+      * Merking: 1=Trans ok 9=Utlegg av postering feilet
+      *
+     c     mrk_stat      tag
+     c                   if        b_feil = *on
+8.08 c                   eval      sovopd = '9'
+     c                   else
+8.08 c                   eval      sovopd = '1'
+     c                   endif
+      *
+8.08 c                   update    sovki1r
+      *
+8.06 c     les_neste     tag
+8.08 c     sovki1_key    reade     sovki1
+      *
+     c                   enddo
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     avslutt       tag
+      *
+8.07 c                   exsr      upd_bilag
+8.11 c                   exsr      upd_bunt
+8.01 c                   eval      l_tmst = ' '
+     c                   eval      *inlr = *on
+     c                   return
+8.10  *
+8.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.10  *  Sjekker varetype - bare lagervarer skal danne kostpostering
+8.10  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.10  *
+8.10 c     sjekk_vtyp    begsr
+8.10
+            w_vtyp = ' ';
+8.10        exec sql
+8.10           select vlvtyp
+8.10              into :w_vtyp
+8.10            from vlagpf
+8.10             where vlfirm = :sffirm and
+8.10                   vlvare = :sfvare and
+8.10                   vllage = :sflage;
+8.10        if sqlcod = 0;
+8.10         if w_vtyp <> 'L';
+8.10            b_feil = *on;
+8.10         endif;
+8.10        else;
+8.10         exec sql
+8.10           select vvvtyp
+8.10              into :w_vtyp
+8.10            from vvarpf
+8.10             where vvfirm = :sffirm and
+8.10                   vvvare = :sfvare;
+8.10        if sqlcod < 0 or
+8.10           w_vtyp <> 'L';
+8.10            b_feil = *on;
+8.10         endif;
+8.10        endif;
+8.10
+8.10  *
+8.10 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Sjekker ordretype på statistikkpost negativ ordretype
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjekk_otyp    begsr
+      *
+     c                   eval      b_negp = *off
+     c                   eval      votyl1_otyp = sfotyp
+     c     votyl1_key    chain     votyl1
+     c                   if        %found
+8.09 c                   if        sfsumk < 0
+8.09 c                   eval      b_negp = *on
+8.09 c                   endif
+     c                   else
+     c                   eval      b_feil = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Finner aktuell kostpris på varen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     finn_kost     begsr
+      *
+8.16 c                   if        w_ktyp = 'G'
+8.16 c                   eval      w_kost = sfgjkp
+8.16 c                   else
+8.16 c                   eval      w_kost = sfsumk
+8.16 c                   endif
+8.16 c                   if        w_kost = 0
+     c                   eval      b_feil = *on
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Bygger kostpris posteringer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bygg_post     begsr
+      *
+      * Hent kostkonto fra kontohenvisning
+      *
+     c                   eval      vkhvl1_kkod = sfkhev
+     c     vkhvl1_key    chain     vkhvl1
+      *
+      * Redigerer periode fra statistikk
+      *
+     c                   eval      w_peri = %dec(%char(sfpmnd) +
+     c                                      %subst(%char(sfpaar):3:2):4:0)
+      *
+      * Fører salgskost postering
+      *
+     c                   eval      bfdavd = 0
+     c                   eval      bfdkto = 0
+     c                   eval      bfdsps = 0
+     c                   eval      bfcavd = 0
+     c                   eval      bfckto = 0
+     c                   eval      bfcsps = 0
+      *
+     c                   if        b_negp = *on
+     c                   eval      bfcavd = sfsavd
+     c                   eval      bfckto = vgkkos
+     c                   else
+     c                   eval      bfdavd = sfsavd
+     c                   eval      bfdkto = vgkkos
+     c                   endif
+7.01 c                   eval      w_belp = w_kost
+     c                   exsr      skriv_post
+      *
+      * Fører salg motpost
+      *
+     c                   eval      bfdavd = 0
+     c                   eval      bfdkto = 0
+     c                   eval      bfdsps = 0
+     c                   eval      bfcavd = 0
+     c                   eval      bfckto = 0
+     c                   eval      bfcsps = 0
+      *
+     c                   if        b_negp = *on
+     c                   eval      bfdavd = sfsavd
+     c                   eval      bfdkto = vakko3
+     c                   eval      w_belp = w_kost * -1
+     c                   else
+     c                   eval      bfcavd = sfsavd
+     c                   eval      bfckto = vakko3
+     c                   eval      w_belp = sfsumk
+     c                   endif
+7.01 c                   eval      w_belp = w_kost
+     c                   exsr      skriv_post
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Skriver hovedboks postering
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     skriv_post    begsr
+      *
+8.04 c                   exsr      hent_forfall
+
+     c                   eval      bffirm = w_firm
+     c                   eval      bfperi = w_peri
+8.04 c                   eval      bfbunt = w_bunt
+     c                   eval      bfbiln = sfbinr
+     c                   eval      bfbill = sfline
+     c                   eval      bfbdat = sfbida
+8.04 c                   eval      bffdat = w_fdat
+     c                   eval      bfbilk = vgkbik
+     c                   eval      bftext = 'Bongnr ' + sfbong
+8.15 c                   eval      bfdmom = '0'
+     c                   eval      bfbelp = w_belp
+8.15 c                   eval      bfcmom = '0'
+     c                   eval      bfproj = *blank
+     c                   eval      bfakti = *blank
+     c                   eval      bfkref = 0
+8.02 c                   eval      bfkund = w_kund
+     c                   eval      bfvalk = *blank
+     c                   eval      bfvalb = 0
+     c                   eval      bfmngd = 0
+     c                   eval      bfautx = *blank
+     c                   eval      bfmvag = 0
+      *
+     c                   write     bovfpfr
+8.01 c                   exsr      logg_linjer
+      *
+     c                   endsr
+8.01  *
+8.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.01  * Legger ut posteringstrans til loggfil linjer
+8.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.01  *
+8.01  /Free
+8.01   begsr logg_linjer;
+8.01
+8.01     w_lintel = w_lintel + 1;
+8.01     w_dumkki = 0;
+8.01     w_dumkkk = 0;
+8.03     w_dumd20 = 0;
+8.01     w_dumaki = '  ';
+8.01     w_dumpru = '  ';
+8.01
+8.01        exec sql
+8.01        insert into rlodst
+8.01          (rldfir,rldtyp,rldts1,rldlin,rldper,
+8.01           rldbun,rldbin,rldbli,rldbda,rldfda,
+8.01           rldbko,rldbtx,rlddav,rlddko,rlddsp,
+8.01           rlddmv,rldbel,rldmvg,rldkav,rldkko,
+8.01           rldksp,rldkmv,rldpro,rldpra,rldpru,
+8.01           rldpao,rldkrf,rldres,rldlki,rldkki,
+8.01           rldkkk,rldaki,rldvko,rldvbe,rldmko,
+8.03           rldmen,rldsal,rldsfa,rldtty,rldbet,rldrem)
+8.01        values(:bffirm,'SHOP',:w_logg,:w_lintel,
+8.01               :bfperi,:bfbunt,:bfbiln,:bfbill,
+8.01               :bfbdat,:bffdat,:bfbilk,:bftext,
+8.01               :bfdavd,:bfdkto,:bfdsps,:bfdmom,
+8.01               :bfbelp,:bfmvag,:bfcavd,:bfckto,
+8.01               :bfcsps,:bfcmom,:bfproj,:bfakti,
+8.01               :w_dumpru,:w_dumpru,:bfkref,:bfkund,
+8.01               :w_dumaki,:w_dumkki,:w_dumkkk,:w_dumaki,
+8.01               :bfvalk,:bfvalb,:bfmngk,:bfmngd,
+8.03               :bfautx,' ',' ',:w_dumd20,' ');
+8.01
+8.01   endsr;
+8.01  /END-FREE
+8.04  *
+8.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.04  * Henter forfallsdato fra tidligere transer på dette bilagsnummer
+8.04  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.04  *
+8.04   begsr hent_forfall;
+8.04
+8.04     w_fdat = *loval;
+8.04
+8.14 c                   eval      rlodi1_dts1 = w_logg
+8.14 c     rlodi1_key    setll     rlodi1
+8.14 c     rlodi1_key    reade     rlodi1
+8.14 c                   dow       not %eof(rlodi1)
+8.14 c                   if        rldbin = sfbinr
+8.14 c                   eval      w_fdat = rldfda
+8.14 c                   eval      w_bunt = rldbun
+8.14 c                   leave
+8.14 c                   endif
+8.14 c     rlodi1_key    reade     rlodi1
+8.14 c                   enddo
+8.05
+8.04   endsr;
+8.07  *
+8.07  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.07  * Oppdaterer bilagssummer etter utlegg av kosttranser
+8.07  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.07  *
+8.07 c     upd_bilag     begsr
+8.07  *
+8.07 c                   eval      rlobi1_bts1 = w_logg
+8.07 c     rlobi1_key    setll     rlobi1
+8.07 c     rlobi1_key    reade     rlobi1
+8.07 c                   dow       not %eof
+8.14 c                   exsr      sum_bilag
+8.07 c                   eval      rlbsd1 = w_dsum
+8.07 c                   eval      rlbsk1 = w_ksum
+8.07 c                   eval      rlban1 = w_antd + w_antk
+8.07 c                   update    rlobi1r
+8.07 c     rlobi1_key    reade     rlobi1
+8.07 c                   enddo
+8.07  *
+8.07 c                   endsr
+8.14  *
+8.14  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.14  * Summerer poster på bilag
+8.14  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.14  *
+8.14   begsr sum_bilag;
+8.14
+8.14     w_dsum = 0;
+8.14     w_ksum = 0;
+8.14     w_antd = 0;
+8.14     w_antk = 0;
+8.14  *
+8.14 c                   eval      rlodi1_dts1 = w_logg
+8.14 c     rlodi1_key    setll     rlodi1
+8.14 c     rlodi1_key    reade     rlodi1
+8.14 c                   dow       not %eof(rlodi1)
+8.14 c                   if        rldbin = rlbbil
+8.14 c                   if        rlddko > 0
+8.14 c                   eval      w_dsum = w_dsum + rldbel
+8.14 c                   eval      w_antd = w_antd + 1
+8.14 c                   endif
+8.14 c                   if        rldkko > 0
+8.14 c                   eval      w_ksum = w_ksum + rldbel
+8.14 c                   eval      w_antd = w_antd + 1
+8.14 c                   endif
+8.14 c                   endif
+8.14 c     rlodi1_key    reade     rlodi1
+8.14 c                   enddo
+8.06   endsr;
+8.11  *
+8.11  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.11  * Oppdaterer bunt etter utlegg av kosttranser
+8.11  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+8.11  *
+8.11 c     upd_bunt      begsr
+8.11  *
+8.14     w_dsum = 0;
+8.14  *
+8.14 c                   eval      rlodi1_dts1 = w_logg
+8.14 c     rlodi1_key    setll     rlodi1
+8.14 c     rlodi1_key    reade     rlodi1
+8.14 c                   dow       not %eof(rlodi1)
+8.14 c                   eval      w_dsum = w_dsum + rldbel
+8.14 c     rlodi1_key    reade     rlodi1
+8.14 c                   enddo
+8.11        exec sql
+8.11          update rlohst
+8.11            set  rlhbs1 = (:w_dsum + :w_ksum) / 2
+8.11            where rlhts1 = :w_logg;
+8.11  *
+8.11 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+8.08  *
+8.08  * Key for les på parameterfil
+8.08  *
+8.08 c     sovki1_key    klist
+8.08 c                   kfld                    w_firm
+8.08 c                   kfld                    sovki1_vopd
+      *
+      * Key for les på salgsstatistikk
+      *
+8.08 c     sstal1_key    klist
+8.08 c                   kfld                    w_firm
+8.08 c                   kfld                    sstal1_paar
+8.08 c                   kfld                    sstal1_binr
+8.08 c                   kfld                    sstal1_line
+      *
+      * Key for kostpris parameter
+      *
+     c     vgkkir_key    klist
+     c                   kfld                    w_firm
+      * Key for oppslag på Ordretype
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      * Key for kontohenvisninger
+      *
+     c     vkhvl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vkhvl1_kkod
+8.07  *
+8.07  * Key for posisjonering på transaksjonslogg bilag
+8.07  *
+8.07 c     rlobi1_key    klist
+8.07 c                   kfld                    w_firm
+8.07 c                   kfld                    rlobi1_bts1
+8.14  *
+8.14  * Key for posisjonering på transaksjonslogg linjer
+8.14  *
+8.14 c     rlodi1_key    klist
+8.14 c                   kfld                    w_firm
+8.14 c                   kfld                    rlodi1_dts1
+      *
+      * Hent kostkonto salg og bilagskode
+      *
+     c                   eval      w_firm = l_firm
+     c     vgkkir_key    chain     vgkkir
+8.01
+8.01  // Bygger timestamp for logging - finner sist brukte linjenummer på bunt
+8.01
+8.01       w_logg = %timestamp(l_tmst);
+8.01
+8.01       exec sql
+8.01          select linjenr into :w_lintel
+8.01             from rlodst
+8.01             where tid_dannet = :w_logg
+8.01             order by linjenr desc
+8.01           fetch first row only;
+8.12  *
+8.12  * Sjekk om det skal kjøres kostføring på alle varer
+8.12  *
+8.12   CallP CO402R(l_filg:w_firm:0:'POST_KOST':
+8.12                    co402_verdi1:co402_verdi2);
+8.12   if  %subst(co402_verdi2:1:1) <> *blank;
+8.12     u_alle = *on;
+8.12   endif;
+8.16   w_ktyp = %subst(co402_verdi2:2:1);
+      *
+      * Bygger nøkkel og setter startpunkt
+      *
+8.08 c                   eval      sovki1_vopd = ' '
+8.08 c     sovki1_key    setll     sovki1
+8.08  *
+     c                   endsr

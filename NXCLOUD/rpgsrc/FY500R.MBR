@@ -1,0 +1,1198 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FY500R
+      * Beskrivelse . . : Spørring / søking etter slettede ordre
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       020501 AMD  Nytt program
+5.41  * R5.41 011106 AMD  Lagt inn kontroll på gyldige datoer
+      *
+6.10  * R6.10 300710 BSA  Nytt spørreprogram for på ordrelinjer. Legger ikke ut
+6.10  *                   ordre med slettekode FAKT og SHOP, da dette ikker er
+6.10  *                   ordre som er manuelt slettet. Kan velges vha F1.
+6.nu  * R6.30 030614 bsa  Programmet gjennomgått mtp nummerutvidelser.
+      *
+7.xx  *       030418 bkv  Endringer relatert til ny GUI
+7.01  *       060819 sst  Bygge tilbud fra slettede ordre
+7.01  *       280819 sst  Nye regler fra MGR.  Bare T gj.oppr. fokpro=0
+7.01  *                   Ingen rekalkulering.
+      *
+8.xx  *K000   090424 bsa  Kaller program for å hente høyeste suffiks på ordrenummer
+8.01  *K0000  120824 bsa  Henter nytt tilbudsnummer i FY505, og dette skal brukes
+8.01  *K0000              hvis utfylt.
+8.02  *K0000  230924 bsa  Rekalkulerer ordre når den opprettes.
+8.03  *K0000  230924 bsa  Flagge nytt tilbudsnummer
+8.04  *K0000  240924 bsa  Endret bruk av dialogboks.
+8.05  *K0000  191124 bof  Trenger en les fra fdespf for at riktig ordre skal behandles
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Roll
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffdellr    if   e           k disk    rename(fdelpfr:fdellrr)
+     ffdell1    if   e           k disk    rename(fdelpfr:fdell1r)
+     ffdell4    if   e           k disk    rename(fdelpfr:fdell4r)
+     ffdell5    if   e           k disk    rename(fdelpfr:fdell5r)
+     ffdell6    if   e           k disk    rename(fdelpfr:fdell6r)
+     ffdell7    if   e           k disk    rename(fdelpfr:fdell7r)
+7.01 ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+7.01 ffohelu    uf a e           k disk    rename(fohepfr:fohelur)
+7.01 fsohel3    if   e           k disk    rename(sohepfr:sohel3r)
+7.01 fsloglu    uf a e           k disk    rename(slogpfr:sloglur)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     frkunl1    if   e           k disk    rename(rkunpfr:rkunl1r)
+      *
+     ffy500d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+     d l_filg                931    933
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d fdellr_aarr     s                   like(fyaarr)
+     d fdellr_numm     s                   like(fynumm)
+     d fdellr_suff     s                   like(fysuff)
+     d fdell1_aarr     s                   like(fyaarr)
+     d fdell1_numm     s                   like(fynumm)
+     d fdell1_suff     s                   like(fysuff)
+     d fdell4_aarr     s                   like(fyaarr)
+     d fdell4_kuna     s                   like(fykuna)
+     d fdell5_aarr     s                   like(fyaarr)
+     d fdell5_bdat     s                   like(fybdat)
+     d fdell6_aarr     s                   like(fyaarr)
+     d fdell6_otyp     s                   like(fyotyp)
+     d fdell7_aarr     s                   like(fyaarr)
+     d fdell7_navn     s                   like(fynavn)
+     d rkunl1_kund     s                   like(rkkund)
+     d votyl1_otyp     s                   like(vaotyp)
+7.01 d fohel1_numm     s                   like(fonumm)
+7.01 d fohel1_suff     s                   like(fosuff)
+7.01 d fohelu_numm     s                   like(fonumm)
+7.01 d fohelu_suff     s                   like(fosuff)
+7.01 d sohel3_aarr     s                   like(soaarr)
+7.01 d sohel3_numm     s                   like(sonumm)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_salg          s             12
+     d w_seqe          s              1
+     d b_forn          s              1    inz(*off)
+     d b_feil          s              1    inz(*off)
+      *
+     d w_firm          s                   like(fyfirm)
+     d w_knav          s                   like(rknavn)
+     d w_udat          s               d   datfmt(*iso)
+      *
+     d w_aarr          s                   like(fyaarr)
+6.nu d w_numm          s                   like(fynumm)
+     d w_suff          s                   like(fysuff)
+7.01 d w_nysu          s                   like(fysuff)
+7.01 d w_enor          s              1
+7.01 d w_tilgko        s             10
+7.01 d w_felt          s             10
+7.01 d w_rutine        s             10
+7.01 d w_adv           s              3
+7.01 d w_status        s             10
+7.01 d w_svar          s              1
+7.01 d w_in12          s              1  0
+7.01 d w_mld1          s             50
+7.01 d w_mld2          s             50
+8.04 d w_mld3          s             50
+7.01 d w_bdat          s                   like(fybdat)
+8.01 d w_tnum          s                   like(fynumm)
+8.xx d x_suff          s                   like(fosuff)
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(12)
+      *
+7.01  * u_SOT  Slettet Ordre til tilbud
+7.01 d u_SOT           s              1    inz(*off)
+      *
+7.01   dcl-s co402_verdi1  char(1);
+7.01   dcl-s co402_verdi2  char(2048);
+7.01   DCL-PR CO402R EXTPGM('CO402R');
+7.01     p_filgrp            char(3)     const;
+7.01     p_firm              packed(3:0) const;
+7.01     p_lager             packed(2:0) const;
+7.01     p_nokkel            char(50)    const;
+7.01     p_verdi1            char(1);
+7.01     p_verdi2            char(2048);
+7.01   END-PR;
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      * C1BLD  - C1 Skjermbilde for innlegging av nøkkel ved oppretting
+      * C1MSG  - C1 Meleingsbilde for C1BLD
+      * C2BLD  - C2 Skjermbilde for opprette/endre/vise
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Send Alt
+      *
+     c     b2taga        tag
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+      *
+      * F1= Bla-alternativer
+      *
+     c                   when      *inka
+     c                   exsr      xh1win
+     c                   exsr      forny
+     c                   goto      b2taga
+      *
+      * F3= Avslutt (+ F12)
+      *
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+      *
+      * F5= Forny
+      *
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+      *
+      * F23= Vise 2
+      *
+     c                   when      *inkx
+     c                   if        *in71  = *off
+     c                   eval      *in71  = *on
+     c                   eval      b2hedd = 'Ordredato'
+     c                   eval      b2hed1 = 'Slettegrunn'
+     c                   eval      b2hed2 = 'Slettekode'
+     c                   else
+     c                   eval      *in71  = *off
+     c                   eval      b2hedd = 'Ordredato'
+     c                   eval      b2hed1 = 'Vareadresse'
+     c                   eval      b2hed2 = 'Ordreverdi'
+     c                   endif
+     c                   exsr      forny
+     c                   goto      b2taga
+      *
+      * Roll
+      *
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+      *
+      * Styr cursor
+      *
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+      *
+     c                   endsl
+      *
+      * Sjekker input-felter
+      *
+     c                   exsr      xsjekk_inp
+     c                   if        b_feil = *on
+     c                   eval      b_feil = *off
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Posisjonering
+      *
+     c                   if        b2aarr <> 0      or
+     c                             b2numm <> 0      or
+     c                             b2dato <> 0      or
+     c                             b2kuna <> *blank or
+     c                             b2navn <> *blank or
+     c                             b2otyp <> *blank
+     c                   exsr      posisjoner
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   select
+     c                   when      w_seqe = 'A'
+     c     fdell4_key    setll     fdell4
+     c                   when      w_seqe = 'D'
+     c     fdell5_key    setll     fdell5
+     c                   when      w_seqe = 'L'
+     c     fdell6_key    setll     fdell6
+     c                   when      w_seqe = 'V'
+     c     fdell7_key    setll     fdell7
+     c                   other
+     c     fdell1_key    setll     fdell1
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+      * Posisjoner startverdi på årstall
+      * (Benyttes kun når bare årstall er oppgitt)
+      *
+     c                   if        b2aarr <> 0
+     c                   if        b2numm =  0
+     c                   if        b2dato =  0
+     c                   if        b2otyp =  *blank
+     c                   if        b2kuna =  *blank
+     c                   if        b2navn =  *blank
+     c                   eval      w_seqe = ' '
+     c                   eval      fdell1_aarr = b2aarr
+     c                   eval      fdell1_numm = 0
+     c                   eval      fdell1_suff = 0
+     c     fdell1_key    setll     fdell1
+     c                   goto      end_pos
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+     c                   endif
+      *
+      * Posisjoner startverdi på ordrenummer
+      *
+     c                   if        b2numm <> 0
+     c                   eval      w_seqe = ' '
+     c                   eval      fdell1_aarr = b2aarr
+     c                   eval      fdell1_numm = b2numm
+     c                   eval      fdell1_suff = b2suff
+     c     fdell1_key    setll     fdell1
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på ordretype
+      *
+     c                   if        b2otyp <> *blank
+     c                   eval      w_seqe = 'O'
+     c                   eval      fdell6_aarr = b2aarr
+     c                   eval      fdell6_otyp = b2otyp
+     c     fdell6_key    setll     fdell6
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner på ordrenummer dersom ordretype er
+      * valgt både som posisjonering og selektering
+      *
+     c                   if        b2otyp <> *blank
+     c                   if        h1otyp <> *blank
+     c                   eval      w_seqe = ' '
+     c                   eval      fdell1_aarr = b2aarr
+     c                   eval      fdell1_numm = *zero
+     c                   eval      fdell1_suff = *zero
+     c     fdell1_key    setll     fdell1
+     c                   goto      end_pos
+     c                   endif
+     c                   endif
+      *
+      * Posisjoner startverdi på kundenavn
+      *
+     c                   if        b2kuna <> *blank
+     c                   eval      w_seqe = 'A'
+     c                   eval      fdell4_aarr = b2aarr
+     c                   eval      fdell4_kuna = b2kuna
+     c     fdell4_key    setll     fdell4
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på vareadresse
+      *
+     c                   if        b2navn <> *blank
+     c                   eval      w_seqe = 'V'
+     c                   eval      fdell7_aarr = b2aarr
+     c                   eval      fdell7_navn = b2navn
+     c     fdell7_key    setll     fdell7
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Posisjoner startverdi på ordredato
+      *
+     c                   if        b2dato <> 0
+     c                   eval      w_seqe = 'D'
+      *
+     c     *dmy          move      b2dato        fdell5_bdat
+     c                   eval      fdell5_aarr = b2aarr
+     c     fdell5_key    setll     fdell5
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2aarr = 0
+     c                   eval      b2numm = 0
+     c                   eval      b2suff = 0
+     c                   eval      b2dato = 0
+     c                   eval      b2otyp = *blank
+     c                   eval      b2kuna = *blank
+     c                   eval      b2navn = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   eval      b_forn = *off
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+     c                   eval      w_aarr = b1aarr
+     c                   eval      w_numm = b1numm
+     c                   eval      w_suff = b1suff
+      *
+     c                   call      'FY510R'
+     c                   parm                    w_firm
+     c                   parm                    w_aarr
+6.nu c                   parm                    w_numm
+     c                   parm                    w_suff
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+6.10 c                   if        b1valg = 6
+8.01 c                   eval      w_tnum = 0
+6.10 c                   eval      w_aarr = b1aarr
+6.10 c                   eval      w_numm = b1numm
+6.10 c                   eval      w_suff = b1suff
+7.01 c                   eval      w_nysu = *zero
+6.10  *
+6.10 c                   call      'FY505R'
+6.10 c                   parm                    w_firm
+6.10 c                   parm                    w_aarr
+6.nu c                   parm                    w_numm
+6.10 c                   parm                    w_suff
+7.01 c                   parm                    w_nysu
+8.01 c                   parm                    w_tnum
+8.01 c                   if        w_tnum <> 0
+8.01 c                   exsr      Bygg_tilbud
+8.01 c                   endif
+6.10 c                   eval      b1valg = 0
+6.10 c                   update    b1sfl
+6.10 c                   iter
+6.10 c                   endif
+7.01  *
+7.01  *
+7.01  *
+7.01 c                   if        b1valg = 10
+7.01 c                   if        u_sot  = *off
+7.01 c                   eval      w_mld1 = 'Denne funksjonen er ikke -
+7.01 c                                       aktiv for dette firma. '
+7.01 c                   eval      w_mld2 = 'Kode:>SlettOrdreTilTilbud<'
+7.01 c                   eval      w_svar = 'J'
+7.01 c                   call      'AA007R'
+7.01 c                   parm                    w_mld1
+7.01 c                   parm                    w_mld2
+7.01 c                   parm                    w_svar
+7.01 c                   parm                    w_in12
+7.01 c                   goto      valg_10_end
+7.01 c                   endif
+7.01  *
+7.01 c                   if        b1otyp <> 'T'
+7.01 c                   eval      w_mld1 = 'Det er kun tilbud som -
+7.01 c                                       gjenopprettes'
+7.01 c                   eval      w_mld2 = 'til nytt tilbud.'
+7.01 c                   eval      w_svar = 'J'
+7.01 c                   call      'AA007R'
+7.01 c                   parm                    w_mld1
+7.01 c                   parm                    w_mld2
+7.01 c                   parm                    w_svar
+7.01 c                   parm                    w_in12
+7.01 c                   goto      valg_10_end
+7.01 c                   endif
+7.01  *
+8.01 c                   eval      w_tnum = 0
+7.01 c                   eval      w_aarr = b1aarr
+7.01 c                   eval      w_numm = b1numm
+7.01 c                   eval      w_suff = b1suff
+7.01 c                   eval      w_bdat = b1bdat
+7.01 c                   exsr      Finn_nxtSuff
+8.05 c                   if        b_feil = *on
+8.05 c                   eval      b_feil = *off
+8.05 c                   goto      valg_10_end
+8.05 c                   ENDIF
+7.01  *
+7.01 c                   call      'FY505R'
+7.01 c                   parm                    w_firm
+7.01 c                   parm                    w_aarr
+7.01 c                   parm                    w_numm
+7.01 c                   parm                    w_suff
+7.01 c                   parm                    w_nysu
+8.01 c                   parm                    w_tnum
+8.01 c                   if        w_nysu > w_suff or
+8.01 c                             w_tnum <> 0
+7.01 c                   exsr      Bygg_tilbud
+7.01 c                   endif
+7.01 c     valg_10_end   tag
+7.01 c                   eval      b1valg = 0
+7.01 c                   update    b1sfl
+7.01 c                   iter
+7.01 c                   endif
+      *
+     c                   enddo
+      *
+     c                   if        b_forn = *on
+     c                   exsr      forny
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for sjekking av input-felter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xsjekk_inp    begsr
+      *
+     c                   eval      b_feil = *off
+      *
+      * Dato
+      *
+     c                   if        b2dato <> 0
+     c     *dmy          test(d)                 b2dato                 34
+     c                   if        *in34  = *on
+     c                   eval      b_feil = *on
+     c                   goto      end_sjekk
+     c                   endif
+     c                   endif
+      *
+     c     end_sjekk     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * xh1win  Bilde for behandling av bla-alternativer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xh1win        begsr
+      *
+     c     h1taga        tag
+      *
+     c                   write     h1win
+     c                   exfmt     h1win
+      *
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc
+     c                   goto      end_h1win
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      h1taga
+     c                   endsl
+3.36  *
+3.36  * Etter at man har vært inne i dette vindu (H1WIN)
+3.36  * velges logisk fil tilbake til ordrerekkefølge
+3.36  * og sub-file fylles på nytt.
+3.36  *
+3.36 c                   eval      w_seqe = ' '
+3.36 c                   eval      fdell1_aarr = 0
+3.36 c                   eval      fdell1_numm = 0
+3.36 c                   eval      fdell1_suff = 0
+      *
+     c     end_h1win     endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14  = *on
+     c                   write     b2ctl
+     c                   eval      *in14  = *off
+      *
+     c                   eval      *in15  = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+      * Velg logisk fil
+      *
+     c                   select
+     c                   when      w_seqe = 'A'
+     c                   read      fdell4                                 15
+     c                   when      w_seqe = 'D'
+     c                   read      fdell5                                 15
+     c                   when      w_seqe = 'O'
+     c                   read      fdell6                                 15
+     c                   when      w_seqe = 'V'
+     c                   read      fdell7                                 15
+     c                   other
+     c                   read      fdell1                                 15
+     c                   endsl
+      *
+      * End of file ?
+      *
+     c                   if        *in15
+     c                   leave
+     c                   endif
+      *
+      * Kommet til neste firma ?
+      *
+     c                   if        fyfirm <> w_firm
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+6.10  * Skal ikke ta med SHOP eller FAKT
+6.10 c                   if        h1shop <> '1'
+6.10 c                   if        fytype = 'SHOP'
+6.10 c                   iter
+6.10 c                   endif
+6.10 c                   endif
+6.10  *
+6.10 c                   if        h1fakt <> '1'
+6.10 c                   if        fytype = 'FAKT'
+6.10 c                   iter
+6.10 c                   endif
+6.10 c                   endif
+6.10  *
+      *
+      * Skal ordretype være med ?
+      *
+3.31 c                   if        h1otyp = *blank and
+3.31 c                             h1oty2 = *blank and
+3.31 c                             h1oty3 = *blank
+3.31 c                   goto      xtamed
+3.31 c                   endif
+3.31  *
+3.31 c                   if        h1otyp <> *blank and
+3.31 c                             h1otyp =  fyotyp
+3.31 c                   goto      xtamed
+3.31 c                   endif
+3.31  *
+3.31 c                   if        h1oty2 <> *blank and
+3.31 c                             h1oty2 =  fyotyp
+3.31 c                   goto      xtamed
+3.31 c                   endif
+3.31  *
+3.31 c                   if        h1oty3 <> *blank and
+3.31 c                             h1oty3 =  fyotyp
+3.31 c                   goto      xtamed
+3.31 c                   endif
+3.10  *
+3.31 c                   iter
+3.31  *
+3.31 c     xtamed        tag
+      *
+      * Uaktuell bruker ?
+      *
+     c                   if        h1user <> *blank and
+     c                             h1user <> fyuser
+     c                   iter
+     c                   endif
+      *
+      * Uaktuell kunde ?
+      *
+     c                   if        h1kund <> 0 and
+     c                             h1kund <> fykund
+     c                   iter
+     c                   endif
+      *
+      * Fyll opp subfile
+      *
+     c                   eval      w_srrn = w_srrn + 1
+     c                   eval      b1valg = 0
+     c                   eval      b1aarr = fyaarr
+     c                   eval      b1numm = fynumm
+     c                   eval      b1suff = fysuff
+     c                   eval      b1otyp = fyotyp
+     c                   eval      b1navn = fynavn
+3.11 c                   move      '       '     b1navn
+7.xx c                   move      '       '     b1nav2
+      *
+5.41 c                   if        fybdat <> *loval
+     c     *dmy          move      fybdat        b1dato
+5.41 c                   endif
+     c                   eval      b1bdat = fybdat
+      *
+     c                   eval      b1kuna      = *blank
+     c                   eval      rkunl1_kund = fykund
+     c     rkunl1_key    chain     rkunl1r                            90
+     c                   if        *in90
+     c                   eval      b1kuna = fykuna
+     c                   else
+     c                   eval      b1kuna = rknavn
+     c                   endif
+     c                   eval      b1kund = fykund
+      *
+     c                   eval      b1salg = (fytots - fytotr)
+     c                   eval      w_salg = %editw(b1salg : '         ,  ')
+7.xx c                   move      w_salg        b1nav2
+      *
+     c                   if        *in71  = *on
+     c                   eval      b1navn = *blank
+7.xx c                   eval      b1nav2 = *blank
+     c                   movel     fykom1        b1navn
+     c                   move      '     '       b1navn
+7.xx c                   move      '     '       b1nav2
+7.xx c                   move      fytype        b1nav2
+     c                   endif
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12  = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13  = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12  = *off
+     c                   eval      *in13  = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av spørring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     spØrring      begsr
+      *
+      * Kunde
+      *
+     c                   if        w_afld = 'H1KUND'
+     c                   call      'RK500R'
+     c                   parm                    w_firm
+     c                   parm                    h1kund
+     c                   parm                    w_knav
+     c                   goto      end_spØrr
+     c                   endif
+      *
+      * Ordre-type
+      *
+     c                   if        w_afld = 'H1OTYP'
+     c                   call      'VA550R'
+     c                   parm                    w_firm
+     c                   parm                    h1otyp
+     c                   goto      end_spØrr
+     c                   endif
+      *
+7.xx c                   if        w_afld = 'H1OTY2'
+7.xx c                   call      'VA550R'
+7.xx c                   parm                    w_firm
+7.xx c                   parm                    h1oty2
+7.xx c                   goto      end_spØrr
+7.xx c                   endif
+      *
+7.xx c                   if        w_afld = 'H1OTY3'
+7.xx c                   call      'VA550R'
+7.xx c                   parm                    w_firm
+7.xx c                   parm                    h1oty3
+7.xx c                   goto      end_spØrr
+7.xx c                   endif
+      *
+     c     end_spØrr     endsr
+7.01  *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  * Subrutine for å finne neste ledige suffix på denne ordre
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01 c     finn_nxtSuff  begsr
+8.xx  *
+8.xx  * Hent høyeste brukte suffiks på ordrenummer
+8.xx  *
+8.xx c                   eval      x_suff = 0
+8.xx c                   call      'AS110R'
+8.xx c                   parm                    w_numm
+8.xx c                   parm                    x_suff
+      *
+8.xx c                   eval      w_nysu = x_suff
+      *
+8.05  * les av slettet tilbud slik at valgt tilbud hentes
+8.05 c                   eval      b_feil = *off
+8.05 c                   eval      fdellr_aarr = w_aarr
+8.05 c                   eval      fdellr_numm = w_numm
+8.05 c                   eval      fdellr_suff = w_nysu
+8.05 c     fdellr_key    chain     fdellr
+8.05 c                   if        not %found(fdellr)
+8.05 c                   eval      w_mld1 = 'Noe gikk feil ved henting-
+8.05 c                                        fra slettet tilbud '
+8.05 c                   call      'AA005R'
+8.05 c                   parm                    w_mld1
+8.05 c                   eval      b_feil = *on
+8.05 c                   ENDIF
+8.05 c
+7.01  *
+7.01  *       - Sjekk om ordre med høyere suffix i FDELPF
+8.xx c*                  eval      fdell1_aarr = w_aarr
+8.xx c*                  eval      fdell1_numm = w_numm
+8.xx c*                  eval      fdell1_suff = 99
+8.xx c*    fdell1_key    setgt     fdell1
+8.xx c*                  readp     fdell1
+8.xx c*                  if        not %eof(fdell1)
+8.xx c*                            and fyaarr = w_aarr
+8.xx c*                            and fynumm = w_numm
+8.xx c*                  eval          w_nysu = fysuff + 1
+8.xx c*                  endif
+7.01  *
+7.01  *       - Sjekk om ordre med høyere suffix i FOHEPF
+8.xx c*                  eval      fohel1_numm = w_numm
+8.xx c*                  eval      fohel1_suff = 99
+8.xx c*    fohel1_key    setgt     fohel1
+8.xx c*                  readp     fohel1
+8.xx c*                  if        not %eof(fohel1)
+8.xx c*                            and fonumm = w_numm
+8.xx c*                            and fosuff + 1 > w_nysu
+8.xx c*                  eval          w_nysu = fosuff + 1
+8.xx c*                  endif
+7.01  *
+7.01  *       - Sjekk om ordre med høyere suffix i SOHEPF
+8.xx c*                  eval      sohel3_aarr = w_aarr
+8.xx c*                  eval      sohel3_numm = w_numm
+8.xx c*    sohel3_key    setll     sohel3
+8.xx c*                  read      sohel3
+8.xx c*                  dow       not %eof(sohel3)
+8.xx c*                            and sonumm = w_numm
+8.xx c*                  if        sosuff + 1 > w_nysu
+8.xx c*                  eval      w_nysu = sosuff + 1
+8.xx c*                  endif
+8.xx c*                  read      sohel3
+8.xx c*                  enddo
+7.01  *
+7.01 c                   endsr
+7.01  *
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  * Subrutine for å bygge tilbud av slettet ordre
+7.01  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+7.01  *
+7.01 c     bygg_tilbud   begsr
+7.01  *
+7.01  *       - Sjekk om ordre finnes fra før i FOHEPF
+8.01 c                   if        w_tnum > 0
+8.01 c                   eval      fohelu_numm = w_tnum
+8.01 c                   else
+7.01 c                   eval      fohelu_numm = w_numm
+8.01 c                   endif
+7.01 c     fohelu_key    chain     fohelu
+7.01 c                   if        not %found(fohelu)
+7.01 c                   clear                   fohelur
+7.01 c                   eval      fofirm = w_firm
+8.01 c                   if        w_tnum > 0
+8.01 c                   eval      fonumm = w_tnum
+8.01 c                   else
+7.01 c                   eval      fonumm = w_numm
+8.01 c                   endif
+7.01 c                   eval      fosuff = w_nysu
+7.01 c                   eval      footyp = 'T'
+7.01 c                   eval      folety = fylety
+7.01 c                   eval      folage = fylage
+7.01 c                   time                    fobdat
+7.01 c                   time                    foddat
+7.01 c                   time                    foldat
+7.01 c                   eval      fopdat = fypdat
+7.01 c                   eval      fobetb = fybetb
+7.01 c                   eval      foselg = fyselg
+7.01 c                   eval      fodist = fydist
+7.01 c                   eval      folmat = fylmat
+7.01 c                   eval      forkat = fyrkat
+7.01 c                   eval      fokund = fykund
+7.01 c                   eval      fokuna = fykuna
+7.01 c                   eval      fonavn = fynavn
+7.01 c                   eval      foadr1 = fyadr1
+7.01 c                   eval      foadr2 = fyadr2
+7.01 c                   eval      fosted = fysted
+7.01 c                   eval      foavde = fyavde
+7.01 c                   eval      foproj = fyproj
+7.01 c                   eval      foakti = fyakti
+7.01 c                   eval      fokgfa = fykgfa
+7.01 c                   eval      fovref = fyvref
+7.01 c                   eval      fodref = fydref
+7.01 c                   eval      foityp = fyityp
+7.01 c                   eval      fokpro = *zero
+7.01 c                   eval      fomobi = fymobi
+7.01 c                   eval      fofaty = fyfaty
+7.01 c                   eval      fowsid = l_wsid
+7.01 c                   eval      fouser = fyuser
+7.01 c                   eval      fodate = fyodat
+7.01 c                   eval      fotime = fyotim
+7.01 c                   eval      fooous = fyousr
+7.01 c                   time                    foedat
+7.01 c                   time                    foetim
+7.01 c                   eval      foeusr = l_user
+7.01  *
+7.01 c                   write     fohelur
+7.01  *
+7.01  *  Skal nytt tilbud omberegnes?  Endret spesifikasjon fra mgr
+7.01  *  28.08.  Nå skal det kun gis meling om at 'Tilbud er gjennopp-
+7.01  *  rettet. Vennligst rekalkuler priser og legg på evt kundeprosj.
+7.01 c*                  if        %diff(w_udat: w_bdat: *d) > 30
+7.01 c*                            and footyp = 'T'
+7.01 c*                  eval      w_tilgko = l_user
+7.01 c*                  eval      w_rutine = 'TilbRekalk'
+7.01 c*                  eval      w_adv    = *blank
+7.01 c*                  eval      w_status = 'Uten'
+7.01 c*                  call      'AD005R'
+7.01 c*                  parm                    w_tilgko
+7.01 c*                  parm                    w_rutine
+7.01 c*                  parm                    w_adv
+7.01 c*                  parm                    w_status
+7.01  *                            Valg om rekalk skal utføres
+7.01 c*                  if        w_status = 'VA'
+7.01 c*                  eval      w_mld1 = 'Tilbudet er > 30 dager og vil'
+7.01 c*                  eval      w_mld2 = 'bli rekalkulert, Er du enig?'
+7.01 c*                  eval      w_svar = 'J'
+7.01 c*                  call      'AA007R'
+7.01 c*                  parm                    w_mld1
+7.01 c*                  parm                    w_mld2
+7.01 c*                  parm                    w_svar
+7.01 c*                  parm                    w_in12
+7.01 c*                  endif
+7.01 c*                  if            w_status = 'VA'
+7.01 c*                            and w_svar   = 'J'
+7.01 c*                            or  w_status = 'AU'
+7.01 c*                  eval      w_enor = 'J'
+7.01 c*                  call      'FO730R'
+7.01 c*                  parm                    w_enor
+7.01 c*                  parm                    w_firm
+7.01 c*                  parm                    w_numm
+7.01 c*                  parm                    w_nysu
+7.01 c*                  endif
+7.01 c*                  endif
+7.01  *
+8.03 c                   if        w_tnum > 0 and
+8.03 c                             w_tnum <> w_numm
+8.03 c                   eval      w_mld1 = 'Nytt tilbud '+%char(w_tnum)+' er +
+8.03 c                             opprettet. -
+7.01 c                             Vennligst legg på evt. '
+7.01 c                   eval      w_mld2 = 'Kundeprosjekt og -
+7.01 c                             rekalkuler priser'
+8.04 c*                  eval      w_svar = 'J'
+8.04 c                   call      'AA031R'
+7.01 c                   parm                    w_mld1
+7.01 c                   parm                    w_mld2
+8.04 c                   parm                    w_mld3
+8.04 c*                  parm                    w_svar
+8.04 c*                  parm                    w_in12
+8.03 c                   else
+7.01 c                   eval      w_mld1 = 'Tilbud er gjenopprettet. -
+7.01 c                             Vennligst legg på evt. '
+7.01 c                   eval      w_mld2 = 'Kundeprosjekt og -
+7.01 c                             rekalkuler priser'
+8.04 c*                  eval      w_svar = 'J'
+8.04 c                   call      'AA031R'
+7.01 c                   parm                    w_mld1
+7.01 c                   parm                    w_mld2
+8.04 c                   parm                    w_mld3
+8.04 c*                  parm                    w_svar
+8.04 c*                  parm                    w_in12
+8.03 c                   endif
+7.01  *
+7.01  *  Logge overføring fra ordre til nytt tilbud
+7.01  *
+7.01 c                   eval      elfirm = w_firm
+7.01 c                   eval      elregi = 'ORDRE'
+7.01 c                   eval      elfore = %char(w_numm)
+7.01 c                   eval      elfort = %char(w_nysu)
+7.01 c                   eval      elfelt = 'Kopiert'
+7.01 c                   eval      eluser = l_user
+7.01 c                   time                    eldato
+7.01 c                   eval      elfrav = %char(w_numm) + ' ' +
+7.01 c                                      %char(w_suff) +
+7.01 c                                      ' Sletteregister'
+8.03 c                   if        w_tnum <> 0
+8.03 c                   eval      eltilv = %char(w_tnum) + ' ' +
+8.03 c                                      %char(w_nysu) +
+8.03 c                                      ' Nytt Tilbud   '
+8.03 c                   else
+7.01 c                   eval      eltilv = %char(w_numm) + ' ' +
+7.01 c                                      %char(w_nysu) +
+7.01 c                                      ' Nytt Tilbud   '
+8.03 c                   endif
+7.01 c                   time                    elrdat
+7.01 c                   time                    elrtim
+7.01 c                   eval      elrusr = l_user
+7.01  *
+7.01 c                   write     sloglur
+7.01  *
+7.01 c                   endif
+8.02  *
+8.02  * Oppdater ordrehode med verdier fra varelinjer
+8.02  *
+8.02 c                   eval      w_enor = ' '
+8.02 c                   call      'FO730R'
+8.02 c                   parm                    w_enor
+8.02 c                   parm                    w_firm
+8.02 c                   parm                    fonumm
+8.02 c                   parm                    fosuff
+8.02  *
+7.01 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for oppslag på ordre/suffix
+      *
+     c     fdellr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fdellr_aarr
+     c                   kfld                    fdellr_numm
+     c                   kfld                    fdellr_suff
+      *
+      * Key for posisjonering på ordre/suffix
+      *
+     c     fdell1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fdell1_aarr
+     c                   kfld                    fdell1_numm
+     c                   kfld                    fdell1_suff
+      *
+      * Key for posisjonering på kundenavn
+      *
+     c     fdell4_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fdell4_aarr
+     c                   kfld                    fdell4_kuna
+      *
+      * Key for posisjonering på ordre-dato
+      *
+     c     fdell5_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fdell5_aarr
+     c                   kfld                    fdell5_bdat
+      *
+      * Key for posisjonering på ordretype
+      *
+     c     fdell6_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fdell6_aarr
+     c                   kfld                    fdell6_otyp
+      *
+      * Key for posisjonering på vareadresse
+      *
+     c     fdell7_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fdell7_aarr
+     c                   kfld                    fdell7_navn
+      *
+      * Key for kunderegister
+      *
+     c     rkunl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunl1_kund
+      *
+      * Key for ordretyperegister
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+7.01  *
+7.01  * Key for posisjonering på ordre/suffix
+7.01  *
+7.01 c     fohel1_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    fohel1_numm
+7.01 c                   kfld                    fohel1_suff
+7.01  *
+7.01 c     fohelu_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    fohelu_numm
+7.01 c                   kfld                    fohelu_suff
+7.01  *
+7.01  * Key for posisjonering på ordre/suffix
+7.01  *
+7.01 c     sohel3_key    klist
+7.01 c                   kfld                    w_firm
+7.01 c                   kfld                    sohel3_aarr
+7.01 c                   kfld                    sohel3_numm
+      *
+      * Henter firmanummer fra LDA
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   eval      *in22 = *on
+7.01  *
+7.01  * Sjekk om gen av tilbud fra slettede ordre benyttes
+7.01  *                  skal hentes fra ny løsning
+7.01   CallP CO402R(l_filg:w_firm:0:'SlettOrdreTilTilbud':
+7.01                    co402_verdi1:co402_verdi2);
+7.01   if co402_verdi1 = '1';
+7.01      u_sot = *on;
+7.01   endif;
+7.01 c                   eval      u_sot  = *on
+7.01 c                   if        u_sot  = *on
+7.01 c**                 eval      b2valg = '10=Overfør til tilbud'
+7.01 c                   eval      *in41  = *off
+7.01 c                   else
+7.01 c**                 eval      b2valg = *blank
+7.01 c                   eval      *in41  = *on
+7.01 c                   endif
+7.01  *
+      * Legg inn konstanter
+      *
+     c                   eval      b2hedd = 'Ordredato'
+     c                   eval      b2hed1 = 'Vareadresse'
+     c                   eval      b2hed2 = 'Ordreverdi'
+      *
+      * Henter dagens dato
+      *
+     c                   time                    w_udat
+      *
+      * Posisjonerer databasen, og fyller opp subfile
+      *
+     c                   eval      fdell1_aarr = 0
+     c                   eval      fdell1_numm = 0
+     c                   eval      fdell1_suff = 0
+     c     fdell1_key    setll     fdell1
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *

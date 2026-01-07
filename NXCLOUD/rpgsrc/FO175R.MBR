@@ -1,0 +1,971 @@
+     h option(*nodebugio) datedit(*ymd)
+      /title  ASOFAK Generering utgående fakturafiler - param.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASOFAK
+      * Program . . . . : FO175R
+      * Beskrivelse . . : Generering utgående fakturafiler - param.
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       190105 GRO  Nytt program
+5.50  *       290807 Bof  Sjekker om overføring allerede pågår.
+5.60  *       080908 Bof  Endret EMAIL til EMAILSPLIT og EMAIL
+5.60  *                   har fått fakt.type 25.
+6.10  *       281009 Bof  Utvidet med fakt.type 26  TIF format
+6.11  *       260612 Bof  rettet omkjøring av mail
+6.20  *       200512 Bof  Utvidet med fakt.type 28  EDI m/samlefakt.
+6.21  *       290115 Nho  Dersom tidligere år angis gis informasjon om
+6.21  *                   F11 må tastes
+6.NU  * R6.30 230514 bsa  Programmet gjennomgått mtp nummerutvidelser.
+6.30  * R6.30 120814 bsa  Lagt til xml format
+6.31  *       140815 Bof  EDI - send alle uten stopp mellom hver gang
+6.32  *       190916 Bof  Må dele fakt.type 24 ogt 28 i to loop'er
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffnufl1    if   e           k disk    rename(fnufpfr:fnufl1r)
+     ffntrl2    if   e           k disk    rename(fntrpfr:fntrl2r)
+     fsohel3    if   e           k disk    rename(sohepfr:sohel3r)
+     faftplr    if   e           k disk    rename(aftppfr:aftplrr)
+      *
+     ffo175d    cf   e             workstn infds(dspfbk)
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_firm                944    946  0
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fkey                        1    overlay(dspfbk:369)
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variable i nøkler
+      *
+     d fnufl1_aarr     s                   like(fnuaar)
+6.11 d fnufl1_binr     s                   like(fnubin)
+     d fntrl2_kftp     s                   like(fnkftp)
+     d sohel3_aarr     s                   like(soaarr)
+     d sohel3_numm     s                   like(sonumm)
+     d aftplr_navn     s                   like(afnavn)
+      *
+      * Definering av variable
+      *
+6.21 d w_aarr          s                   like(a1aarr)
+6.21 d w_tell          s              1  0
+     d w_firm          s              3  0
+     d w_dato          s               d   datfmt(*iso)
+     d w_year          s              4  0
+     d b_feil          s              1    inz(*off)
+     d b_tlgx          s              1    inz(*off)
+6.10 d b_fa22          s              1    inz(*off)
+6.10 d b_fa25          s              1    inz(*off)
+6.10 d b_fa26          s              1    inz(*off)
+6.20 d b_fa24          s              1    inz(*off)
+6.20 d b_fa28          s              1    inz(*off)
+     d w_efaa          s              6  0
+     d w_emaa          s              6  0
+     d w_epra          s              6  0
+     d w_ecaa          s              6  0
+     d w_edia          s              6  0
+     d w_auta          s              6  0
+     d w_vepa          s              6  0
+6.30 d w_efxa          s              6  0
+6.30 d w_emxa          s              6  0
+     d w_udat          s               d   datfmt(*iso)
+     d w_modu          s             10
+     d w_disp          s              1
+     d w_stat          s              1
+6.10 d w_anta          s              4  0
+6.31 d w_ants          s              6  0
+6.31 d w_ante          s              6  0
+6.31 d w_mld1          s             50
+6.31 d w_mld2          s             50
+6.31 d w_svar          s              1
+6.31 d w_in12          s              1  0
+6.31 d w_ovrf          s             10
+      *
+      * Definering av parametre
+      *
+     d p_aarr          s              4  0
+     d p_faty          s              2  0
+6.NU d p_fnum          s              8  0
+6.NU d p_tnum          s              8  0
+     d p_omkj          s              1
+     d p_rapp          s              1
+     d p_anta          s              4  0
+     d p_stat          s              1
+      *
+      * Definering av konstanter
+      *
+     d F3              c                   CONST(X'33')
+     d F6              c                   CONST(X'36')
+     d F10             c                   CONST(X'3A')
+     d F11             c                   CONST(X'3B')
+     d F12             c                   CONST(X'3C')
+      *
+     d c_modu          c                   'OF_KORT01 '
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   if        b_tlgx = *off
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Initierer skjermbildet
+      *
+     c                   time                    w_dato
+     c                   eval      a1aarr = %subdt(w_dato:*years)
+6.21 c                   eval      w_aarr = %subdt(w_dato:*years)
+      *
+     c                   exsr      init_par
+     c                   exsr      init_stat
+      *
+     c                   eval      b_feil = *off
+      *
+     c                   exsr      sjk_anta
+      *
+      * Viser bildet
+      *
+     c     a1taga        tag
+      *
+     c                   exfmt     a1bld
+7.xx  * Newlook har J som default check value, derfor konv
+7.xx c                   if        a1efav = 'J'
+7.xx c                   eval      a1efav = '1'
+7.xx c                   endif
+7.xx c                   if        a1efao = 'J'
+7.xx c                   eval      a1efao = '1'
+7.xx c                   endif
+7.xx c                   if        a1efap = 'J'
+7.xx c                   eval      a1efap = '1'
+7.xx c                   endif
+7.xx c                   if        a1eprv = 'J'
+7.xx c                   eval      a1eprv = '1'
+7.xx c                   endif
+7.xx c                   if        a1epro = 'J'
+7.xx c                   eval      a1epro = '1'
+7.xx c                   endif
+7.xx c                   if        a1eprp = 'J'
+7.xx c                   eval      a1eprp = '1'
+7.xx c                   endif           	
+7.xx c                   if        a1emav = 'J'
+7.xx c                   eval      a1emav = '1'
+7.xx c                   endif
+7.xx c                   if        a1emao = 'J'
+7.xx c                   eval      a1emao = '1'
+7.xx c                   endif
+7.xx c                   if        a1emap = 'J'
+7.xx c                   eval      a1emap = '1'
+7.xx c                   endif
+7.xx c                   if        a1ecav = 'J'
+7.xx c                   eval      a1ecav = '1'
+7.xx c                   endif
+7.xx c                   if        a1ecao = 'J'
+7.xx c                   eval      a1ecao = '1'
+7.xx c                   endif
+7.xx c                   if        a1ecap = 'J'
+7.xx c                   eval      a1ecap = '1'
+7.xx c                   endif
+7.xx c                   if        a1ediv = 'J'
+7.xx c                   eval      a1ediv = '1'
+7.xx c                   endif
+7.xx c                   if        a1edio = 'J'
+7.xx c                   eval      a1edio = '1'
+7.xx c                   endif
+7.xx c                   if        a1edip = 'J'
+7.xx c                   eval      a1edip = '1'
+7.xx c                   endif
+7.xx c                   if        a1autv = 'J'
+7.xx c                   eval      a1autv = '1'
+7.xx c                   endif
+7.xx c                   if        a1auto = 'J'
+7.xx c                   eval      a1auto = '1'
+7.xx c                   endif
+7.xx c                   if        a1autp = 'J'
+7.xx c                   eval      a1autp = '1'
+7.xx c                   endif
+7.xx c                   if        a1vepv = 'J'
+7.xx c                   eval      a1vepv = '1'
+7.xx c                   endif
+7.xx c                   if        a1vepo = 'J'
+7.xx c                   eval      a1vepo = '1'
+7.xx c                   endif
+7.xx c                   if        a1vepp = 'J'
+7.xx c                   eval      a1vepp = '1'
+7.xx c                   endif
+7.xx c                   if        a1efxv = 'J'
+7.xx c                   eval      a1efxv = '1'
+7.xx c                   endif
+7.xx c                   if        a1efxo = 'J'
+7.xx c                   eval      a1efxo = '1'
+7.xx c                   endif
+7.xx c                   if        a1efxp = 'J'
+7.xx c                   eval      a1efxp = '1'
+7.xx c                   endif
+7.xx c                   if        a1emxv = 'J'
+7.xx c                   eval      a1emxv = '1'
+7.xx c                   endif
+7.xx c                   if        a1emxo = 'J'
+7.xx c                   eval      a1emxo = '1'
+7.xx c                   endif
+7.xx c                   if        a1emxp = 'J'
+7.xx c                   eval      a1emxp = '1'
+7.xx c                   endif
+      *
+      *
+6.21 c                   if        a1aarr < w_aarr and
+6.21 c                             w_tell = 0
+6.21 c                   eval      w_tell = 1
+6.21 c                   eval      *in33 = '1'
+6.21 c                   goto      a1taga
+6.21 c                   endif
+6.21 c                   eval      *in33 = '0'
+      * Behandling av funksjonstaster
+      *
+     c                   select
+     c                   when      d_fkey = F3 or d_fkey = F12
+     c                   goto      avslutt
+     c                   when      d_fkey = F6
+     c                   exsr      init_par
+     c                   exsr      init_stat
+     c                   exsr      sjk_anta
+     c                   goto      a1taga
+     c                   when      d_fkey = F11
+     c                   exsr      vis_logg
+     c                   exsr      init_par
+     c                   exsr      init_stat
+     c                   exsr      sjk_anta
+     c                   goto      a1taga
+     c                   endsl
+      *
+     c                   if        d_fkey <> F10
+     c                   goto      a1taga
+     c                   endif
+6.11  *
+6.11  * sjekker om omkjøring av mail
+6.11  *
+6.11 c                   if        a1emao = '1'
+6.11 c                   exsr      sett_faty
+6.11 c                   endif
+      *
+      * sjekker om overføring allerede pågår
+      *
+     c                   eval      aftplr_navn = 'LOGIQFAKT'
+     c     aftplr_key    chain     aftplr
+     c                   if        %found(aftplr) and
+     c                             afstat <> *blank
+     c                   eval      *in31 = *on
+     c                   goto      a1taga
+     c                   endif
+6.30  *
+6.30 c                   eval      aftplr_navn = 'XMLTRANS '
+6.30 c     aftplr_key    chain     aftplr
+6.30 c                   if        %found(aftplr) and
+6.30 c                             afstat <> *blank
+6.30 c                   eval      *in31 = *on
+6.30 c                   goto      a1taga
+6.30 c                   endif
+      *
+     c                   eval      p_aarr = a1aarr
+     c                   eval      p_anta = *zero
+     c                   eval      p_stat = *blank
+6.10 c                   eval      w_anta = *zero
+      *
+      * eFaktura - Norgros/Logiq-fellesformat
+      *
+     c                   if        a1efav = '1'
+     c                   eval      p_faty = 20
+     c                   eval      p_fnum = a1efaf
+     c                   eval      p_tnum = a1efat
+     c                   eval      p_omkj = a1efao
+     c                   eval      p_rapp = a1efap
+     c                   exsr      strt_felles1
+     c                   eval      a1efas = %char(p_anta) + ' ' +
+     c                                      'fakt. prod.'
+     c                   endif
+      *
+      * ePrint - Norgros/Logiq-fellesformat
+      *
+     c                   if        a1eprv = '1'
+     c                   eval      p_faty = 21
+     c                   eval      p_fnum = a1eprf
+     c                   eval      p_tnum = a1eprt
+     c                   eval      p_omkj = a1epro
+     c                   eval      p_rapp = a1eprp
+     c                   exsr      strt_felles1
+     c                   eval      a1eprs = %char(p_anta) + ' ' +
+     c                                      'fakt. prod.'
+     c                   endif
+      *
+      * eMail - Norgros/Logiq-fellesformat
+      *
+     c                   if        a1emav = '1'
+6.10  * Når e-mail, så kjøres både f.typ = 22,25 og 26
+6.10  *
+6.10 c                   if        b_fa22 = *on
+6.10 c                   eval      p_faty = 22
+6.10 c                   eval      p_fnum = a1emaf
+6.10 c                   eval      p_tnum = a1emat
+6.10 c                   eval      p_omkj = a1emao
+6.10 c                   eval      p_rapp = a1emap
+6.10 c                   exsr      strt_felles1
+6.10 c                   eval      a1emas = %char(p_anta) + ' ' +
+6.10 c                                      'fakt. prod.'
+6.10 c                   eval      w_anta = w_anta + p_anta
+6.10 c                   endif
+6.10 c                   if        b_fa25 = *on
+6.10 c                   eval      p_faty = 25
+6.10 c                   eval      p_fnum = a1emaf
+6.10 c                   eval      p_tnum = a1emat
+6.10 c                   eval      p_omkj = a1emao
+6.10 c                   eval      p_rapp = a1emap
+6.10 c                   exsr      strt_felles1
+6.10 c                   eval      w_anta = w_anta + p_anta
+6.10 c                   eval      a1emas = %char(w_anta) + ' ' +
+6.10 c                                      'fakt. prod.'
+6.10 c                   endif
+6.10 c                   if        b_fa26 = *on
+6.10 c                   eval      p_faty = 26
+6.10 c                   eval      p_fnum = a1emaf
+6.10 c                   eval      p_tnum = a1emat
+6.10 c                   eval      p_omkj = a1emao
+6.10 c                   eval      p_rapp = a1emap
+6.10 c                   exsr      strt_felles1
+6.10 c                   eval      w_anta = w_anta + p_anta
+6.10 c                   eval      a1emas = %char(w_anta) + ' ' +
+6.10 c                                      'fakt. prod.'
+6.10 c                   endif
+      *
+     c                   endif
+      *
+      * eCards - Norgros/Logiq-fellesformat
+      *
+     c                   if        a1ecav = '1'
+     c                   eval      p_faty = 23
+     c                   eval      p_fnum = a1ecaf
+     c                   eval      p_tnum = a1ecat
+     c                   eval      p_omkj = a1ecao
+     c                   eval      p_rapp = a1ecap
+     c                   exsr      strt_felles1
+     c                   eval      a1ecas = %char(p_anta) + ' ' +
+     c                                      'fakt. prod.'
+     c                   endif
+      *
+      * EDI - Norgros/Logiq-fellesformat
+      *
+     c                   if        a1ediv = '1'
+6.20 c                   if        b_fa24 = *on
+     c                   eval      p_faty = 24
+     c                   eval      p_fnum = a1edif
+     c                   eval      p_tnum = a1edit
+     c                   eval      p_omkj = a1edio
+     c                   eval      p_rapp = a1edip
+6.32 c                   exsr      strt_EDI24
+     c                   eval      a1edis = %char(p_anta) + ' ' +
+     c                                      'fakt. prod.'
+6.20 c                   endif
+6.20 c                   if        b_fa28 = *on
+6.20 c                   eval      p_faty = 28
+6.20 c                   eval      p_fnum = a1edif
+6.20 c                   eval      p_tnum = a1edit
+6.20 c                   eval      p_omkj = a1edio
+6.20 c                   eval      p_rapp = a1edip
+6.32 c                   exsr      strt_EDI28
+6.20 c                   eval      a1edis = %char(p_anta) + ' ' +
+6.20 c                                      'fakt. prod.'
+6.20 c                   endif
+     c                   endif
+      *
+      * Autofakt
+      *
+     c                   if        a1autv = '1'
+     c                   eval      p_faty = 30
+     c                   eval      p_fnum = a1autf
+     c                   eval      p_tnum = a1autt
+     c                   eval      p_omkj = a1auto
+     c                   eval      p_rapp = a1autp
+     c                   exsr      strt_autofak
+     c                   eval      a1auts = %char(p_anta) + ' ' +
+     c                                      'fakt. prod.'
+     c                   endif
+      *
+      * VISA/Europay Purchasing
+      *
+     c                   if        a1vepv = '1'
+     c                   eval      p_fnum = a1vepf
+     c                   eval      p_tnum = a1vept
+     c                   eval      p_omkj = a1vepo
+     c                   eval      p_rapp = a1vepp
+     c                   exsr      strt_purchas
+     c                   eval      a1veps = %char(p_anta) + ' ' +
+     c                                      'fakt. prod.'
+     c                   endif
+6.30  *
+6.30  * eFaktura XML
+6.30  *
+6.30 c                   if        a1efxv = '1'
+6.30 c                   eval      p_faty = 10
+6.30 c                   eval      p_fnum = a1efxf
+6.30 c                   eval      p_tnum = a1efxt
+6.30 c                   eval      p_omkj = a1efxo
+6.30 c                   eval      p_rapp = a1efxp
+6.30 c                   exsr      strt_xml
+6.30 c                   eval      a1efxs = %char(p_anta) + ' ' +
+6.30 c                                      'fakt. prod.'
+6.30 c                   endif
+6.30  *
+6.30  * eFaktura mail XML
+6.30  *
+6.30 c                   if        a1emxv = '1'
+6.30 c                   eval      p_faty = 12
+6.30 c                   eval      p_fnum = a1emxf
+6.30 c                   eval      p_tnum = a1emxt
+6.30 c                   eval      p_omkj = a1emxo
+6.30 c                   eval      p_rapp = a1emxp
+6.30 c                   exsr      strt_xml
+6.30 c                   eval      a1emxs = %char(p_anta) + ' ' +
+6.30 c                                      'fakt. prod.'
+6.30 c                   endif
+      *
+     c                   exsr      init_par
+     c                   exsr      sjk_anta
+     c                   goto      a1taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kall til rutine for oppbygging av Norgros format
+      * - eFaktura, ePrint, eMail, eCards
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     strt_felles1  begsr
+      *
+     c                   call      'FO181C'
+     c                   parm                    p_aarr
+     c                   parm                    p_faty
+     c                   parm                    p_fnum
+     c                   parm                    p_tnum
+     c                   parm                    p_omkj
+     c                   parm                    p_rapp
+     c                   parm                    p_anta
+     c                   parm                    p_stat
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kall til rutine for oppbygging av Norgros format
+      * - EDI
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.32 c     strt_EDI24    begsr
+      *
+6.31 c                   eval      w_ants = 0
+6.32 c     ny_send24     tag
+6.31 c
+     c                   call      'FO182C'
+     c                   parm                    p_aarr
+     c                   parm                    p_faty
+     c                   parm                    p_fnum
+     c                   parm                    p_tnum
+     c                   parm                    p_omkj
+     c                   parm                    p_rapp
+     c                   parm                    p_anta
+     c                   parm                    p_stat
+      *
+6.31  *
+6.31  * sjekker om feilsituasjon
+6.31  *
+6.31 c                   if        p_stat <> *blank
+6.31  *
+6.31 c                   eval      w_ovrf = 'LOGIQFAKT'
+6.31  *
+6.31 c                   eval      w_mld1 = 'Noe gikk galt i overføring ' +
+6.31 c                                      %trim(w_ovrf)
+6.31 c                   eval      w_mld2 = 'Vil du se logg ?                '
+6.31 c                   eval      w_svar = 'N'
+6.31  *
+6.31 c                   call      'AA007R'
+6.31 c                   parm                    w_mld1
+6.31 c                   parm                    w_mld2
+6.31 c                   parm                    w_svar
+6.31 c                   parm                    w_in12
+6.31 c                   if                      w_svar = 'J'
+6.31 c                   call      'AF701C  '
+6.31 c                   parm                    w_ovrf
+6.31 c                   endif
+6.31 c                   leavesr
+6.31 c                   endif
+6.31  *
+6.31 c                   eval      w_ants = w_ants + p_anta
+6.31  *
+6.31  * sjekker om det er igjen flere EDI og overføre
+6.31  *
+6.31 c                   eval      w_ante = 0
+6.31 c                   eval      fnufl1_aarr = a1aarr
+6.31 c     fnufl1_key    setll     fnufl1
+6.31 c     fnufl1_key    reade     fnufl1
+6.31 c                   dow       not %eof
+6.31 c                   if        fnukda = *loval
+6.32 c                   if        fnufat = 24
+6.31 c                   eval      w_ante = w_ante + 1
+6.31 c                   endif
+6.31 c                   endif
+6.31 c     fnufl1_key    reade     fnufl1
+6.31 c                   enddo
+6.31  *
+6.31 c                   if        w_ante <> 0
+6.32 c                   goto      ny_send24
+6.31 c                   endif
+6.31  *
+6.31  * legger sum sendte inn i antall som vises i skjermen
+6.31  *
+6.31 c                   eval      p_anta = w_ants
+6.32 c                   endsr
+      *
+6.32  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.32  * Subrutine for kall til rutine for oppbygging av Norgros format
+6.32  * - EDI
+6.32  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.32  *
+6.32 c     strt_EDI28    begsr
+6.32  *
+6.32 c**                 eval      w_ants = 0
+6.32 c     ny_send28     tag
+6.32 c
+6.32 c                   call      'FO182C'
+6.32 c                   parm                    p_aarr
+6.32 c                   parm                    p_faty
+6.32 c                   parm                    p_fnum
+6.32 c                   parm                    p_tnum
+6.32 c                   parm                    p_omkj
+6.32 c                   parm                    p_rapp
+6.32 c                   parm                    p_anta
+6.32 c                   parm                    p_stat
+6.32  *
+6.32  *
+6.32  * sjekker om feilsituasjon
+6.32  *
+6.32 c                   if        p_stat <> *blank
+6.32  *
+6.32 c                   eval      w_ovrf = 'LOGIQFAKT'
+6.32  *
+6.32 c                   eval      w_mld1 = 'Noe gikk galt i overføring ' +
+6.32 c                                      %trim(w_ovrf)
+6.32 c                   eval      w_mld2 = 'Vil du se logg ?                '
+6.32 c                   eval      w_svar = 'N'
+6.32  *
+6.32 c                   call      'AA007R'
+6.32 c                   parm                    w_mld1
+6.32 c                   parm                    w_mld2
+6.32 c                   parm                    w_svar
+6.32 c                   parm                    w_in12
+6.32 c                   if                      w_svar = 'J'
+6.32 c                   call      'AF701C  '
+6.32 c                   parm                    w_ovrf
+6.32 c                   endif
+6.32 c                   leavesr
+6.32 c                   endif
+6.32  *
+6.32 c                   eval      w_ants = w_ants + p_anta
+6.32  *
+6.32  * sjekker om det er igjen flere EDI og overføre
+6.32  *
+6.32 c                   eval      w_ante = 0
+6.32 c                   eval      fnufl1_aarr = a1aarr
+6.32 c     fnufl1_key    setll     fnufl1
+6.32 c     fnufl1_key    reade     fnufl1
+6.32 c                   dow       not %eof
+6.31 c                   if        fnukda = *loval
+6.32 c                   if        fnufat = 28
+6.32 c                   eval      w_ante = w_ante + 1
+6.32 c                   endif
+6.32 c                   endif
+6.32 c     fnufl1_key    reade     fnufl1
+6.32 c                   enddo
+6.32  *
+6.32 c                   if        w_ante <> 0
+6.32 c                   goto      ny_send28
+6.32 c                   endif
+6.32  *
+6.32  * legger sum sendte inn i antall som vises i skjermen
+6.32  *
+6.32 c                   eval      p_anta = w_ants
+6.32 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kall til rutine for oppbygging av Autofakt-format
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     strt_autofak  begsr
+      *
+     c                   call      'FO183R'
+     c                   parm                    p_aarr
+     c                   parm                    p_faty
+     c                   parm                    p_fnum
+     c                   parm                    p_tnum
+     c                   parm                    p_omkj
+     c                   parm                    p_rapp
+     c                   parm                    p_anta
+     c                   parm                    p_stat
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kall til prog. for uttr. til VISA/Europay Purchasing
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     strt_purchas  begsr
+      *
+     c                   call      'FO192C'
+      *
+     c                   endsr
+      *
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  * Subrutine for kall til rutine for oppbygging av XML format
+6.30  * - eFaktura, eMail
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.30  *
+6.30 c     strt_xml      begsr
+6.30  *
+6.30 c                   call      'FO195C'
+6.30 c                   parm                    p_aarr
+6.30 c                   parm                    p_faty
+6.30 c                   parm                    p_fnum
+6.30 c                   parm                    p_tnum
+6.30 c                   parm                    p_omkj
+6.30 c                   parm                    p_rapp
+6.30 c                   parm                    p_anta
+6.30 c                   parm                    p_stat
+6.30  *
+6.30 c                   endsr
+6.30  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for init. av skjermbildefelter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     init_par      begsr
+      *
+     c                   eval      a1efaa = *zero
+     c                   eval      a1epra = *zero
+     c                   eval      a1emaa = *zero
+     c                   eval      a1ecaa = *zero
+     c                   eval      a1edia = *zero
+     c                   eval      a1auta = *zero
+     c                   eval      a1vepa = *zero
+6.30 c                   eval      a1efxa = *zero
+6.30 c                   eval      a1emxa = *zero
+      *
+     c                   eval      a1efav = *blank
+     c                   eval      a1eprv = *blank
+     c                   eval      a1emav = *blank
+     c                   eval      a1ecav = *blank
+     c                   eval      a1ediv = *blank
+     c                   eval      a1autv = *blank
+     c                   eval      a1vepv = *blank
+6.30 c                   eval      a1efxv = *blank
+6.30 c                   eval      a1emxv = *blank
+      *
+     c                   eval      a1efaf = 1
+     c                   eval      a1eprf = 1
+     c                   eval      a1emaf = 1
+     c                   eval      a1ecaf = 1
+     c                   eval      a1edif = 1
+     c                   eval      a1autf = 1
+     c                   eval      a1vepf = 1
+6.30 c                   eval      a1efxf = 1
+6.30 c                   eval      a1emxf = 1
+      *
+6.NU c                   eval      a1efat = 99999999
+6.NU c                   eval      a1eprt = 99999999
+6.NU c                   eval      a1emat = 99999999
+6.NU c                   eval      a1ecat = 99999999
+6.NU c                   eval      a1edit = 99999999
+6.NU c                   eval      a1autt = 99999999
+6.NU c                   eval      a1vept = 99999999
+6.30 c                   eval      a1efxt = 99999999
+6.30 c                   eval      a1emxt = 99999999
+      *
+     c                   eval      a1efao = *blank
+     c                   eval      a1epro = *blank
+     c                   eval      a1emao = *blank
+     c                   eval      a1ecao = *blank
+     c                   eval      a1edio = *blank
+     c                   eval      a1auto = *blank
+     c                   eval      a1vepo = *blank
+6.30 c                   eval      a1efxo = *blank
+6.30 c                   eval      a1emxo = *blank
+      *
+     c                   eval      a1efap = 'J'
+     c                   eval      a1eprp = 'J'
+     c                   eval      a1emap = 'J'
+     c                   eval      a1ecap = 'J'
+     c                   eval      a1edip = 'J'
+     c                   eval      a1autp = 'J'
+     c                   eval      a1vepp = 'J'
+6.30 c                   eval      a1efxp = 'J'
+6.30 c                   eval      a1emxp = 'J'
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for init. av statusfelter
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     init_stat     begsr
+      *
+     c                   eval      a1efas = *blank
+     c                   eval      a1eprs = *blank
+     c                   eval      a1emas = *blank
+     c                   eval      a1ecas = *blank
+     c                   eval      a1edis = *blank
+     c                   eval      a1auts = *blank
+     c                   eval      a1veps = *blank
+6.30 c                   eval      a1efxs = *blank
+6.30 c                   eval      a1emxs = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for sjekk av antall fakt. på kø
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjk_anta      begsr
+      *
+     c                   eval      w_udat = *loval
+     c                   eval      w_efaa = *zero
+     c                   eval      w_epra = *zero
+     c                   eval      w_emaa = *zero
+     c                   eval      w_ecaa = *zero
+     c                   eval      w_edia = *zero
+     c                   eval      w_auta = *zero
+     c                   eval      w_vepa = *zero
+6.30 c                   eval      w_efxa = *zero
+6.30 c                   eval      w_emxa = *zero
+6.10 c                   eval      b_fa22 = *off
+6.10 c                   eval      b_fa25 = *off
+6.10 c                   eval      b_fa26 = *off
+6.20 c                   eval      b_fa24 = *off
+6.20 c                   eval      b_fa28 = *off
+      *
+     c                   eval      fnufl1_aarr = a1aarr
+     c     fnufl1_key    setll     fnufl1
+     c     fnufl1_key    reade     fnufl1
+      *
+     c                   dow       not %eof
+      *
+     c                   if        fnukda = *loval
+     c                   select
+6.30 c                   when      fnufat = 10
+6.30 c                   eval      w_efxa = w_efxa + 1
+6.30 c                   when      fnufat = 12
+6.30 c                   eval      w_emxa = w_emxa + 1
+     c                   when      fnufat = 20
+     c                   eval      w_efaa = w_efaa + 1
+     c                   when      fnufat = 21
+     c                   eval      w_epra = w_epra + 1
+5.60 c                   when      fnufat = 22  or
+6.10 c                             fnufat = 25  or
+6.10 c                             fnufat = 26
+     c                   eval      w_emaa = w_emaa + 1
+     c                   when      fnufat = 23
+     c                   eval      w_ecaa = w_ecaa + 1
+     c                   when      fnufat = 24
+     c                   eval      w_edia = w_edia + 1
+6.20 c                   when      fnufat = 28
+6.20 c                   eval      w_edia = w_edia + 1
+     c                   when      fnufat = 30
+     c                   eval      w_auta = w_auta + 1
+     c                   endsl
+6.10  *
+6.10  * sjekker om 22, 25 eller 26 er med
+6.10 c                   select
+6.10 c                   when      fnufat = 22
+6.10 c                   eval      b_fa22 = *on
+6.10 c                   when      fnufat = 25
+6.10 c                   eval      b_fa25 = *on
+6.10 c                   when      fnufat = 26
+6.10 c                   eval      b_fa26 = *on
+6.20 c                   when      fnufat = 24
+6.20 c                   eval      b_fa24 = *on
+6.20 c                   when      fnufat = 28
+6.20 c                   eval      b_fa28 = *on
+6.10 c                   endsl
+      *
+     c                   endif
+      *
+     c     fnufl1_key    reade     fnufl1
+     c                   enddo
+      *
+     c                   exsr      sjk_vepa
+      *
+     c                   eval      a1efaa = w_efaa
+     c                   eval      a1emaa = w_emaa
+     c                   eval      a1epra = w_epra
+     c                   eval      a1ecaa = w_ecaa
+     c                   eval      a1edia = w_edia
+     c                   eval      a1auta = w_auta
+     c                   eval      a1vepa = w_vepa
+6.30 c                   eval      a1efxa = w_efxa
+6.30 c                   eval      a1emxa = w_emxa
+      *
+     c                   endsr
+6.11  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.11  * Subrutine for sjekk av antall fakt. på kø
+6.11  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.11  *
+6.11 c     sett_faty     begsr
+6.11  *
+6.11 c                   eval      b_fa22 = *off
+6.11 c                   eval      b_fa25 = *off
+6.11 c                   eval      b_fa26 = *off
+6.11  *
+6.11 c                   eval      fnufl1_aarr = a1aarr
+6.11 c                   eval      fnufl1_binr = a1emaf
+6.11 c     fnufl1_key2   setll     fnufl1
+6.11 c                   read      fnufl1
+6.11  *
+6.11 c                   dow       not %eof(fnufl1)
+6.11  *
+6.11  * sjekker om 22, 25 eller 26 er med
+6.11 c                   select
+6.11 c                   when      fnufat = 22
+6.11 c                   eval      b_fa22 = *on
+6.11 c                   when      fnufat = 25
+6.11 c                   eval      b_fa25 = *on
+6.11 c                   when      fnufat = 26
+6.11 c                   eval      b_fa26 = *on
+6.11 c                   endsl
+6.11  *
+6.11 c     fnufl1_key    reade     fnufl1
+6.11 c                   enddo
+6.11  *
+6.11 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for sjekk av antall VISA/Europay Purch. fakt.
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjk_vepa      begsr
+      *
+     c                   eval      fntrl2_kftp = *zero
+     c     fntrl2_key    setll     fntrl2
+     c                   read      fntrl2
+      *
+     c                   dow       not %eof(fntrl2)
+      *
+      * VISA Purchasing - trans.type 01
+      * Europay Purchasing - trans.type 02
+      *
+     c                   if        fnkftp <> 1 and
+     c                             fnkftp <> 2
+     c                   goto      neste_t2
+     c                   endif
+      *
+      * Sjekk om oppdat. tidligere og riktig år
+      *
+     c                   if        fnbinr <> *zero or
+     c                             fnaarr <> a1aarr
+     c                   goto      neste_t2
+     c                   endif
+      *
+     c                   eval      sohel3_aarr = fnaarr
+     c                   eval      sohel3_numm = fnnumm
+     c     sohel3_key    setll     sohel3
+     c     sohel3_key    reade     sohel3r
+      *
+     c                   dow       not %eof(sohel3)
+     c                   if        sosuff = fnsuff
+     c                   eval      w_vepa = w_vepa + 1
+     c                   endif
+     c     sohel3_key    reade     sohel3r
+     c                   enddo
+      *
+     c     neste_t2      tag
+     c                   read      fntrl2
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for kall til prog. for visning av fakturalogg
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     vis_logg      begsr
+      *
+     c                   call      'FM130R'
+     c                   parm                    a1aarr
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Key for kort/fakt trans - type
+      *
+     c     fntrl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fntrl2_kftp
+      *
+      * Key for utg.fakturalogg
+      *
+     c     fnufl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    fnufl1_aarr
+6.11  *
+6.11  * Key for utg.fakturalogg
+6.11  *
+6.11 c     fnufl1_key2   klist
+6.11 c                   kfld                    w_firm
+6.11 c                   kfld                    fnufl1_aarr
+6.11 c                   kfld                    fnufl1_binr
+      *
+      * Key for oppslag på faktura-hode-register
+      *
+     c     sohel3_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    sohel3_aarr
+     c                   kfld                    sohel3_numm
+      *
+      * Key for les av ftp overførings parameter
+      *
+     c     aftplr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    aftplr_navn
+      *
+     c                   eval      w_firm = l_firm
+      *
+      * Sjekker om tilleggsmodul er installert
+      *
+     c                   eval      w_modu = c_modu
+     c                   eval      w_disp = '1'
+     c                   eval      w_stat = '0'
+     c                   eval      b_tlgx = *on
+      *
+     c                   call      'AX700R'
+     c                   parm                    w_modu
+     c                   parm                    w_disp
+     c                   parm                    w_stat
+      *
+     c                   if        w_stat = '1'
+     c                   eval      b_tlgx = *off
+     c                   endif
+      *
+     c                   endsr
+      *

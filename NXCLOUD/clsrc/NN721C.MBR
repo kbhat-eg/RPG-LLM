@@ -1,0 +1,114 @@
+             PGM
+
+/* Initiering av variabler                                           */
+
+             DCL        VAR(&FTPNAV) TYPE(*CHAR) LEN(10) +
+                          VALUE('NBSLIST')
+             DCL        VAR(&STATUS) TYPE(*CHAR) LEN(1)  VALUE(' ')
+             DCL        VAR(&TILNAV) TYPE(*CHAR) LEN(20) VALUE(' ')
+             DCL        VAR(&VISMLD) TYPE(*CHAR) LEN(1)  VALUE('1')
+             DCL        VAR(&CURLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&RAPMBR) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&CHRFIR) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&JOBTYP) TYPE(*CHAR) LEN(1)
+             DCL        VAR(&JOBUSR) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&MEMB)   TYPE(*CHAR) LEN(10)
+
+             DCLF       FILE(ADB/ANBLPF)
+             MONMSG     MSGID(CPF2103)
+
+/* Henter bruker og jobbtype                                         */
+
+             RTVJOBA    USER(&JOBUSR)  TYPE(&JOBTYP)
+
+/* Setter biblioteksliste og current library dersom batch-jobb       */
+
+/*           IF         COND(&JOBTYP *EQ '0') THEN(DO)               */
+/*           CALL       PGM(AA700R) PARM('ASP_fgr   ')               */
+/*           ENDDO                                                   */
+
+/* Leser nettbutikk-tabell                                           */
+
+ LES:        RCVF
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(END))
+
+/* Setter local dataarea og *curlib                                  */
+
+             CHGVAR     VAR(&CHRFIR) VALUE(&AOLFIR)
+             CHGVAR     VAR(&CURLIB) VALUE('ADB' *TCAT &AOLFGR)
+
+             CALL       PGM(AA720C) PARM(&AOLFGR)
+
+             CHGDTAARA  DTAARA(*LDA (944 03)) VALUE(&CHRFIR)
+             CHGDTAARA  DTAARA(*LDA (931 03)) VALUE(&AOLFGR)
+             CHGDTAARA  DTAARA(*LDA (934 10)) VALUE(&CURLIB)
+
+             CHGCURLIB  CURLIB(&CURLIB)
+
+/* Oppretter rapportfil hvis den ikke allerede finnes                */
+
+             CHKOBJ     OBJ(*CURLIB/NETVRAPP) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(CRTSRCPF FILE(NETVRAPP) +
+                          RCDLEN(200) MBR(*FILE) TEXT('Rapportfil +
+                          for nettvaregenerering') SIZE(*NOMAX))
+
+             CHGVAR     VAR(&RAPMBR) VALUE('FIRM' *TCAT &CHRFIR)
+
+/* Blanker ut gammel nettvare rapport member                         */
+
+             CLRPFM     FILE(*CURLIB/NETVRAPP) MBR(&RAPMBR)
+             MONMSG     MSGID(CPF3141) EXEC(ADDPFM +
+                          FILE(*CURLIB/NETVRAPP) MBR(&RAPMBR))
+
+/* Blanker ut gammel nettvarefil                                     */
+
+             CLRPFM     FILE(*CURLIB/NETLIST) MBR(NETLIST)
+             MONMSG     MSGID(CPF3141) EXEC(ADDPFM +
+                          FILE(*CURLIB/NETLIST) MBR(NETLIST))
+
+/* Oppretter og overrider member i arbeidsfil                        */
+
+             CALL       PGM(CRTMEMB) PARM(&MEMB)
+             ADDPFM     FILE(VVAWPF) MBR(&MEMB)
+             OVRDBF     FILE(VVAWPF) MBR(&MEMB) OVRSCOPE(*CALLLVL)
+
+/* Kjører generering av ny nettvarefil                               */
+
+             OVRDBF     FILE(NETVRAPP) TOFILE(*CURLIB/NETVRAPP) +
+                          MBR(&RAPMBR)
+             CALL       PGM(NN720R) PARM(&STATUS)
+             DLTOVR     FILE(NETVRAPP)
+             IF         COND(&STATUS *EQ 'R') THEN(DO)
+             SNDMSG     MSG('Noen nettvarer ble utelatt fra sending. +
+                          Se rapport' *BCAT &RAPMBR *BCAT ' i ADB' +
+                          *TCAT &AOLFGR *BCAT 'for detaljer.') +
+                          TOUSR(&JOBUSR)
+             ENDDO
+             ELSE IF    COND(&STATUS *NE ' ') THEN(DO)
+             SNDMSG     MSG('Nettbutikk finnes ikke for firma' *BCAT +
+                          &CHRFIR *BCAT 'i filgruppe ADB' *TCAT +
+                          &AOLFGR) TOUSR(&JOBUSR)
+             GOTO       CMDLBL(END)
+             ENDDO
+
+             CHGVAR     VAR(&STATUS) VALUE(' ')
+
+/* Fjerner member i arbeidsfil                                       */
+
+             RMVM       FILE(VVAWPF) MBR(&MEMB)
+
+/* Overfører nettvarefil til NBS via FTP                             */
+
+             CALL       PGM(AF700C) PARM(&FTPNAV &STATUS &TILNAV +
+                          &JOBTYP)
+
+/* Gir beskjed ved feil                                                 */
+
+             IF         COND(&STATUS *NE ' ') THEN(SNDMSG MSG('Feil +
+                          ved sending av varefil for firma' *BCAT +
+                          &CHRFIR *BCAT 'i filgruppe' *BCAT +
+                          &AOLFGR) TOUSR(&JOBUSR))
+
+ENDLES:      GOTO       CMDLBL(LES)
+
+END:         ENDPGM

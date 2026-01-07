@@ -1,0 +1,2405 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : ASVADM
+      * Program . . . . : JV121R
+      * Beskrivelse . . : Overføring av varer til EVR, behandling
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       030796 HKO  Nytt program
+      *       250899 HKO  Ny logikk
+      *       101202 HKO  Lagt inn grossistløsning
+      *       141003 HKO  Utelater utgåtte varer
+      *       100604 HKO  Henter inn status og utgår-dato ved SQL mot vare
+      *       140605 HKO  Lagt inn valg av leveringstype
+      *                   Viser varens varetype
+      *       130905 HKO  Overstyring til skaffevare
+      *       140905 HKO  Lagt inn frisøk
+      *       280508 bof  Utvidet parm. til JV750R
+5.70  * PRGR  130908 bof  Utvidet med prisgruppe
+6.10  *       260809 bof  Endret statuskode fra num. til alfa.
+6.11  *       030909 bof  Utvidet med sortimentskode
+6.12  *       030909 bof  Utvidet med kall til spørreprogram sortiment
+6.13  *       300410 bof  Nytt felt, viser antall frigjorte varer
+6.14  *       201010 bof  Teller på b2antf for liten,gjør om til arbeidsfelt
+os71  * os71  161210 bsa  Lagt inn korreksjoner på SQL pga. OS/400 feil
+os71  *                   Det er også lagt inn endring på SQL,
+os71  *                   som er nødvendig ved overgang til v6.1
+6.15  *       070812 bof  Løper igjennom og setter holdekode,for sikk.skyld
+6.16  *       080513 bof  Fjernet 6.15 her, lagt inn i JV127R pga. test
+6.21  *       080114 bof  Nytt parameter til JV142R
+6.31  *       270214 bof  endret kall til vedlikehold av pakning
+6.32  *       270314 bof  Hvis pris har utgått, skal den ikke vises
+6.33  *       020714 bof  Vise DG vha. F23-skift - i kolonne salgspris
+6.34  *       140714 bof  Utvidet med prisendringsdato + parameter for utg.priser
+6.34  *                   Endret også jvprl2 til jvprl3, antakeligvis mer riktig
+6.35  *       160714 bof  Lev.varenr ligger nå på JVLEPF
+6.36  *       110814 bof  Filter på div. felter
+6.37  *       220814 bof  Nytt valg, se duplikate GTIN
+6.38  *  6.30 180515 bkv  Endret LVAR pga økt fra 15 til 20 tegn
+6.3q  *       260515 bof  Datoformat sql
+6.3x  * 6.30  040615 bof  utvidet parm i forb. med prgr. på betingelse
+6.3y  * 6.30  050815 bof  utv. parm i forb. med prgr. på frakt + oppdat.
+6.39  * 6.30  020816 bof  Feilretting vedr. test på til prisdato.
+6.3a  * 6.30  300816 bof  Bruke vare-prisg.indeks for søk lev.varenr
+6.3b  * 6.30  200916 bof  Utvidelse mht. prisdato
+6.3c  * 6.30  111116 bof  skal ikke ta med utgåtte varer.
+6.3c  * 6.30  310317 bof  Feilretting vedr. test på til prisdato.
+6.3d  * 6.30  280417 bof  feilretting i vis av lev.vare.
+6.3e  * 6.30  051017 bof  Omskriving for å få raskere søk.
+6.3f  * 6.30  101117 bof  Feil-retting på sql oppslag mot VVARPF
+6.3g  * 6.30  080118 bof  Må også ha en test på vvar for å takle p_ldor
+6.3h  * 6.30  300118 bof  Feilretting søk på varetekst
+6.3i  *       031018 bof  Innføring av logistikk-varenr
+6.3j  *       220219 bkv  Endret på logistikkvare
+6.3k  *       150219 bof  utvidet kall til JV141R med utgåtte varer.
+7.xx  * 7.00  040316 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+8.01  *PRG2   140622 BOF  Utvidet prisgruppe fra 1 til 2 posisjoner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Bruk av indikatorer:
+      *
+      *       LR = Avslutt program
+      *       10 = Rollup
+      *       11 = Rolldown
+      *       12 = Sfldsp
+      *       13 = Sfldspctl
+      *       14 = Sflclr
+      *       15 = Sflend
+      *       21 = Home-key
+      *       22 = Plassering av cursor
+      *       30 = Protect av felter ved vise
+      *    31-79 = Varsle m/feilmeldinger/skjermindikatorer
+      *    80-99 = Arbeidsindikatorer
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fjvprpf    if   e           k disk
+6.35 fjvlepf    if   e           k disk
+     fjvsost    if   e           k disk    rename(jvsost:jvsostr)
+      *
+     fjvarl5    if   e           k disk    rename(jvarpfr:jvarl5r)
+     fjvarl6    if   e           k disk    rename(jvarpfr:jvarl6r)
+     fjvarl7    if   e           k disk    rename(jvarpfr:jvarl7r)
+6.3a fjvlel2    if   e           k disk    rename(jvlepfr:jvlel2r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fjlevl1    if   e           k disk    rename(jlevpfr:jlevl1r)
+     fjvarl1    if   e           k disk    rename(jvarpfr:jvarl1r)
+     fjvdtl1    if   e           k disk    rename(jvdtpfr:jvdtl1r)
+6.34 fjvprl3    if   e           k disk    rename(jvprpfr:jvprl3r)
+6.32 fjvprl1    if   e           k disk    rename(jvprpfr:jvprl1r)
+     fjvdtlu    uf a e           k disk    rename(jvdtpfr:jvdtlur)
+     fjwprlu    uf   e           k disk    rename(jwprpfr:jwprlur)
+6.39 fjvpkl1    if   e           k disk    rename(jvpkpfr:jvpkl1r)
+6.39 fjvlelr    if   e           k disk    rename(jvlepfr:jvlelrr)
+      *
+     fjv121d    cf   e             workstn sfile(b1sfl:w_srrn)
+     f                                     infds(dspfbk)
+      *
+      * Definering av parametre
+      *
+     d p_firm          s              3  0
+     d p_ldor          s                   like(jvldor)
+     d p_ogrp          s                   like(jvogrp)
+     d p_hgrp          s                   like(jvhgrp)
+     d p_ugrp          s                   like(jvugrp)
+     d p_pgiv          s                   like(jvldor)
+     d p_lety          s              1  0
+     d p_skaf          s              1  0
+8.01 d p_prgr          s              2
+5.70 d w_prut          s              1
+6.11 d p_osor          s                   like(jvsort)
+6.34 d p_dato          s               d   datfmt(*iso)
+6.34 d p_utgp          s              1  0
+6.36 d w_vsts          s              1  0
+6.33 d w_modn          s                   like(jvmodn)
+6.33 d w_ko01          s              1
+6.37 d w_gvar          s                   like(jvvare)
+6.37 d w_genh          s                   like(jvpenh)
+6.37 d w_gsta          s              1
+6.37 d w_gtin          s                   like(jwgtin)
+6.31 d w_ldox          s                   like(jvldor)
+5.3x d w_pgbe          s              1
+6.3y d w_pgfr          s              1
+6.3y d w_oppd          s              1
+6.3i d w_logi          s              9  0
+6.3j d* w_jvqvnr        s                   like(vvvare)
+6.33 d w_jvquno        s              8  0
+6.33 d w_jvllva        s             20
+      *
+      * Definering av Local data area
+      *
+     d                uds
+     d l_fnav                951    980
+      *
+      * Definering av Information Data Structure - display feedback
+      *
+     d dspfbk          ds
+     d  d_fcrn               378    379I 0
+      *
+      * Definering av variabler i nøkler
+      *
+     d jvarl5_tek1     s                   like(jvtek1)
+     d jvarl6_vare     s                   like(jvvare)
+     d jvarl7_nobb     s                   like(jvnobb)
+6.3a d jvlel2_llva     s                   like(jvllva)
+     d vvarl1_vare     s                   like(vvvare)
+     d jlevl1_ldor     s                   like(jlldor)
+     d jvarl1_vare     s                   like(jvvare)
+     d jvdtl1_dvar     s                   like(jvdvar)
+6.34 d jvprl3_ldor     s                   like(jxldor)
+6.32 d jvprl1_vare     s                   like(jxvare)
+6.32 d jvprl1_ldor     s                   like(jxldor)
+     d jvdtlu_dvar     s                   like(jvdvar)
+     d jwprlu_vare     s                   like(jbvare)
+6.37 d jvlelr_lldo     s                   like(jvlldo)
+6.37 d jvlelr_lvnr     s                   like(jvlvnr)
+6.37 d jvpkl1_vare     s                   like(jwvare)
+6.37 d jvpkl1_ldor     s                   like(jwldor)
+      *
+      * Definering av variable
+      *
+     d w_fcrn          s              4  0
+     d w_stel          s              4  0
+     d w_spge          s              4  0
+     d w_srrn          s              4  0
+     d w_sfrn          s                   like(w_srrn)
+     d w_ssrn          s                   like(w_srrn)
+      *
+     d w_seqe          s              1
+      *
+     d b_nye_varer     s              1    inz(*off)
+     d b_open_sok      s              1    inz(*off)
+6.36 d b_filt          s              1    inz(*off)
+6.37 d b_pakn          s              1    inz(*off)
+      *
+     d w_ldor_alf      s              6
+     d w_valg          s              1  0
+     d w_udat          s               d   datfmt(*iso)
+6.3e d w_lova          s               d   datfmt(*iso)
+      *
+     d w_grpr          s              9  2
+     d w_gdat          s               d   datfmt(*iso)
+     d w_enhe          s              3
+     d w_enh1          s              3
+     d w_enh2          s              3
+     d w_enh3          s              3
+     d w_eni1          s              3
+     d w_eni2          s              3
+     d w_eni3          s              3
+     d w_enp1          s              3
+     d w_enp2          s              3
+     d w_enp3          s              3
+     d w_ofp1          s             12  6
+     d w_ofp2          s             12  6
+     d w_ofp3          s             12  6
+     d w_ofv2          s             12  6
+     d w_ofv3          s             12  6
+     d w_ofi1          s             12  6
+     d w_ofi2          s             12  6
+     d w_ofi3          s             12  6
+     d w_bldo          s              6  0
+     d w_bogr          s              2  0
+     d w_bhgr          s              2  0
+     d w_bugr          s              3  0
+     d w_bmod          s              8  0
+     d w_bvar          s             15
+     d w_bvty          s              1
+     d w_blet          s              1  0
+     d w_bbet          s             35
+     d w_ntpr          s              8  2
+     d w_ifak          s              8  6
+     d w_pogr          s              2  0
+     d w_phgr          s              2  0
+     d w_pugr          s              3  0
+     d w_pldo          s              6  0
+     d w_pmod          s              8  0
+     d w_pvar          s             15
+     d w_ppko          s              1
+     d w_pvty          s              1
+     d w_plet          s              1  0
+     d w_kfak          s              8  6
+     d w_kbel          s              7  2
+     d w_sfak          s              8  6
+     d w_midl          s              1  0
+     d w_inpr          s              9  2
+     d w_kopr          s              9  2
+     d w_s1im          s              9  2
+     d w_s2pr          s              9  2
+     d w_s2im          s              9  2
+     d w_s3pr          s              9  2
+     d w_s3im          s              9  2
+     d w_dekn          s              5  2
+     d w_ste1          s             35
+     d w_ste2          s             35
+     d w_ste3          s             35
+     d w_ste4          s             35
+     d w_ste5          s             35
+     d w_gprk          s              1  0
+6.14 d w_antf          s              6  0
+6.34 d w_ffak          s              8  6
+6.34 d w_inp2          s              9  2
+      *
+     d s_tek1          s                   like(jvtek1)
+     d s_nobb          s                   like(jvnobb)
+     d s_lvar          s                   like(jvlvar)
+     d s_vare          s                   like(jvvare)
+     d s_stek          s             35
+      *
+     d w_firm          s              3  0
+     d w_vare          s                   like(jvvare)
+     d w_lvar          s                   like(jvlvar)
+     d w_ldor          s                   like(jvldor)
+     d w_ldop          s                   like(jvldor)
+     d w_xxxx          s                   like(jvldor)
+     d w_eldo          s                   like(jvldor)
+6.12 d w_levr          s                   like(jvldor)
+6.12 d w_ogrp          s                   like(jvogrp)
+6.12 d w_hgrp          s                   like(jvhgrp)
+6.12 d w_ugrp          s                   like(jvugrp)
+6.12 d w_pgiv          s                   like(jvldor)
+6.12 d w_lety          s              1  0
+6.12 d w_sort          s                   like(jvsort)
+6.21 d w_hlev          s              1  0
+6.35 d w_ldo2          s                   like(jvldor)
+6.34 d w_dg            s             11  2
+6.3j d* w_nobb          s                   like(jvnobb)
+6.3j d* w_undv          s              8  0
+6.3j d* w_logl          s             15
+6.3j d w_erlogv        s              2  0                                      er logistikk vare
+6.3j d w_erundv        s              2  0                                      er undervare
+      *
+      * Definering av konstanter
+      *
+     d c_sfil          s              2  0 inz(9)
+      *
+      * Forklaring på spesielle felter
+      * som benyttes ved sub-files.
+      * - - - - - - - - - - - - - - - - -
+      * w_fcrn - Første recordnummer på siden
+      * w_stel - Subfile-teller
+      * w_spge - Sidestørrelse i subfile (page)
+      * w_srrn - Relativt recordnummer i subfile
+      * w_sfrn - Første recordnummer på siste side
+      * w_ssrn - Siste recordnummer på siste side
+      * w_curn - Current recordnummer på siden
+      * w_virn - Side og cursorplassering som skal vises
+      * w_afld - Aktivt feltnavn
+      * w_arow - Aktiv rad for cursor
+      * w_acol - Aktiv kolonne for cursor
+      *
+      * Benyttede skjermbilder.
+      * - - - - - - - - - - - - - - - - -
+      * B1SFL  - B1 Subfile - record
+      * B2CTL  - B2 Subfile - control record
+      * B2CMD  - B2 Eget skjermbilde for CMD-taster
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * B2CTL Behandle åpningsbildet med subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+6.3q C/Exec SQL
+6.3q C+  Set Option DatFmt=*ISO, DlyPrp=*YES, SRTSEQ=*LANGIDUNQ, LANGID=NOR
+6.3q C/End-Exec
+      *
+      * Send Alt
+6.3e c                   time                    w_udat
+6.3e c                   eval      w_lova = *loval
+      *
+     c     b2taga        tag
+      *
+     c                   write     b2cmd
+      *
+      * Bare data
+      *
+     c     b2tagb        tag
+      *
+     c                   exsr      dsp_subfile
+      *
+      * Behandling av standad funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc or *inkl
+     c                   goto      avslutt
+     c                   when      *inke
+     c                   exsr      forny
+     c                   goto      b2tagb
+     c                   when      *in10
+     c                   exsr      crt_subfile
+     c                   goto      b2tagb
+     c                   when      *in11
+     c                   exsr      bck_subfile
+     c                   goto      b2tagb
+     c                   when      *in21
+     c                   eval      *in22 = *on
+     c                   goto      b2taga
+     c                   endsl
+6.36  *
+6.36  * F1=Filter
+6.36  *
+6.36 c                   if        *inka = *on
+6.36 c                   call      'JV146R'
+6.36 c                   parm                    w_firm
+6.36 c                   parm                    w_vsts
+6.36 c                   parm                    w_modn
+6.36 c                   parm                    w_ko01
+6.36 c                   eval      b_filt = *on
+6.36 c                   exsr      forny
+6.36 c                   goto      b2taga
+6-36 c                   endif
+      *
+      * F9=Gjenta søk
+      *
+     c                   if        *inki = *on
+     c                   eval      *in22 = *on
+     c                   eval      b2stek = s_stek
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * F13=Statuskoder
+      *
+     c                   if        *inkm = *on
+     c                   call      'JV140R'
+     c                   goto      b2taga
+     c                   endif
+      *
+      * F14=Gruppebehandling
+      *
+     c                   if        *inkn = *on
+     c                   call      'JV141R'
+     c                   parm                    w_firm
+     c                   parm                    b_nye_varer
+     c                   parm                    p_ldor
+     c                   parm                    p_ogrp
+     c                   parm                    p_hgrp
+     c                   parm                    p_ugrp
+     c                   parm                    p_pgiv
+6.3k c                   parm                    p_utgp
+6.13 c                   exsr      hent_frigjort
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+      * F15=Betingelser
+      *
+     c                   if        *inkp = *on
+     c                   if        p_pgiv <> 0
+     c                   move      p_pgiv        w_ldor_alf
+     c                   else
+     c                   move      p_ldor        w_ldor_alf
+     c                   endif
+     c                   call      'JP101R'
+     c                   parm                    w_ldor_alf
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+      * F16=Påslagsfaktorer
+      *
+     c                   if        *inkq = *on
+     c                   call      'JC100R'
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+      * F17=Forpakninger
+      *
+     c                   if        *inkr = *on
+     c                   call      'JZ100R'
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+6.12  *
+6.12  * F18=Spørring på Sortiment
+6.12  *
+6.12 c                   if        *inks = *on
+6.12 c                   eval      w_levr = p_ldor
+6.12 c                   eval      w_ogrp = p_ogrp
+6.12 c                   eval      w_hgrp = p_hgrp
+6.12 c                   eval      w_ugrp = p_ugrp
+6.12 c                   eval      w_pgiv = p_pgiv
+6.12 c                   eval      w_lety = p_lety
+6.12 c                   eval      w_sort = p_osor
+6.12 c                   call      'JV545R  '
+6.12 c                   parm                    w_firm
+6.12 c                   parm                    w_levr
+6.12 c                   parm                    w_ogrp
+6.12 c                   parm                    w_hgrp
+6.12 c                   parm                    w_ugrp
+6.12 c                   parm                    w_pgiv
+6.12 c                   parm                    w_lety
+6.12 c                   parm                    w_sort
+6.3x c                   parm                    p_prgr
+6.12 c                   exsr      forny
+6.12 c                   goto      b2taga
+6.12 c                   endif
+      *
+      * F20=Start overføring
+      *
+     c                   if        *inku = *on
+     c                   call      'JV123R'
+     c                   parm                    p_firm
+     c                   parm                    p_ldor
+     c                   parm                    p_ogrp
+     c                   parm                    p_hgrp
+     c                   parm                    p_ugrp
+     c                   parm                    p_pgiv
+     c                   parm                    p_skaf
+5.70 c                   parm                    p_prgr
+6.11 c                   parm                    p_osor
+6.34 c                   parm                    p_dato
+6.34 c                   parm                    p_utgp
+6.14 c                   exsr      hent_frigjort
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+      * F23=Bytt informasjon (nobbnr/lev.varenr/varenr)
+      *
+     c                   if        *inkx = *on
+      *
+     c                   if        *in80 = *on
+     c                   eval      *in80 = *off
+     c                   eval      *in81 = *on
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+     c                   if        *in81 = *on
+     c                   eval      *in81 = *off
+     c                   eval      *in82 = *on
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+     c                   if        *in82 = *on
+     c                   eval      *in82 = *off
+     c                   eval      *in80 = *on
+     c                   exsr      forny
+     c                   goto      b2taga
+     c                   endif
+      *
+     c                   endif
+      *
+      * Søking
+      *
+     c                   if        b2stek <> *blank
+     c                   exsr      sØk
+     c                   goto      b2tagb
+     c                   endif
+      *
+      * Posisjonering
+      *
+     c                   if        b2tek1 <> *blank or
+     c                             b2nobb <> 0 or
+     c                             b2lvar <> *blank or
+     c                             b2vare <> 0
+     c                   exsr      posisjoner
+     c                   goto      b2taga
+     c                   endif
+      *
+      * Behandling av subfile
+      *
+     c                   exsr      subfile
+      *
+     c                   goto      b2taga
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for fornying av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     forny         begsr
+      *
+     c                   if        w_fcrn <> 0
+     c     w_fcrn        chain     b1sfl
+     c                   endif
+      *
+     c                   eval      b_open_sok = *on
+      *
+     c                   select
+     c                   when      w_seqe = 'N'
+     c                   eval      s_nobb = b1nobb
+     c                   if        p_ldor <> 0
+     c                   eval      jvarl7_nobb = b1nobb
+     c     jvarl7_key    setll     jvarl7
+     c                   endif
+     c                   when      w_seqe = 'L'
+     c                   eval      s_lvar = b1lvar
+     c                   if        p_ldor <> 0
+6.3a c                   eval      jvlel2_llva = b1lvar
+6.3a c     jvlel2_key    setll     jvlel2
+     c                   endif
+     c                   when      w_seqe = 'V'
+     c                   eval      s_vare = b1vare
+     c                   if        p_ldor <> 0
+     c                   eval      jvarl6_vare = b1vare
+     c     jvarl6_key    setll     jvarl6
+     c                   endif
+     c                   other
+6.36 c*                  if        b_filt = *off
+     c                   eval      s_tek1 = b1tek1
+6.36 c*                  else
+6.36 c*                  eval      s_tek1 = *blank
+6.36 c*                  eval      b_filt = *off
+6.36 c*                  endif
+     c                   if        p_ldor <> 0
+     c                   eval      jvarl5_tek1 = b1tek1
+     c     jvarl5_key    setll     jvarl5
+     c                   endif
+     c                   endsl
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for søking i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sØk           begsr
+      *
+      * Tar vare på søk
+      *
+     c                   eval      s_stek = b2stek
+      *
+      * Søk via søketekst
+      *
+     c                   call      'AS701R'
+     c                   parm                    b2stek
+     c                   parm                    w_ste1
+     c                   parm                    w_ste2
+     c                   parm                    w_ste3
+     c                   parm                    w_ste4
+     c                   parm                    w_ste5
+      *
+     c                   eval      b_open_sok = *on
+      *
+     c                   eval      w_seqe = 'S'
+      *
+     c                   if        p_ldor <> 0
+     c                   eval      jvarl5_tek1 = *blank
+     c     jvarl5_key    setll     jvarl5
+     c                   endif
+      *
+      * Blanker subfile, og fyller opp i.h.t. søk
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker søkefelt
+      *
+     c                   eval      b2stek = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for posisjonering i subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     posisjoner    begsr
+      *
+     c                   eval      b_open_sok = *on
+      *
+     c                   eval      s_tek1 = *blank
+     c                   eval      s_nobb = 0
+     c                   eval      s_lvar = *blank
+     c                   eval      s_vare = *blank
+      *
+      * Varetekst
+      *
+     c                   if        b2tek1 <> *blank
+     c                   eval      w_seqe = *blank
+     c                   eval      s_tek1 = b2tek1
+     c                   if        p_ldor <> 0
+     c                   eval      jvarl5_tek1 = b2tek1
+     c     jvarl5_key    setll     jvarl5
+     c                   endif
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Nobbnummer
+      *
+     c                   if        b2nobb <> 0
+     c                   eval      w_seqe = 'N'
+     c                   eval      *in80 = *on
+     c                   eval      *in81 = *off
+     c                   eval      *in82 = *off
+     c                   eval      s_nobb = b2nobb
+     c                   if        p_ldor <> 0
+     c                   eval      jvarl7_nobb = b2nobb
+     c     jvarl7_key    setll     jvarl7
+     c                   endif
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Leverandørens varenummer
+      *
+     c                   if        b2lvar <> *blank
+     c                   eval      w_seqe = 'L'
+     c                   eval      *in80 = *off
+     c                   eval      *in81 = *on
+     c                   eval      *in82 = *off
+     c                   eval      s_lvar = b2lvar
+     c                   if        p_ldor <> 0
+6.3a c                   eval      jvlel2_llva = b2lvar
+6.3a c     jvlel2_key    setll     jvlel2
+     c                   endif
+     c                   goto      end_pos
+     c                   endif
+      *
+      * Varenummer
+      *
+     c                   if        b2vare <> 0
+     c                   eval      w_seqe = 'V'
+     c                   eval      *in80 = *off
+     c                   eval      *in81 = *off
+     c                   eval      *in82 = *on
+     c                   movel     b2vare        s_vare
+     c                   if        p_ldor <> 0
+     c                   movel     b2vare        jvarl6_vare
+     c     jvarl6_key    setll     jvarl6
+     c                   endif
+     c                   goto      end_pos
+     c                   endif
+      *
+     c     end_pos       tag
+      *
+      * Blanker subfile, og fyller opp i.h.t. posisjonering
+      *
+     c                   eval      *in22 = *off
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+      * Blanker posisjoneringsfelter
+      *
+     c                   eval      b2tek1 = *blank
+     c                   eval      b2lvar = *blank
+     c                   eval      b2nobb = 0
+     c                   eval      b2vare = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     subfile       begsr
+      *
+     c                   if        *in22 = *off
+     c                   eval      *in22 = *on
+     c                   else
+     c                   eval      *in22 = *off
+     c                   endif
+      *
+     c                   eval      w_virn = w_fcrn
+      *
+      * Leser og behandler subfile
+      *
+     c                   do        w_ssrn
+     c                   readc     b1sfl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   eval      *in22 = *off
+     c                   eval      w_virn = w_srrn
+      *
+      * Endre
+      *
+     c                   if        b1valg = 2
+     c                   exsr      xc2bld
+     c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c**                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Holde tilbake
+      *
+     c                   if        b1valg = 3
+     c                   exsr      hold_vare
+     c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis
+      *
+     c                   if        b1valg = 5
+6.3j c                   if        b1udev > 0
+6.3j c                   movel     b1nobb        w_vare
+6.3j c                   else
+     c                   eval      w_vare = b1vare
+6.3j c                   endif
+     c                   call      'JV510R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   eval      b1valg = 0
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Frigi
+      *
+     c                   if        b1valg = 6
+     c                   exsr      frigi_vare
+     c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vedlikehold av vare-pris
+      *
+     c                   if        b1valg = 7
+     c                   eval      w_vare = b1vare
+     c                   call      'JX100R'
+     c                   parm                    w_vare
+     c                   exsr      hent_pris
+     c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vedlikehold av vare-pakning
+      *
+     c                   if        b1valg = 8
+     c                   eval      w_vare = b1vare
+6.31 c                   if        p_ldor <> 0
+6.31 c                   eval      w_ldo2 = p_ldor
+6.31 c                   else
+6.31 c                   eval      w_ldo2 = p_pgiv
+6.31 c                   endif
+     c                   call      'JW100R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+6.31 c                   parm                    w_ldo2
+     c                   exsr      hent_pris
+     c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vedlikehold av søketekster
+      *
+     c                   if        b1valg = 9
+     c                   eval      w_vare = b1vare
+     c                   call      'JS100R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Velg betingelse
+      *
+     c                   if        b1valg = 10
+     c                   eval      w_vare = b1vare
+     c                   call      'JP500R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    p_pgiv
+6.3x c                   parm                    p_prgr
+     c                   parm                    p_lety
+     c                   exsr      hent_pris
+     c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Vis produktinformasjon
+      *
+     c                   if        b1valg = 11
+     c                   eval      w_vare = b1vare
+     c                   call      'JU510R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+6.37  *
+6.37  * Se på gtin i EVR
+6.37  *
+6.37 c                   if        b1valg = 13
+6.37 c                   eval      w_vare = b1vare
+6.37 c                   eval      w_gtin = 0
+6.37 c                   exsr      sjekk_gtin
+6.37 c                   if        w_gtin <> 0
+6.37 c                   call      'VE540R'
+6.37 c                   parm                    w_gtin
+6.37 c                   exsr      hent_pris
+6.37 c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+6.37 c                   update    b1sfl
+6.37 c                   iter
+6.37 c                   endif
+6.37 c                   endif
+6.3j  *
+6.3j  * Vis logistikkvare
+6.3j  *
+6.3j c                   if        b1valg = 14
+6.3j c                   if        b1udev > 0 or b1logv > 0
+6.3j c                   eval      w_vare = b1vare
+6.3j c                   call      'JK110R'
+6.3j c                   parm                    w_vare
+6.3j c                   endif
+6.3j c                   eval      b1valg = 0
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3j c                   exsr      finn_logivar
+6.3j c                   update    b1sfl
+6.3j c                   iter
+6.3j c                   endif
+      *
+      * Kalkulasjon
+      *
+     c                   if        b1valg = 15
+6.21 c                   eval      w_hlev = 0
+     c                   eval      w_vare = b1vare
+     c                   call      'JV142R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    p_pgiv
+     c                   parm                    p_lety
+     c                   parm                    p_skaf
+5.70 c                   parm                    p_prgr
+6.21 c                   parm                    w_hlev
+6.34 c                   parm                    p_dato
+6.3b c                   parm                    p_dato
+6.34 c                   parm                    p_utgp
+     c                   exsr      hent_pris
+     c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+      * Fjerne midlertidig pris
+      *
+     c                   if        b1valg = 17
+     c                   eval      jwprlu_vare = b1vare
+     c     jwprlu_key    chain     jwprlur
+     c                   if        %found
+     c                   delete    jwprlur
+     c                   endif
+     c                   exsr      hent_pris
+     c                   eval      b1valg = 0
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = b1vare
+6.3i c                   exsr      finn_logivar
+     c                   update    b1sfl
+     c                   iter
+     c                   endif
+      *
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * C2BLD Behandle bilde for endring av vareinformasjon
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xc2bld        begsr
+      *
+6.3j c                   if        b1udev > 0
+6.3j c                   movel     b1nobb        w_vare
+6.3j c                   else
+     c                   eval      w_vare = b1vare
+6.3j c                   endif
+     c                   eval      w_valg = 2
+      *
+     c                   call      'JV101R'
+     c                   parm                    w_firm
+     c                   parm                    w_vare
+     c                   parm                    w_valg
+      *
+      * Oppdater subfile
+      *
+6.3j c                   if        b1udev > 0
+6.3j c                   movel     b1nobb        jvarl1_vare
+6.3j c                   else
+     c                   eval      jvarl1_vare = b1vare
+6.3j c                   endif
+     c     jvarl1_key    chain     jvarl1
+     c                   if        %found
+      *
+     c                   eval      b1tek1 = jvtek1
+     c                   eval      b1nobb = jvnobb
+6.3d c                   eval      b1lvar = jvllva
+     c                   eval      b1ogrp = jvogrp
+     c                   eval      b1hgrp = jvhgrp
+     c                   eval      b1ugrp = jvugrp
+     c                   eval      b1pkod = *blank
+     c                   eval      b1skod = 0
+     c                   eval      b1vtyp = *blank
+     c                   eval      b1hkod = 'X'
+6.3i  *
+6.3i  * finn nobb og lvar fra undervare
+6.3i c                   eval      w_jvquno = 0
+6.3i c                   eval      w_jvllva = *blank
+6.3i c/exec sql
+6.3i c+ select IFNULL(jvquno, 0) , IFNULL(jvllva, '''')
+6.3i c+ into   :w_jvquno, :w_jvllva
+6.3i c+ from   jvklpf
+6.3i c+ inner join jvlepf on jvlvnr = jvqvnr and
+6.3i c+  jvlldo = jvqldo
+6.3i c+ where  jvqvnr = :jvvare and
+6.3i c+        jvqldo = :p_pgiv and
+6.3i c+        jvqfir = :w_firm
+6.3i c+ fetch first 1 rows only
+6.3i c/end-exec
+6.3i c                   if        w_jvquno > 0
+6.3i c                   eval      jvnobb = w_jvquno
+6.3j c                   eval      b1nobb = w_jvquno
+      * hvis det er en undervare, så ligger logistikkvarenummer i B1VARE
+6.3j c                   eval      jvvare = b1vare
+6.3i c                   movel     w_jvllva      b1lvar
+6.3i c                   movel     w_jvllva      jvlvar
+6.3i c                   endif
+      *
+     c                   select
+     c                   when      *in80 = *on
+     c                   eval      b1nypo = %editc(jvnobb : 'Z')
+     c                   when      *in81 = *on
+6.3d c                   movel     jvllva        b1nypo
+     c                   when      *in82 = *on
+     c                   eval      b1nypo = jvvare
+     c                   endsl
+      *
+     c                   endif
+      *
+     c                   eval      jvdtl1_dvar = b1vare
+     c     jvdtl1_key    chain     jvdtl1
+     c                   if        %found
+     c                   eval      b1pkod = jvdpko
+     c                   eval      b1skod = jvdsko
+     c                   if        jvdhko = 0
+     c                   eval      b1hkod = *blank
+     c                   endif
+     c                   endif
+      *
+     c                   if        p_skaf = 1
+     c                   eval      b1skod = 1
+     c                   endif
+      *
+     c                   if        b1skod = 1
+     c                   eval      b1vtyp = 'S'
+     c                   endif
+      *
+     c                   exsr      hent_pris
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å holde vare tilbake fra overføring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hold_vare     begsr
+      *
+     c                   clear                   jvdtlur
+      *
+     c                   eval      jvdtlu_dvar = b1vare
+     c     jvdtlu_key    chain     jvdtlur
+      *
+6.13 c                   if        jvdhko = 0
+6.14 c                   eval      w_antf = w_antf - 1
+6.13 c                   endif
+6.14 c                   if        w_antf < 10000
+6.14 c                   eval      b2antf = w_antf
+6.14 c                   else
+6.14 c                   eval      b2antf = 9999
+6.14 c                   endif
+     c                   eval      jvdhko = 1
+      *
+     c                   if        %found
+     c                   update    jvdtlur
+     c                   else
+     c                   eval      jvdfir = w_firm
+     c                   eval      jvdvar = b1vare
+     c                   write     jvdtlur
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c                   eval      b1hkod = 'X'
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å frigi vare for overføring
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     frigi_vare    begsr
+      *
+     c                   clear                   jvdtlur
+      *
+     c                   eval      jvdtlu_dvar = b1vare
+     c     jvdtlu_key    chain     jvdtlur
+      *
+6.13 c                   if        jvdhko = 1
+6.14 c                   eval      w_antf = w_antf + 1
+6.13 c                   endif
+6.14 c                   if        w_antf < 10000
+6.14 c                   eval      b2antf = w_antf
+6.14 c                   else
+6.14 c                   eval      b2antf = 9999
+6.14 c                   endif
+      *
+     c                   eval      jvdhko = 0
+      *
+     c                   if        %found
+     c                   update    jvdtlur
+     c                   else
+     c                   eval      jvdfir = w_firm
+     c                   eval      jvdvar = b1vare
+     c                   write     jvdtlur
+     c                   endif
+      *
+      * Oppdater subfile
+      *
+     c                   eval      b1hkod = *blank
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for henting av prisinformasjon på vare
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     hent_pris     begsr
+      *
+     c                   eval      b1midl = *blank
+      *
+      * Henter salgspris fra fellesprogram
+      *
+     c                   eval      w_gprk = 0
+     c                   eval      w_ldop = p_pgiv
+6.3y c                   eval      w_oppd = *blank
+      *
+     c                   call      'JV750R'
+     c                   parm                    w_firm
+     c                   parm                    b1vare
+5.70 c                   parm                    p_prgr
+     c                   parm                    w_ldop
+     c                   parm                    b1pkod
+     c                   parm                    b1skod
+     c                   parm                    p_lety
+     c                   parm                    w_gprk
+6.34 c                   parm                    p_dato
+6.34 c                   parm                    p_utgp
+      *
+     c                   parm                    b1osts
+      *
+     c                   parm                    w_xxxx
+     c                   parm                    w_lvar
+     c                   parm                    w_eldo
+     c                   parm                    w_grpr
+     c                   parm                    w_gdat
+      *
+     c                   parm                    w_enhe
+     c                   parm                    w_enh1
+     c                   parm                    w_enh2
+     c                   parm                    w_enh3
+     c                   parm                    w_eni1
+     c                   parm                    w_eni2
+     c                   parm                    w_eni3
+     c                   parm                    w_enp1
+     c                   parm                    w_enp2
+     c                   parm                    w_enp3
+     c                   parm                    w_ofp1
+     c                   parm                    w_ofp2
+     c                   parm                    w_ofp3
+     c                   parm                    w_ofv2
+     c                   parm                    w_ofv3
+     c                   parm                    w_ofi1
+     c                   parm                    w_ofi2
+     c                   parm                    w_ofi3
+      *
+     c                   parm                    w_bldo
+     c                   parm                    w_bogr
+     c                   parm                    w_bhgr
+     c                   parm                    w_bugr
+     c                   parm                    w_bmod
+     c                   parm                    w_bvar
+     c                   parm                    w_bvty
+     c                   parm                    w_blet
+     c                   parm                    w_bbet
+     c                   parm                    w_ntpr
+     c                   parm                    w_ifak
+      *
+     c                   parm                    w_pogr
+     c                   parm                    w_phgr
+     c                   parm                    w_pugr
+     c                   parm                    w_pldo
+     c                   parm                    w_pmod
+     c                   parm                    w_pvar
+     c                   parm                    w_ppko
+     c                   parm                    w_pvty
+     c                   parm                    w_plet
+     c                   parm                    w_kfak
+     c                   parm                    w_kbel
+     c                   parm                    w_sfak
+      *
+     c                   parm                    w_midl
+     c                   parm                    w_inpr
+     c                   parm                    w_kopr
+     c                   parm                    b1s1pr
+     c                   parm                    w_s1im
+     c                   parm                    w_s2pr
+     c                   parm                    w_s2im
+     c                   parm                    w_s3pr
+     c                   parm                    w_s3im
+     c                   parm                    w_dekn
+5.70 c                   parm                    w_prut
+6.34 c                   parm                    w_ffak
+6.34 c                   parm                    w_inp2
+5.3x c                   parm                    w_pgbe
+6.3y c                   parm                    w_pgfr
+6.3y c                   parm                    w_oppd
+      *
+6.34 c                   eval(h)   w_inpr = w_inpr * w_ffak
+6.34  *
+6.34  * Beregner DG
+6.34  *
+6.34 c                   if        *in81 = *on
+6.34 c                   eval      w_dg = 0
+6.34 c                   if        w_kopr <> 0 and
+6.34 c                             b1s1pr <> 0
+6.34 c                   select
+6.34 c                   when      (100 - (w_kopr * 100 / b1s1pr)) < -99,99
+6.34 c                   eval      w_dg   = -99,99
+6.34 c                   when      (100 - (w_kopr * 100 / b1s1pr)) > 99,99
+6.34 c                   eval      w_dg   = 99,99
+6.34 c                   other
+6.34 c                   eval(h)   w_dg   = 100 - (w_kopr * 100 / b1s1pr)
+6.34 c                   endsl
+6.34 c                   eval      b1s1pr = w_dg
+6.34  *
+6.34 c                   endif
+6.34 c                   endif
+      *
+      * Setter midlertidig prisoppdatert-flagg
+      *
+     c                   if        w_midl = 1
+     c                   eval      b1midl = 'M'
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for tømming av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     clr_subfile   begsr
+      *
+     c                   eval      *in14 = *on
+     c                   write     b2ctl
+     c                   eval      *in14 = *off
+      *
+     c                   eval      *in15 = *off
+     c                   eval      w_srrn = 0
+     c                   eval      w_sfrn = 0
+     c                   eval      w_ssrn = 0
+     c                   eval      w_spge = 0
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å fylle opp subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     crt_subfile   begsr
+      *
+     c                   if        p_ldor = 0 and
+     c                             b_open_sok = *on
+      *
+     c                   select
+     c                   when      w_seqe = 'N'
+     c/exec sql
+     c+ declare nobb cursor for
+6.3j c+ select * from (
+     c+ select v.jvtek1,
+     c+        v.jvnobb,
+6.3j c*+        v.jvvare,
+6.3j c+        ifnull( (select jvqvnr from jvklpf where
+6.3j c+           jvquno = v.jvnobb and jvqldo = p.jvlldo), v.jvvare) as jvvare,
+     c+        v.jvogrp,
+     c+        v.jvhgrp,
+     c+        v.jvugrp,
+6.36 c+        v.jvmodn,
+6.11 c+        v.jvsort,
+     c+        v.jvstat,
+     c+        v.jvudat,
+6.35 c+        p.jvlvnr,
+6.35 c+        p.jvlldo,
+6.3c c+        p.jvluda,
+6.35 c+        p.jvllva
+6.3j c+        ,(select count(*) from jvkhpf where jvkvnr=v.jvvare) as lvare
+6.3j c+        ,(select count(*) from jvklpf where jvquno=v.jvnobb) as uvare
+os71 c+ from   jvarpf as v inner join
+6.35 c+        jvlepf as p on
+6.35 c+        v.jvvare  = p.jvlvnr
+6.35 c+ where  p.jvlldo  = :p_pgiv and
+6.3e c+        (jvluda =:w_lova  or
+6.3e c+         jvluda > :w_udat)   and
+6.3j c+        (v.jvnobb  >= :s_nobb ) and
+6.3j c*+        v.jvvare in
+6.3j c*+        (select jvqvnr from jvklpf
+6.3j c*+         where jvqldo = :p_pgiv)) and
+6.3j c+         v.jvvare not in                                                 ikke logistikk vare
+6.3j c+        (select jvkvnr from jvkhpf
+6.3j c+         where jvkfir = :w_firm)
+6.3j c*+         v.jvnobb not in
+6.3j c*+        (select jvquno from jvklpf
+6.3j c*+        where jvqfir = :w_firm)
+6.3j c+ ) AA
+6.3j c+  where  aa.jvvare not in                                                 ikke i EVR
+6.3j c+        (select vvvare from vvarpf
+6.3j c+         where vvfirm = :w_firm)
+6.3j c+ order by aa.jvnobb, aa.jvtek1
+     c+ for read only
+     c/end-exec
+     c/exec sql
+     c+ close nobb
+     c/end-exec
+     c/exec sql
+     c+ open nobb
+     c/end-exec
+     c                   when      w_seqe = 'L'
+     c/exec sql
+     c+ declare lev_vare cursor for
+6.3j c+ select * from (
+6.3j c+ select p.jvlvnr,
+6.35 c+        p.jvlldo,
+6.3c c+        p.jvluda,
+6.35 c+        p.jvllva,
+     c+        v.jvtek1,
+     c+        v.jvnobb,
+6.3j c*+        v.jvvare,
+6.3j c+        ifnull( (select jvqvnr from jvklpf where
+6.3j c+           jvquno = v.jvnobb and jvqldo = p.jvlldo), v.jvvare) as jvvare,
+     c+        v.jvogrp,
+     c+        v.jvhgrp,
+     c+        v.jvugrp,
+6.36 c+        v.jvmodn,
+6.11 c+        v.jvsort,
+     c+        v.jvstat,
+     c+        v.jvudat
+6.3j c+        ,(select count(*) from jvkhpf where jvkvnr=v.jvvare) as lvare
+6.3j c+        ,(select count(*) from jvklpf where jvquno=v.jvnobb) as uvare
+6.35 c+ from   jvlepf as p inner join
+os71 c+        jvarpf as v on
+6.35 c+        p.jvlvnr  = v.jvvare
+6.3e c+ where  p.jvlldo  = :p_pgiv and
+6.3e c+        (jvluda =:w_lova  or
+6.3e c+         jvluda > :w_udat)   and
+6.3e c+        p.jvllva  >= :s_lvar and
+6.3j c+            v.jvvare not in                                              ikke logistikk vare
+6.3j c+        (select jvkvnr from jvkhpf
+6.3j c+         where jvkfir = :w_firm)
+6.3j c*+         where vvfirm = :w_firm) and
+6.3j c*+         v.jvnobb not in
+6.3j c*+        (select jvquno from jvklpf
+6.3j c*+        where jvqfir = :w_firm)
+6.3j c+ ) AA
+6.3j c+  where  aa.jvvare not in                                                 ikke i EVR
+6.3j c+        (select vvvare from vvarpf
+6.3j c+         where vvfirm = :w_firm)
+6.3j c+ order by aa.jvlldo, aa.jvllva, aa.jvtek1
+6.3j c+ for read only
+     c/end-exec
+     c/exec sql
+     c+ close lev_vare
+     c/end-exec
+     c/exec sql
+     c+ open lev_vare
+     c/end-exec
+     c                   when      w_seqe = 'V'
+     c/exec sql
+     c+ declare vare cursor for
+6.3j c+ select * from (
+6.3j c+ select v.jvtek1,
+     c+        v.jvnobb,
+6.3j c*+        v.jvvare,
+6.3j c+        ifnull( (select jvqvnr from jvklpf where
+6.3j c+           jvquno = v.jvnobb and jvqldo = p.jvlldo), v.jvvare) as jvvare,
+     c+        v.jvogrp,
+     c+        v.jvhgrp,
+     c+        v.jvugrp,
+6.36 c+        v.jvmodn,
+6.11 c+        v.jvsort,
+     c+        v.jvstat,
+     c+        v.jvudat,
+6.35 c+        p.jvlvnr,
+6.35 c+        p.jvlldo,
+6.3c c+        p.jvluda,
+6.35 c+        p.jvllva
+6.3j c+        ,(select count(*) from jvkhpf where jvkvnr=v.jvvare) as lvare
+6.3j c+        ,(select count(*) from jvklpf where jvquno=v.jvnobb) as uvare
+os71 c+ from   jvarpf as v inner join
+6.35 c+        jvlepf as p on
+6.35 c+        v.jvvare  = p.jvlvnr
+6.3e c+ where  p.jvlldo  = :p_pgiv and
+6.3e c+        (jvluda =:w_lova  or
+6.3e c+         jvluda > :w_udat)   and
+6.3e c*+        v.jvvare  >= :s_vare and
+6.3j c+            v.jvvare not in                                              ikke logistikk vare
+6.3j c+        (select jvkvnr from jvkhpf
+6.3j c+         where jvkfir = :w_firm)
+6.3j c*+         where vvfirm = :w_firm) and
+6.3j c*+         v.jvnobb not in
+6.3j c*+        (select jvquno from jvklpf
+6.3j c*+        where jvqfir = :w_firm)
+6.3j c+ ) AA
+6.3j c+  where  aa.jvvare  >= :s_vare and
+6.3j c+         aa.jvvare not in                                                 ikke i EVR
+6.3j c+        (select vvvare from vvarpf
+6.3j c+         where vvfirm = :w_firm)
+6.3j c+ order by aa.jvvare, aa.jvtek1
+     c+ for read only
+     c/end-exec
+     c/exec sql
+     c+ close vare
+     c/end-exec
+     c/exec sql
+     c+ open vare
+     c/end-exec
+6.3e c                   when      w_seqe = 'S'
+6.3e c/exec sql
+6.3e c+ declare fsok cursor for
+6.3j c+ select * from (
+6.3j c+ select v.jvtek1,
+6.3e c+        v.jvnobb,
+6.3j c*+        v.jvvare,
+6.3j c+        ifnull( (select jvqvnr from jvklpf where
+6.3j c+           jvquno = v.jvnobb and jvqldo = p.jvlldo), v.jvvare) as jvvare,
+6.3e c+        v.jvogrp,
+6.3e c+        v.jvhgrp,
+6.3e c+        v.jvugrp,
+6.3e c+        v.jvmodn,
+6.3e c+        v.jvsort,
+6.3e c+        v.jvstat,
+6.3e c+        v.jvudat,
+6.3e c+        p.jvlvnr,
+6.3e c+        p.jvlldo,
+6.3e c+        p.jvluda,
+6.3e c+        p.jvllva
+6.3j c+        ,(select count(*) from jvkhpf where jvkvnr=v.jvvare) as lvare
+6.3j c+        ,(select count(*) from jvklpf where jvquno=v.jvnobb) as uvare
+6.3j c+ from   jvarpf as v inner join
+6.3e c+        jvlepf as p on
+6.3e c+        v.jvvare  = p.jvlvnr
+6.3e c+        inner join
+6.3e c+        jvsost as s on
+6.3e c+        v.jvvare = s.jvsvar
+6.3e c+ where  p.jvlldo  = :p_pgiv and
+6.3e c+        (jvluda =:w_lova  or
+6.3e c+         jvluda > :w_udat)   and
+6.3e c+        v.jvvare  >= :s_vare and
+6.3j c+        v.jvvare not in                                                  ikke logistikk vare
+6.3j c+        (select jvkvnr from jvkhpf
+6.3j c+         where jvkfir = :w_firm) and
+6.3j c*+         v.jvnobb not in
+6.3j c*+        (select jvquno from jvklpf
+6.ei c*+        where jvqfir = :w_firm) and
+6.3e c+        s.jvstek like :w_ste1 and
+6.3e c+        s.jvstek like :w_ste2 and
+6.3e c+        s.jvstek like :w_ste3 and
+6.3e c+        s.jvstek like :w_ste4
+6.3j c+ ) AA
+6.3j c+  where  aa.jvvare not in                                                 ikke i EVR
+6.3j c+        (select vvvare from vvarpf
+6.3j c+         where vvfirm = :w_firm)
+6.3j c+ order by aa.jvvare, aa.jvtek1
+6.3e c+ for read only
+6.3e c/end-exec
+6.3e c/exec sql
+6.3e c+ close fsok
+6.3e c/end-exec
+6.3e c/exec sql
+6.3e c+ open fsok
+6.3e c/end-exec
+6.3e c                   other
+     c/exec sql
+     c+ declare tekst cursor for
+6.3j c+ select * from (
+6.3j c+ select v.jvtek1,
+     c+        v.jvnobb,
+6.3j c*+        v.jvvare,
+6.3j c+        ifnull( (select jvqvnr from jvklpf where
+6.3j c+           jvquno = v.jvnobb and jvqldo = p.jvlldo), v.jvvare) as jvvare,
+     c+        v.jvogrp,
+     c+        v.jvhgrp,
+     c+        v.jvugrp,
+6.36 c+        v.jvmodn,
+6.11 c+        v.jvsort,
+     c+        v.jvstat,
+     c+        v.jvudat,
+6.35 c+        p.jvlvnr,
+6.35 c+        p.jvlldo,
+6.3c c+        p.jvluda,
+6.35 c+        p.jvllva
+6.3j c+        ,(select count(*) from jvkhpf where jvkvnr=v.jvvare) as lvare
+6.3j c+        ,(select count(*) from jvklpf where jvquno=v.jvnobb) as uvare
+os71 c+ from   jvarpf as v inner join
+6.35 c+        jvlepf as p on
+6.35 c+        v.jvvare  = p.jvlvnr
+6.3e c+ where  p.jvlldo  = :p_pgiv and
+6.3h c+        v.jvtek1 >= :s_tek1 and
+6.3e c+        (jvluda =:w_lova  or
+6.3e c+         jvluda > :w_udat)   and
+6.3j c+        v.jvvare not in                                                  ikke logistikk vare
+6.3j c+        (select jvkvnr from jvkhpf
+6.3j c+         where jvkfir = :w_firm)
+6.3j c*+         where vvfirm = :w_firm) and
+6.3j c*+         v.jvnobb not in
+6.3j c*+        (select jvquno from jvklpf
+6.3j c*+        where jvqfir = :w_firm) and
+6.3j c*+         v.jvnobb not in
+6.3j c*+        (select jvquno from jvklpf
+6.3j c*+        where jvqfir = :w_firm)
+6.3j c+ ) AA
+6.3j c+  where  aa.jvvare not in                                                 ikke i EVR
+6.3j c+        (select vvvare from vvarpf
+6.3j c+         where vvfirm = :w_firm)
+6.3j c+ order by aa.jvtek1, aa.jvnobb
+     c+ for read only
+     c/end-exec
+     c/exec sql
+     c+ close tekst
+     c/end-exec
+     c/exec sql
+     c+ open tekst
+     c/end-exec
+     c                   endsl
+      *
+     c                   endif
+      *
+     c                   eval      w_spge = w_spge + c_sfil
+     c                   eval      w_srrn = w_ssrn
+      *
+     c                   dou       w_srrn = w_spge
+      *
+6.36 c     neste_fetch   tag
+      *
+     c                   if        p_ldor = 0
+      *
+     c                   select
+     c                   when      w_seqe = 'N'
+     c/exec sql
+     c+ fetch nobb
+     c+ into  :jvtek1,
+     c+       :jvnobb,
+     c+       :jvvare,
+     c+       :jvogrp,
+     c+       :jvhgrp,
+     c+       :jvugrp,
+6.36 c+       :jvmodn,
+6.11 c+       :jvsort,
+     c+       :jvstat,
+     c+       :jvudat,
+6.35 c+       :jvlvnr,
+6.35 c+       :jvlldo,
+6.3c c+       :jvluda,
+6.3j c+       :jvllva,
+6.3j c+       :w_erlogv,
+6.3j c+       :w_erundv
+     c/end-exec
+     c                   when      w_seqe = 'L'
+     c/exec sql
+     c+ fetch lev_vare
+6.35 c+ into  :jvlvnr,
+6.35 c+       :jvlldo,
+6.3c c+       :jvluda,
+6.3d c+       :jvllva,
+     c+       :jvtek1,
+     c+       :jvnobb,
+     c+       :jvvare,
+     c+       :jvogrp,
+     c+       :jvhgrp,
+     c+       :jvugrp,
+6.36 c+       :jvmodn,
+6.11 c+       :jvsort,
+     c+       :jvstat,
+6.3j c+       :jvudat,
+6.3j c+       :w_erlogv,
+6.3j c+       :w_erundv
+     c/end-exec
+     c                   when      w_seqe = 'V'
+     c/exec sql
+     c+ fetch vare
+     c+ into  :jvtek1,
+     c+       :jvnobb,
+     c+       :jvvare,
+     c+       :jvogrp,
+     c+       :jvhgrp,
+     c+       :jvugrp,
+6.36 c+       :jvmodn,
+6.11 c+       :jvsort,
+     c+       :jvstat,
+     c+       :jvudat,
+6.35 c+       :jvlvnr,
+6.35 c+       :jvlldo,
+6.3c c+       :jvluda,
+6.35 c+       :jvllva,
+6.3j c+       :w_erlogv,
+6.3j c+       :w_erundv
+     c/end-exec
+6.3e c                   when      w_seqe = 'S'
+6.3e c/exec sql
+6.3e c+ fetch fsok
+6.3e c+ into  :jvtek1,
+6.3e c+       :jvnobb,
+6.3e c+       :jvvare,
+6.3e c+       :jvogrp,
+6.3e c+       :jvhgrp,
+6.3e c+       :jvugrp,
+6.3e c+       :jvmodn,
+6.3e c+       :jvsort,
+6.3e c+       :jvstat,
+6.3e c+       :jvudat,
+6.3e c+       :jvlvnr,
+6.3e c+       :jvlldo,
+6.3e c+       :jvluda,
+6.3e c+       :jvllva,
+6.3j c+       :w_erlogv,
+6.3j c+       :w_erundv
+6.3e c/end-exec
+6.3e c                   other
+     c/exec sql
+     c+ fetch tekst
+     c+ into  :jvtek1,
+     c+       :jvnobb,
+     c+       :jvvare,
+     c+       :jvogrp,
+     c+       :jvhgrp,
+     c+       :jvugrp,
+6.36 c+       :jvmodn,
+6.11 c+       :jvsort,
+     c+       :jvstat,
+     c+       :jvudat,
+6.35 c+       :jvlvnr,
+6.35 c+       :jvlldo,
+6.3c c+       :jvluda,
+6.35 c+       :jvllva,
+6.3j c+       :w_erlogv,
+6.3j c+       :w_erundv
+     c/end-exec
+     c                   endsl
+      *
+     c                   if        sqlcod = 100 or sqlstt = '02000'
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   else
+     c                   select
+     c                   when      w_seqe = 'N'
+     c                   read      jvarl7                                 15
+     c                   when      w_seqe = 'L'
+6.3a c                   read      jvlel2                                 15
+     c                   when      w_seqe = 'V'
+     c                   read      jvarl6                                 15
+     c                   other
+     c                   read      jvarl5                                 15
+     c                   endsl
+     c                   endif
+      *
+     c                   if        *in15
+     c                   leave
+     c                   endif
+      *
+     c                   if        p_ldor <> 0 and
+     c                             p_ldor <> jvldor
+     c                   eval      *in15 = *on
+     c                   leave
+     c                   endif
+      *
+     c                   if        p_ogrp <> 0 and
+     c                             p_ogrp <> jvogrp
+     c                   iter
+     c                   endif
+      *
+     c                   if        p_hgrp <> 0 and
+     c                             p_hgrp <> jvhgrp
+     c                   iter
+     c                   endif
+      *
+     c                   if        p_ugrp <> 0 and
+     c                             p_ugrp <> jvugrp
+     c                   iter
+     c                   endif
+6.36  *
+6.36 c                   if        w_modn <> 0 and
+6.36 c                             w_modn <> jvmodn
+6.36 c                   iter
+6.36 c                   endif
+      *
+6.11  *
+6.11 c                   if        p_osor <> *blank
+6.12 c                   if        jvsort =  *blank or
+6.12 c                             %subst(jvsort:1:1) > %subst(p_osor:1:1)
+6.11 c                   iter
+6.11 c                   endif
+6.11 c                   endif
+6.3c  *
+6.3c  * hvis utgått på prisgiver (fjernet test her,ligger i sql)
+      *
+6.32  *
+6.34  * regel : hvis pris har utgått skal den ikke vises
+6.34  * untak : parameter som sier at den skal vises
+6.34  * tester også på om riktig pris brukes, ut fra dato
+6.34  *
+6.3j c                   if        b1udev > 0
+6.3j c                   movel     b1nobb        jvprl1_vare
+6.3j c                   else
+6.32 c                   eval      jvprl1_vare = jvvare
+6.3j c                   endif
+6.32 c                   eval      jvprl1_ldor = jxldor
+6.34 c     jvprl1_key    setll     jvprl1
+6.34 c     jvprl1_key    reade     jvprl1
+6.34 c                   dow       not %eof(jvprl1)
+6.34 c                   if        p_dato >= jxgdat
+6.34 c                   if        p_utgp =  0      and
+6.34 c                             jxtdat <> *loval and
+6.3c c                             jxtdat <  w_udat
+6-32 c                   goto      neste_fetch
+6.32 c                   endif
+6.34  *
+6.34 c                   leave
+6.34 c                   endif
+6.34 c     jvprl1_key    reade     jvprl1
+6.34 c                   enddo
+6.3g  * Testen må ligge her hvis man bruker p_ldor
+6.3g c                   eval      vvarl1_vare = jvvare                         jvvare er evt logis
+6.3g c     vvarl1_key    chain     vvarl1
+6.3g c                   if        %found
+6.3g c                   iter
+6.3g c                   endif
+      *
+6.3j c*                   if        w_seqe = 'N' or
+6.3j c*                             w_seqe = 'L' or
+6.3j c*                             w_seqe = 'v'
+6.3j c*                   eval      w_logi = 0
+6.3j c*                   movel     jvvare        w_nobb
+6.3j c*/exec sql
+6.3j c*+ select count(*)
+6.3j i*+ into   :w_logi
+6.3j c*+ from   jvklpf
+6.3j c*+ where  jvquno = :w_nobb
+6.3j c*/end-exec
+6.3j c*                   if        w_logi <> 0
+6.3j c*                   iter
+6.3j c*                   endif
+6.3j c*                    endif
+      *
+6.36 c                   eval      jvdtl1_dvar = jvvare
+6.36 c     jvdtl1_key    chain     jvdtl1
+6.36 c                   if        %found(jvdtl1)
+6.36 c                   if        w_ko01 <> *blank
+6.36 c                   if        w_ko01 = 'F' and
+6.36 c                             jvdhko = 1
+6.36 c                   iter
+6.36 c                   endif
+6.36 c                   if        w_ko01 = 'I' and
+6.36 c                             jvdhko = 0
+6.36 c                   iter
+6.36 c                   endif
+6.36 c                   endif
+6.36 c                   endif
+6.36  *
+6.36 c                   eval      b1vare = jvvare
+6.36 c                   exsr      hent_pris
+6.36  *
+6.36 c                   if        w_vsts <> 0 and
+6.36 c                             b1osts = *blank
+6.36 c                   iter
+6.36 c                   endif
+      *
+      * Skriver til subfile
+      *
+     c                   eval      w_srrn = w_srrn + 1
+      *
+     c                   if        p_ldor = 0
+     c                   select
+     c                   when      w_seqe = 'N'
+     c                   eval      jvarl7_nobb = jvnobb
+     c                   when      w_seqe = 'L'
+6.3d c                   eval      jvlel2_llva = jvllva
+     c                   when      w_seqe = 'V'
+     c                   eval      jvarl6_vare = jvvare
+     c                   other
+     c                   eval      jvarl5_tek1 = jvtek1
+     c                   endsl
+     c                   endif
+      *
+     c                   eval      b1vare = jvvare
+     c                   eval      b1tek1 = jvtek1
+     c                   eval      b1nobb = jvnobb
+6.35 c                   movel     jvllva        b1lvar
+     c                   eval      b1nypo = *blank
+     c                   eval      b1ogrp = jvogrp
+     c                   eval      b1hgrp = jvhgrp
+     c                   eval      b1ugrp = jvugrp
+     c                   eval      b1pkod = *blank
+     c                   eval      b1skod = 0
+     c                   eval      b1vtyp = *blank
+     c                   eval      b1hkod = 'X'
+6.3j c                   eval      b1logv = w_erlogv
+6.3j c                   eval      b1udev = w_erundv
+6.3i  * finn nobb og lvar fra undervare
+6.3i c                   eval      w_jvquno = 0
+6.3i c                   eval      w_jvllva = *blank
+6.3j c                   if        b1udev > 0 or b1logv > 0
+6.3i c/exec sql
+6.3i c+ select IFNULL(jvquno, 0) , IFNULL(jvllva, '''')
+6.3i c+ into   :w_jvquno, :w_jvllva
+6.3i c+ from   jvklpf
+6.3i c+ inner join jvlepf on jvlvnr = jvqvnr and
+6.3i c+  jvlldo = jvqldo
+6.3i c+ where  jvqvnr = :jvvare and
+6.3i c+        jvqldo = :p_pgiv and
+6.3i c+        jvqfir = :w_firm
+6.3i c+ fetch first 1 rows only
+6.3i c/end-exec
+6.3i c                   if        w_jvquno > 0
+6.3i c                   eval      jvnobb = w_jvquno
+6.3j c                   eval      b1nobb = w_jvquno
+6.3i c                   movel     w_jvllva      b1lvar
+6.3i c                   movel     w_jvllva      jvlvar
+6.3i c                   endif
+6.3i c                   endif
+      *
+6.36  *flyttet les av jvdtpf litt lenger fram
+6.36  *
+     c                   if        %found(jvdtl1)
+     c                   eval      b1pkod = jvdpko
+     c                   eval      b1skod = jvdsko
+     c                   if        jvdhko = 0
+     c                   eval      b1hkod = *blank
+     c                   endif
+     c                   endif
+      *
+     c                   if        p_skaf = 1
+     c                   eval      b1skod = 1
+     c                   endif
+      *
+     c                   if        b1skod = 1
+     c                   eval      b1vtyp = 'S'
+     c                   endif
+      *
+     c                   select
+     c                   when      *in80 = *on
+     c                   eval      b1nypo = %editc(jvnobb : 'Z')
+     c                   when      *in81 = *on
+6.3d c                   movel     jvllva        b1nypo
+     c                   when      *in82 = *on
+     c                   eval      b1nypo = jvvare
+     c                   endsl
+      *
+     c*                  exsr      hent_pris
+6.3i  * sjekk farge
+6.3j c*                   eval      w_jvqvnr = jvvare
+6.3i c                   exsr      finn_logivar
+      *
+     c                   write     b1sfl
+      *
+     c                   enddo
+      *
+     c                   if        w_srrn > w_ssrn
+     c                   eval      w_sfrn = w_ssrn + 1
+     c                   endif
+      *
+     c                   eval      w_ssrn = w_srrn
+     c                   eval      w_virn = w_sfrn
+      *
+     c                   eval      b_open_sok = *off
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for å bla tilbake en side i subfilen
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     bck_subfile   begsr
+      *
+     c                   if        w_seqe = 'S' or
+     c                             p_ldor = 0
+     c                   exsr      forny
+     c                   leavesr
+     c                   endif
+      *
+     c                   if        *in15
+     c                   select
+     c                   when      w_seqe = 'N'
+     c     jvarl7_key    setgt     jvarl7
+     c                   readp     jvarl7
+     c                   when      w_seqe = 'L'
+6.3a c     jvlel2_key    setgt     jvlel2
+6.3a c                   readp     jvlel2
+     c                   when      w_seqe = 'V'
+     c     jvarl6_key    setgt     jvarl6
+     c                   readp     jvarl6
+     c                   other
+     c     jvarl5_key    setgt     jvarl5
+     c                   readp     jvarl5
+     c                   endsl
+     c                   endif
+      *
+      * Leser tilbake en side
+      *
+     c                   eval      w_stel = 0
+      *
+     c                   dou       w_stel = w_ssrn + c_sfil
+      *
+     c                   select
+     c                   when      w_seqe = 'N'
+     c                   readp     jvarl7
+     c                   when      w_seqe = 'L'
+6.3a c                   readp     jvlel2
+     c                   when      w_seqe = 'V'
+     c                   readp     jvarl6
+     c                   other
+     c                   readp     jvarl5
+     c                   endsl
+      *
+     c                   if        %eof
+     c                   leave
+     c                   endif
+      *
+     c                   if        jvldor <> p_ldor
+     c                   leave
+     c                   endif
+      *
+     c                   if        p_ogrp <> 0 and
+     c                             p_ogrp <> jvogrp
+     c                   iter
+     c                   endif
+      *
+     c                   if        p_hgrp <> 0 and
+     c                             p_hgrp <> jvhgrp
+     c                   iter
+     c                   endif
+      *
+     c                   if        p_ugrp <> 0 and
+     c                             p_ugrp <> jvugrp
+     c                   iter
+     c                   endif
+6.36  *
+6.36 c                   if        w_modn <> 0 and
+6.36 c                             w_modn <> jvmodn
+6.36 c                   iter
+6.36 c                   endif
+6.11  *
+6.11 c                   if        p_osor <> *blank
+6.11 c                   if        jvsort =  *blank or
+6.11 c                             %subst(jvsort:1:1) > %subst(p_osor:1:1)
+6.11 c                   iter
+6.11 c                   endif
+6.11 c                   endif
+      *
+     c                   if        jvstat = 4 or
+     c                             jvudat <> *loval and
+     c                             jvudat < w_udat
+     c                   iter
+     c                   endif
+      *
+6.36 c                   eval      jvdtl1_dvar = jvvare
+6.36 c     jvdtl1_key    chain     jvdtl1
+6.36 c                   if        %found and
+6.36 c                             w_ko01 <> *blank
+6.36 c                   if        w_ko01 = 'F' and
+6.36 c                             jvdhko = 1
+6.36 c                   iter
+6.36 c                   endif
+6.36 c                   if        w_ko01 = 'I' and
+6.36 c                             jvdhko = 0
+6.36 c                   iter
+6.36 c                   endif
+6.36 c                   endif
+      *
+     c                   eval      vvarl1_vare = jvvare
+     c     vvarl1_key    chain     vvarl1
+     c                   if        %found
+     c                   iter
+     c                   endif
+      *
+     c                   eval      w_stel = w_stel + 1
+      *
+     c                   select
+     c                   when      w_seqe = 'N'
+     c                   eval      jvarl7_nobb = jvnobb
+     c                   when      w_seqe = 'L'
+6.3d c                   eval      jvlel2_llva = jvllva
+     c                   when      w_seqe = 'V'
+     c                   eval      jvarl6_vare = jvvare
+     c                   other
+     c                   eval      jvarl5_tek1 = jvtek1
+     c                   endsl
+      *
+     c                   enddo
+      *
+     c                   if        %eof
+     c                   select
+     c                   when      w_seqe = 'N'
+     c     jvarl7_key    setll     jvarl7
+     c                   when      w_seqe = 'L'
+6.3a c     jvlel2_key    setll     jvlel2
+     c                   when      w_seqe = 'V'
+     c     jvarl6_key    setll     jvarl6
+     c                   other
+     c     jvarl5_key    setll     jvarl5
+     c                   endsl
+     c                   endif
+      *
+      * Blanker og fyller opp subfile
+      *
+     c                   exsr      clr_subfile
+     c                   exsr      crt_subfile
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for display av subfile
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     dsp_subfile   begsr
+      *
+     c                   if        w_srrn <> 0
+     c                   eval      *in12 = *on
+     c                   else
+     c                   write     b2cmd
+     c                   endif
+      *
+     c                   eval      *in13 = *on
+     c                   exfmt     b2ctl
+      *
+     c                   eval      *in12 = *off
+     c                   eval      *in13 = *off
+      *
+     c                   eval      w_fcrn = d_fcrn
+      *
+     c                   endsr
+6.13  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.13  * Subrutine for å hente antall frigjorte varer
+6.13  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.13  *
+6.13 c     hent_frigjort begsr
+6.13  *
+6.14 c                   eval      w_antf = 0
+6.13 c                   eval      b2antf = 0
+6.13 c                   if        p_ldor <> 0
+6.13  *
+6.13 c     jvarl5_key2   setll     jvarl5
+6.13 c     jvarl5_key2   reade     jvarl5
+6.13 c                   dow       not %eof
+6.13 c                   exsr      tell_frigj
+6.13 c     jvarl5_key2   reade     jvarl5
+6.13 c                   enddo
+6.13  *
+6.13 c                   else
+6.13  *
+6.34 c                   eval      jvprl3_ldor = p_pgiv
+6.34 c     jvprl3_key    setll     jvprl3
+6.34 c     jvprl3_key    reade     jvprl3
+6.13 c                   dow       not %eof
+6.34 c                   if        p_dato >= jxgdat
+6.13 c                   eval      jvarl1_vare = jxvare
+6.13 c     jvarl1_key    chain     jvarl1
+6.13 c                   if        %found
+6.13 c                   exsr      tell_frigj
+6.13 c                   endif
+6.34 c                   endif
+6.34 c     jvprl3_key    reade     jvprl3
+6.13 c                   enddo
+6.13  *
+6.13 c                   endif
+6.13  *
+6.13 c                   endsr
+6.13  *
+6.13  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.13  * Subrutine for oppdatering av holde-kode
+6.13  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.13  *
+6.13 c     tell_frigj    begsr
+6.13  *
+6.13 c                   if        p_ogrp <> 0 and
+6.13 c                             p_ogrp <> jvogrp
+6.13 c                   leavesr
+6.13 c                   endif
+6.13  *
+6.13 c                   if        p_hgrp <> 0 and
+6.13 c                             p_hgrp <> jvhgrp
+6.13 c                   leavesr
+6.13 c                   endif
+6.13  *
+6.13 c                   if        p_ugrp <> 0 and
+6.13 c                             p_ugrp <> jvugrp
+6.13 c                   leavesr
+6.13 c                   endif
+6.13  *
+6.13 c                   if        b_nye_varer = *on
+6.13 c                   if        jvstat = 4 or
+6.13 c                             jvudat <> *loval and
+6.13 c                             jvudat < w_udat
+6.13 c                   leavesr
+6.13 c                   endif
+6.13 c                   endif
+6.13  *
+6.13 c                   eval      vvarl1_vare = jvvare
+6.13 c     vvarl1_key    chain     vvarl1r
+6.13 c                   if        b_nye_varer = *on  and %found or
+6.13 c                             b_nye_varer = *off and not %found
+6.13 c                   leavesr
+6.13 c                   endif
+6.13  *
+6.13 c                   eval      jvdtl1_dvar = jvvare
+6.13 c     jvdtl1_key    chain     jvdtl1r
+6.14 c                   if        %found(jvdtl1)
+6.13  *
+6.13 c                   if        jvdhko = 0
+6.14 c                   eval      w_antf = w_antf + 1
+6.13 c                   endif
+6.14 c                   if        w_antf < 10000
+6.14 c                   eval      b2antf = w_antf
+6.14 c                   else
+6.14 c                   eval      b2antf = 9999
+6.14 c                   endif
+6.14  *
+6.14 c                   endif
+6.13  *
+6.13 c                   endsr
+      *
+6.37  *
+6.37  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.37  * Sjekker om status G oppstår
+6.37  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.37  *
+6.37 c     sjekk_gtin    begsr
+6.37  *
+6.37  * finner pakninger til enheter
+6.37 c                   eval      jvpkl1_vare = w_vare
+6.37 c                   eval      jvpkl1_ldor = w_ldox
+6.37 c     jvpkl1_key    setll     jvpkl1
+6.37 c     jvpkl1_key    reade     jvpkl1
+6.37 c                   dow       not %eof
+6.37  *
+6.37  * sjekker fra / tildato
+6.37 c                   exsr      sjekk_pkdato
+6.37 c                   if        b_pakn = *on
+6.37  *
+6.37 c                   eval      jlevl1_ldor = jwldor
+6.37 c     jlevl1_key    chain     jlevl1
+6.37 c                   if        %found(jlevl1) and
+6.37 c                             jlenum <> 0 and
+6.37 c                             jwgtin <> 0
+6.37  *
+6.37 c                   call      'VE710R  '
+6.37 c                   parm                    w_firm
+6.37 c                   parm                    jwgtin
+6.37 c                   parm                    w_gvar
+6.37 c                   parm                    w_genh
+6.37 c                   parm                    w_gsta
+6.37  *
+6.37 c                   if        w_gvar <> *blank and
+6.37 c                             w_gvar <> w_vare
+6.37 c                   eval      w_gtin = jwgtin
+6.37 c                   leavesr
+6.37 c                   endif
+6.37 c                   endif
+6.37  *
+6.37 c                   endif
+6.37 c     jvpkl1_key    reade     jvpkl1
+6.37 c                   enddo
+6.37  *
+6.37 c                   endsr
+6.37  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.37  * Subrutine for å sjekke om dato er innenfor fra /til dato
+6.37  * hvis *loval i begge datoer = ok
+6.37  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.37  *
+6.37 c     sjekk_pkdato  begsr
+6.37  *
+6.37 c                   eval      b_pakn = *on
+6.37  *
+6.37 c                   if        jwfdat = *loval and
+6.37 c                             jwtdat = *loval
+6.37 c                   leavesr
+6.37 c                   endif
+6.37  *
+6.37 c                   if        jwfdat <= w_udat and
+6.37 c                             jwtdat >  w_udat
+6.37 c                   leavesr
+6.37 c                   endif
+6.37  *
+6.37 c                   if        jwfdat = *loval  and
+6.37 c                             jwtdat >  w_udat
+6.37 c                   leavesr
+6.37 c                   endif
+6.37  *
+6.37 c                   if        jwfdat <= w_udat and
+6.37 c                             jwtdat =  *loval
+6.37 c                   leavesr
+6.37 c                   endif
+6.37  *
+6.37 c                   eval      b_pakn = *off
+6.37  *
+6.37 c                   endsr
+6.3i  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3i  * Finn info om logistikkvare for riktig prisgiver
+6.3i  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+6.3i  *
+6.3i c     finn_logivar  begsr
+6.3i  *
+6.3i c                   eval      *in50 = *off
+6.3i c                   eval      *in51 = *off
+6.3i c
+6.3j c                   if        b1udev > 0
+6.3j c                   eval      *in50 = *on
+6.3j c                   else
+6.3j c                   if        b1logv > 0
+6.3j c                   eval      *in51 = *on
+6.3j c                   endif
+6.3j c                   endif
+6.3j c
+6.3j c**                   if        %trim(w_jvqvnr) = ''
+6.3j c**                   leavesr
+6.3j c**                   endif
+6.3j c*
+6.3j c*                   eval      w_logl = ''
+6.3j c*                   eval      w_undv = 0
+6.3j c**                   movel     w_jvqvnr      w_jvquno
+6.3j c*/exec sql
+6.3j c*+                  select jvquno, jvqvnr
+6.3j c*+                  into :w_undv, :w_logl
+6.3j c*+                  from jvklpf
+6.3j c*+                  where (jvquno = :w_jvquno or
+6.3j c*+                  jvqvnr = :w_jvqvnr)
+6.3j c*+                  and jvqfir = :w_firm
+6.3j c*+                  fetch first 1 rows only
+6.3j c*/end-exec
+6.3j c**                   if        w_logl = w_jvqvnr
+6.3j c**                   eval      *in51 = *on
+6.3j c**                   elseif    w_undv > 0
+6.3j c**                   eval      *in50 = *on
+6.3j c**                   endif
+6.3i c
+6.3i c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_ldor
+     c                   parm                    p_ogrp
+     c                   parm                    p_hgrp
+     c                   parm                    p_ugrp
+     c                   parm                    p_pgiv
+     c                   parm                    p_lety
+     c                   parm                    p_skaf
+5.70 c                   parm                    p_prgr
+6.11 c                   parm                    p_osor
+6.34 c                   parm                    p_dato
+6.34 c                   parm                    p_utgp
+      *
+      * Key for posisjonering på varetekst-1
+      *
+     c     jvarl5_key    klist
+     c                   kfld                    w_ldor
+     c                   kfld                    jvarl5_tek1
+6.13  *
+6.13  * Key for posisjonering på leverandør
+6.13  *
+6.13 c     jvarl5_key2   klist
+6.13 c                   kfld                    w_ldor
+      *
+      * Key for posisjonering på leverandørs varenummer
+      *
+6.3a c     jvlel2_key    klist
+     c                   kfld                    w_ldor
+6.3a c                   kfld                    jvlel2_llva
+      *
+      * Key for posisjonering på NOBB-nummer
+      *
+     c     jvarl7_key    klist
+     c                   kfld                    w_ldor
+     c                   kfld                    jvarl7_nobb
+      *
+      * Key for posisjonering på varenummer
+      *
+     c     jvarl6_key    klist
+     c                   kfld                    w_ldor
+     c                   kfld                    jvarl6_vare
+      *
+      * Key for oppslag EVR-vare
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for oppslag mot leverandør
+      *
+     c     jlevl1_key    klist
+     c                   kfld                    jlevl1_ldor
+      *
+      * Key for oppslag på vare
+      *
+     c     jvarl1_key    klist
+     c                   kfld                    jvarl1_vare
+      *
+      * Key for oppslag på vare-detalj
+      *
+     c     jvdtl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jvdtl1_dvar
+6.13  *
+6.13  * Key for les på vare-pris (prisgivere)
+6.13  *
+6.34 c     jvprl3_key    klist
+6.34 c                   kfld                    jvprl3_ldor
+6.32  *
+6.32  * Key for les på vare-pris (prisgivere)
+6.32  *
+6.32 c     jvprl1_key    klist
+6.32 c                   kfld                    jvprl1_vare
+6.32 c                   kfld                    jvprl1_ldor
+      *
+      * Key for oppdatering av vare-detalj
+      *
+     c     jvdtlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jvdtlu_dvar
+      *
+      * Key for oppdatering av midlertidig pris
+      *
+     c     jwprlu_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    jwprlu_vare
+6.37  *
+6.37  * Key for oppslag på vare-pakning
+6.37  *
+6.37 c     jvpkl1_key    klist
+6.37 c                   kfld                    jvpkl1_vare
+6.37 c                   kfld                    jvpkl1_ldor
+6.37  *
+6.37  * Key for les på vare-leverandør
+6.37  *
+6.37 c     jvlelr_key    klist
+6.37 c                   kfld                    jvlelr_lvnr
+6.37 c                   kfld                    jvlelr_lldo
+6.37  *
+6.37  * henter gjeldene prisgiver
+6.37  *
+6.37 c                   if        p_pgiv <> 0
+6.37 c                   eval      w_ldox = p_pgiv
+6.37 c                   else
+6.37 c                   eval      w_ldox = p_ldor
+6.37 c                   endif
+      *
+      *
+      * Initierer tabell-kolonner
+      *
+     c                   eval      w_firm = p_firm
+     c                   eval      w_ldor = p_ldor
+      *
+      * Initierer skjermbilde-felt
+      *
+     c                   eval      b2ldor = p_ldor
+     c                   eval      b2pgiv = p_pgiv
+     c                   eval      b2ogrp = p_ogrp
+     c                   eval      b2hgrp = p_hgrp
+     c                   eval      b2ugrp = p_ugrp
+     c                   eval      b2lety = p_lety
+5.70 c                   eval      b2prgr = p_prgr
+6.11 c                   eval      b2osor = p_osor
+      *
+     c                   eval      jlevl1_ldor = p_ldor
+     c     jlevl1_key    chain     jlevl1
+     c                   if        %found
+     c                   eval      b2navn = jlnavn
+     c                   endif
+      *
+     c                   eval      jlevl1_ldor = p_pgiv
+     c     jlevl1_key    chain     jlevl1
+     c                   if        %found
+     c                   eval      b2pnav = jlnavn
+     c                   endif
+      *
+     c                   eval      b_nye_varer = *on
+      *
+      * Henter antall frigjorte
+      *
+     c                   exsr      hent_frigjort
+      *
+      * Initierer arbeidsfelt
+      *
+     c                   eval      *in22 = *on
+     c                   eval      *in80 = *on
+      *
+     c                   eval      *in85 = p_skaf = 1
+      *
+     c                   eval      b_open_sok = *on
+      *
+     c                   time                    w_udat
+      *
+      * Posisjonerer i tabell, og fyller subfile
+      *
+     c                   if        p_ldor <> 0
+     c     jvarl5_key    setll     jvarl5
+     c                   endif
+      *
+     c                   exsr      crt_subfile
+      *
+     c                   endsr

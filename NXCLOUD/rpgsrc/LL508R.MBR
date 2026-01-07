@@ -1,0 +1,205 @@
+     h datedit(*dmy) option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System  . . . . : NXCLOUD
+      * Program . . . . : LL508R
+      * Beskrivelse . . : Leser igjennom bestillingslinjer på en vare
+      *                   slår opp mot bestillingshode og sjekker mot riktig lager
+      *                   og bekreftet leveringsdato
+      *                   Returnerer sum bekreftet og ikke bekreftet mengde
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       211124 ask  Nytt program       NXS-20463
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     flodtlv    if   e           k disk    rename(lodtpfr:lodtlvr)
+     flohel1    if   e           k disk    rename(lohepfr:lohel1r)
+     fvotyl1    if   e           k disk    rename(votypfr:votyl1r)
+     fvvarl1    if   e           k disk    rename(vvarpfr:vvarl1r)
+     fvvenl1    if   e           k disk    rename(vvenpfr:vvenl1r)
+      *
+      * Local Data Area
+      *
+     d                uds
+     d l_firm                944    946  0
+      *
+      * Definering av parametre
+      *
+     d p_vare          s                   like(ldvare)
+     d p_lage          s                   like(ldlage)
+     d p_bbek          s                   like(ldanta)
+     d p_bbes          s                   like(ldanta)
+     d p_inlr          s              1
+      *
+      * Definering av variable i nøkler
+      *
+     d lodtlv_vare     s                   like(ldvare)
+     d votyl1_otyp     s                   like(vaotyp)
+     d vvarl1_vare     s                   like(vvvare)
+     d vvenl1_vare     s                   like(vevare)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(ldfirm)
+     d w_anta          s              9  2
+     d w_omrs          s                   like(veomre)
+     d w_omrl          s                   like(veomre)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Les bestillingslinjer på varenummer
+      *
+     c                   eval      p_bbek = 0
+     c                   eval      p_bbes = 0
+      *
+     c                   eval      lodtlv_vare = p_vare
+     c     lodtlv_key    setll     lodtlv
+      *
+     c     lodtlv_key    reade     lodtlv
+     c                   dow       not %eof
+      *
+     c                   eval      vvarl1_vare = p_vare
+     c     vvarl1_key    chain     vvarl1
+      *
+     c                   exsr      sjek_hode
+      *
+     c     lodtlv_key    reade     lodtlv
+     c                   enddo
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   if        p_inlr = *on
+     c                   eval      *inlr = *on
+     c                   endif
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for sjekke mot ordrehode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     sjek_hode     begsr
+      *
+     c     lohel1_key    chain     lohel1
+     c                   if        %found
+     c                   if        lolage <> p_lage
+     c                   goto      end_sjek
+     c                   endif
+     c                   if        losuff > 0
+     c                   goto      end_sjek
+     c                   endif
+      *
+     c                   eval      votyl1_otyp = lootyp
+     c     votyl1_key    chain     votyl1
+     c                   if        %found and
+     c                             vaoakk <> 1
+     c                   goto      end_sjek
+     c                   endif
+      *
+     c                   eval      w_anta = ldanta
+     c                   exsr      omr_antall
+      *
+     c                   if        lomoda <> *loval
+     c                   eval      p_bbek = p_bbek + w_anta
+     c                   else
+     c                   eval      p_bbes = p_bbes + w_anta
+     c                   endif
+     c                   endif
+      *
+     c     end_sjek      endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for omregning til lagerenhet
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     omr_antall    begsr
+     c                   if        ldenh1 = vvenhl
+     c                   leavesr
+     c                   endif
+      *
+      * Finner omregningsfaktor volum for lagerenhet og for opptalt enhet
+      * Antall regnes om etter forholdet mellom disse
+      *
+     c                   eval      vvenl1_vare = vvvare
+     c     vvenl1_key    setll     vvenl1
+     c     vvenl1_key    reade     vvenl1
+     c                   dow       not %eof
+     c                   if        ldenh1 = veenhe
+     c                   eval      w_omrl = veomre
+     c                   endif
+     c                   if        vvenhl = veenhe
+     c                   eval      w_omrs = veomre
+     c                   endif
+     c     vvenl1_key    reade     vvenl1
+     c                   enddo
+      *
+     c                   if        w_omrs = 0
+     c                   eval      w_omrs = 1
+     c                   endif
+      *
+     c                   if        w_omrl <> 0
+     c                   eval(h)   w_anta = w_anta * w_omrl / w_omrs
+     c                   else
+     c                   eval      w_anta = 0
+     c                   endif
+      *
+     c     end_omr       endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+     c                   parm                    p_vare
+     c                   parm                    p_lage
+     c                   parm                    p_bbek
+     c                   parm                    p_bbes
+     c                   parm                    p_inlr
+      *
+      * Key for les på bestilling-linje
+      *
+     c     lodtlv_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    lodtlv_vare
+      *
+      * Key for oppslag på bestilling-hode
+      *
+     c     lohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    ldnumm
+     c                   kfld                    ldsuff
+      *
+      * Ordretyper
+      *
+     c     votyl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    votyl1_otyp
+      *
+      * Key for les på vare-register
+      *
+     c     vvarl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvarl1_vare
+      *
+      * Key for les på vare-enhet
+      *
+     c     vvenl1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    vvenl1_vare
+      *
+     c                   eval      w_firm = l_firm
+      *
+     c                   endsr

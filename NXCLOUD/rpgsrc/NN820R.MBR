@@ -1,0 +1,519 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : NN820R
+      * Beskrivelse . . : Nettbutikk, hent faktura-hode
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       081002 GRO  Nytt program
+6.nu  * R6.30 040614 bsa  Programmet gjennomgått mtp nummerutvidelser.
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fsohelr    if   e           k disk    rename(sohepfr:sohelrr)
+     fsohel1    if   e           k disk    rename(sohepfr:sohel1r)
+     fsohel5    if   e           k disk    rename(sohepfr:sohel5r)
+     fsohel6    if   e           k disk    rename(sohepfr:sohel6r)
+      *
+      * Definering av parametre
+      *
+     d p_uniq          s             15
+     d p_dtqi          s             10
+     d p_dtqo          s             10
+     d p_bibl          s             10
+     d p_feil          s              1
+     d p_firm          s              3  0
+     d p_lage          s              2
+     d p_inpl          s              5p 0
+     d p_outl          s              5p 0
+     d p_wait          s              5p 0
+     d p_keyo          s              2
+     d p_keyl          s              3p 0
+     d p_sndl          s              3p 0
+     d p_sndi          s             36
+      *
+      * Definering av datastrukturer
+      *
+      * Datakø - inn
+      *
+     d                 ds
+6.nu d d_inpu                        70
+     d  d_aarr                        4    overlay(d_inpu: 1)
+     d  d_kund                        6    overlay(d_inpu: 5)
+6.nu d  d_binr                        8    overlay(d_inpu:11)
+6.nu d  d_fkda                        8    overlay(d_inpu:19)
+6.nu d  d_navn                       35    overlay(d_inpu:27)
+6.nu d  d_fbla                        6    overlay(d_inpu:62)
+6.nu d  d_anta                        3    overlay(d_inpu:68)
+      *
+      * Datakø - ut (antall treff)
+      *
+     d                 ds
+     d d_outa                         7
+     d  d_arec                        1    overlay(d_outa:1) inz('1')
+     d  d_antf                        6  0 overlay(d_outa:2)
+      *
+      * Datakø - ut
+      *
+     d                 ds
+6.nu d d_outp                        65
+     d  d_orec                        1    overlay(d_outp: 1) inz('2')
+6.nu d  d_obin                        8  0 overlay(d_outp: 2)
+6.nu d  d_ofkd                        8  0 overlay(d_outp:10)
+6.nu d  d_onav                       35    overlay(d_outp:18)
+6.nu d  d_fsum                       13    overlay(d_outp:53)
+      *
+      * Definering av variabler i nøkler
+      *
+     d sohelr_binr     s                   like(sobinr)
+     d sohel1_binr     s                   like(sobinr)
+     d sohel5_fkda     s                   like(sofkda)
+     d sohel6_navn     s                   like(sonavn)
+      *
+      * Definering av variable
+      *
+     d b_sall          s              1    inz(*off)
+     d b_back          s              1    inz(*off)
+     d b_reck          s              1    inz(*off)
+      *
+     d w_antf          s              6  0
+     d w_tell          s              6  0
+     d w_sign          s              6  0
+     d w_anta          s              2  0
+     d w_leng          s              2  0
+     d w_aarx          s             10
+     d w_dato          s               d   datfmt(*iso)
+     d w_fkda_numm     s              6  0
+     d w_dato_alf      s              8
+      *
+     d w_firm          s                   like(sofirm)
+     d w_aarr          s                   like(soaarr)
+     d w_kund          s                   like(sokund)
+     d w_binr          s                   like(sobinr)
+     d w_fkda          s                   like(sofkda)
+     d w_fbla          s                   like(sobinr)
+      *
+     d s_binr          s                   like(sobinr)
+      *
+      * Definering av konstanter
+      *
+     d lo              c                   'abcdefghijklmnopqrstuvwxyzæøåäö'
+     d up              c                   'ABCDEFGHIJKLMNOPQRSTUVWXYZÆØÅÄÖ'
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Leser og behandler datakø (input)
+      *
+     c                   dou       d_inpu = *blank
+      *
+     c                   eval      d_inpu = *blank
+      *
+     c                   call      'QRCVDTAQ'
+     c                   parm                    p_dtqi
+     c                   parm                    p_bibl
+     c                   parm                    p_inpl
+     c                   parm                    d_inpu
+     c                   parm                    p_wait
+     c                   parm                    p_keyo
+     c                   parm                    p_keyl
+     c                   parm                    p_uniq
+     c                   parm                    p_sndl
+     c                   parm                    p_sndi
+      *
+     c                   if        d_inpu <> *blank
+     c                   exsr      behandling
+     c                   endif
+      *
+     c                   enddo
+      *
+      * Avslutt
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for behandling av forespørsel
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     behandling    begsr
+      *
+      * Henter verdier fra datakø
+      *
+     c                   move      d_kund        w_kund
+     c                   move      d_aarr        w_aarr
+     c                   move      d_binr        w_binr
+     c                   move      d_fbla        w_fbla
+     c                   eval      w_fkda = *loval
+      *
+     c                   if        w_aarr = 0
+     c     *iso          move      w_dato        w_aarx
+     c                   movel     w_aarx        w_aarr
+     c                   endif
+      *
+     c                   move      d_fkda        w_fkda_numm
+     c                   if        w_fkda_numm <> 0
+     c     *ymd          move      w_fkda_numm   w_fkda
+     c                   endif
+      *
+     c                   if        w_binr = 0 and
+     c                             w_fkda = *loval and
+     c                             d_navn = *blank
+     c                   eval      b_sall = *on
+     c                   endif
+      *
+     c                   eval      w_sign = %scan('-':d_anta)
+     c                   if        w_sign <> 0
+     c                   eval      b_back = *on
+     c     '-':'0'       xlate     d_anta        d_anta
+     c                   endif
+     c                   move      d_anta        w_anta
+      *
+     c     lo:up         xlate     d_navn        d_navn
+     c                   eval      w_leng = %len(%trim(d_navn))
+     c                   eval      d_navn = %trim(d_navn) + '9999999999'
+      *
+      * Finner antall matchede fakturaer og skriver til datakø
+      *
+     c                   exsr      antall_fakt
+      *
+      * Skriver fakturaer til datakø
+      *
+     c                   exsr      faktura
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for les av totalt antall matchende fakturaer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     antall_fakt   begsr
+      *
+     c                   eval      s_binr = 0
+     c                   eval      w_antf = 0
+      *
+     c                   if        b_sall = *on
+     c     sohel1_key2   setll     sohel1
+     c     sohel1_key2   reade     sohel1
+     c                   dow       not %eof
+     c                   if        sokund = w_kund and
+     c                             sofsum <> 0 and
+     c                             sobinr <> s_binr
+     c                   eval      w_antf = w_antf + 1
+     c                   eval      s_binr = sobinr
+     c                   endif
+     c     sohel1_key2   reade     sohel1
+     c                   enddo
+     c                   goto      end_antall
+     c                   endif
+      *
+     c                   if        w_binr <> 0
+     c                   eval      sohelr_binr = w_binr
+     c     sohelr_key    chain     sohelr
+     c                   if        %found and
+     c                             sokund = w_kund
+     c                   eval      w_antf = 1
+     c                   endif
+     c                   goto      end_antall
+     c                   endif
+      *
+     c                   if        w_fkda <> *loval
+     c                   eval      sohel5_fkda = w_fkda
+     c     sohel5_key    setll     sohel5
+     c     sohel5_key    reade     sohel5
+     c                   dow       not %eof
+      *
+     c                   if        sokund = w_kund and
+     c                             sofsum <> 0 and
+     c                             sobinr <> s_binr
+     c                   if        d_navn = *blank or
+     c                             %subst(sonavn:1:w_leng) =
+     c                             %subst(d_navn:1:w_leng)
+     c                   eval      w_antf = w_antf + 1
+     c                   eval      s_binr = sobinr
+     c                   endif
+     c                   endif
+     c     sohel5_key    reade     sohel5
+     c                   enddo
+     c                   goto      end_antall
+     c                   endif
+      *
+     c                   if        d_navn <> *blank
+     c                   eval      sohel6_navn = d_navn
+     c     sohel6_key    setll     sohel6
+     c                   read      sohel6
+     c                   dow       not %eof
+     c                   if        %subst(sonavn:1:w_leng) =
+     c                             %subst(d_navn:1:w_leng) and
+     c                             soaarr = w_aarr and
+     c                             sokund = w_kund and
+     c                             sofsum <> 0 and
+     c                             sobinr <> s_binr
+     c                   eval      w_antf = w_antf + 1
+     c                   eval      s_binr = sobinr
+     c                   endif
+     c                   read      sohel6
+     c                   enddo
+     c                   goto      end_antall
+     c                   endif
+      *
+     c     end_antall    tag
+      *
+      * Skriver til output-datakø
+      *
+     c                   eval      d_antf = w_antf
+      *
+     c                   call      'QSNDDTAQ'
+     c                   parm                    p_dtqo
+     c                   parm                    p_bibl
+     c                   parm                    p_outl
+     c                   parm                    d_outa
+     c                   parm                    p_keyl
+     c                   parm                    p_uniq
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for skriving av fakturaer til datakø
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     faktura       begsr
+      *
+      * Setter startverdi for les på fil
+      *
+     c                   select
+     c                   when      w_fbla <> 0
+     c                   eval      sohelr_binr = w_fbla
+     c     sohelr_key    chain     sohelr
+     c                   if        %found
+     c                   eval      sohel1_binr = sobinr
+     c                   eval      sohelr_binr = sobinr
+     c                   eval      sohel5_fkda = sofkda
+     c                   eval      sohel6_navn = sonavn
+     c                   endif
+     c                   when      b_sall = *on and
+     c                             b_back = *on
+     c                   eval      sohel1_binr = 0
+     c                   eval      sohelr_binr = 0
+     c                   eval      sohel5_fkda = *loval
+     c                   eval      sohel6_navn = *blank
+     c                   when      b_sall = *on and
+     c                             b_back = *off
+     c                   eval      sohel1_binr = *hival
+     c                   eval      sohelr_binr = *hival
+     c                   eval      sohel5_fkda = *hival
+     c                   eval      sohel6_navn = *hival
+     c                   other
+     c                   eval      sohel1_binr = w_binr
+     c                   eval      sohelr_binr = w_binr
+     c                   eval      sohel5_fkda = w_fkda
+     c                   eval      sohel6_navn = d_navn
+     c                   endsl
+      *
+     c                   if        b_back = *on
+     c                   select
+     c                   when      b_sall = *on
+     c     sohel1_key    setll     sohel1
+     c                   when      w_binr <> 0
+     c     sohelr_key    setll     sohelr
+     c                   when      w_fkda <> *loval
+     c     sohel5_key    setll     sohel5
+     c                   when      d_navn <> *blank
+     c     sohel6_key    setll     sohel6
+     c                   endsl
+     c                   else
+     c                   select
+     c                   when      b_sall = *on
+     c     sohel1_key    setgt     sohel1
+     c                   when      w_binr <> 0
+     c     sohelr_key    setgt     sohelr
+     c                   when      w_fkda <> *loval
+     c     sohel5_key    setgt     sohel5
+     c                   when      d_navn <> *blank
+     c     sohel6_key    setgt     sohel6
+     c                   endsl
+     c                   endif
+      *
+      * Leser faktura-hode, og skriver til datakø
+      *
+     c                   if        w_fbla <> 0
+     c                   eval      b_reck = *off
+     c                   else
+     c                   eval      b_reck = *on
+     c                   endif
+      *
+     c                   exsr      read_sohepf
+      *
+     c                   dow       not %eof and
+     c                             w_tell  < w_anta
+      *
+     c                   if        soaarr = w_aarr and
+     c                             sokund = w_kund and
+     c                             sofsum <> 0
+      *
+     c                   if        w_fbla <> 0 and
+     c                             b_reck = *off
+     c                   if        b_back = *on and
+     c                             sobinr > w_fbla or
+     c                             b_back = *off and
+     c                             sobinr < w_fbla
+     c                   eval      b_reck = *on
+     c                   endif
+     c                   endif
+      *
+     c                   if        w_fbla = 0 or
+     c                             b_reck = *on
+     c                   if        d_navn = *blank or
+     c                             %subst(sonavn:1:w_leng) =
+     c                             %subst(d_navn:1:w_leng)
+      *
+     c                   eval      d_obin = sobinr
+     c                   eval      d_ofkd = 0
+     c                   eval      d_onav = sonavn
+     c                   eval      d_fsum = %editc(sofsum : 'P')
+      *
+     c     *iso0         move      sofkda        w_dato_alf
+     c                   move      w_dato_alf    d_ofkd
+      *
+     c     '.':','       xlate     d_fsum        d_fsum
+      *
+     c                   eval      w_tell  = w_tell  + 1
+      *
+     c                   call      'QSNDDTAQ'
+     c                   parm                    p_dtqo
+     c                   parm                    p_bibl
+     c                   parm                    p_outl
+     c                   parm                    d_outp
+     c                   parm                    p_keyl
+     c                   parm                    p_uniq
+      *
+     c                   endif
+     c                   endif
+      *
+     c                   endif
+      *
+     c                   exsr      read_sohepf
+     c                   enddo
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for les av faktura-hode
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     read_sohepf   begsr
+      *
+     c                   if        b_back = *on
+     c                   select
+     c                   when      b_sall = *on
+     c     sohel1_key2   reade     sohel1
+     c                   when      w_binr <> 0
+     c     sohelr_key    reade     sohelr
+     c                   when      w_fkda <> *loval
+     c     sohel5_key    reade     sohel5
+     c                   when      d_navn <> *blank
+     c                   read      sohel6
+     c                   endsl
+     c                   else
+     c                   select
+     c                   when      b_sall = *on
+     c     sohel1_key2   readpe    sohel1
+     c                   when      w_binr <> 0
+     c     sohelr_key    readpe    sohelr
+     c                   when      w_fkda <> *loval
+     c     sohel5_key    readpe    sohel5
+     c                   when      d_navn <> *blank
+     c                   readp     sohel6
+     c                   endsl
+     c                   endif
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * ERROR-rutine
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *pssr         begsr
+      *
+     c                   eval      p_feil = *on
+     c                   goto      avslutt
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_uniq
+     c                   parm                    p_dtqi
+     c                   parm                    p_dtqo
+     c                   parm                    p_bibl
+     c                   parm                    p_feil
+     c                   parm                    p_firm
+     c                   parm                    p_lage
+     c                   parm                    p_inpl
+     c                   parm                    p_outl
+     c                   parm                    p_wait
+     c                   parm                    p_keyo
+     c                   parm                    p_keyl
+     c                   parm                    p_sndl
+     c                   parm                    p_sndi
+      *
+      * Key for les på faktura-hode
+      *
+     c     sohelr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    sohelr_binr
+      *
+      * Key for posisjonering på fakturanummer
+      *
+     c     sohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    sohel1_binr
+      *
+      * Key for posisjonering på år
+      *
+     c     sohel1_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+      *
+      * Key for posisjonering på fakturadato
+      *
+     c     sohel5_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    sohel5_fkda
+      *
+      * Key for posisjonering på vareadresse
+      *
+     c     sohel6_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    w_aarr
+     c                   kfld                    sohel6_navn
+      *
+      *
+      * Hent firma fra parameter
+      *
+     c                   eval      w_firm = p_firm
+      *
+      * Henter current dato og tid
+      *
+     c                   time                    w_dato
+      *
+     c                   endsr

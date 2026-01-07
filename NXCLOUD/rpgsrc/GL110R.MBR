@@ -1,0 +1,1430 @@
+      /TITLE  ASOKON Mottaksbehandling
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      * System  . . . . : ASOKON                                        *
+      * Program . . . . : GL110R                                        *
+      * Beskrivelse . . : Mottaksbehandling av remitteringsfile.        *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      * Spesialversjon. :                                               *
+      * Tilpasset for . :                                               *
+      *                                                                 *
+      * Referanse  Dato   Endringsbeskrivelse                      Sign.*
+      * --------- ------  ----------------------------------------------*
+      *           281294  Nytt program desember-1994               RH   *
+      *                                                                 *
+      * 28068     280698  Lagt inn test på om blankt i             RH   *
+      *                   valutakurs.                              RH   *
+      *                                                                 *
+      * 14078     140798  Lagt inn test på om blankt i             RH   *
+      *                   provisjon.                               RH   *
+      *                                                                 *
+      * 03059     030599  Bruker reell kurs dersom dette er        RH   *
+      *                   utfylt på BETFOR01.                      RH   *
+      *                                                                 *
+      * 10059     100599  Ved retur fra banken legges det ut       RH   *
+      *                   8 desimaler (tidligere 4) i BETFOR01.    RH   *
+      *                                                                 *
+      *                   I tillegg er ITL (Lire) endret i fra     RH   *
+      *                   forhold 1 til 100 i tabbellen (slutten   RH   *
+      *                   av programmet).                          RH   *
+      *                                                                 *
+      * 14059     140599  Dersom IKKE 2.g.retur vil de 4 siste     RH   *
+      *                   posisjonene i avr.kurs være BLANKE!!     RH   *
+      *                                                                 *
+      * 19059     190599  Tester på om 4 returnert valutakurs har  RH   *
+      *                   8 eller 4 desimaler (FOKUS=8).           RH   *
+      *                                                                 *
+      * 27059     270599  ESP og JPY er endret fra 1 til 100 i     RH   *
+      *                   tabellen (Slutten av programmet).        RH   *
+      *                                                                 *
+      * 04010     040100  Lagt inn test på om kontonummer er       RH   *
+      *                   blankt.  I såfall legges det inn 0.      RH   *
+      *                                                                 *
+      * 14010     140100  Lagt inn test på om blankt i             RH   *
+      *                   valutakurs.                              RH   *
+      *                                                                 *
+      * 26040     260400  Lagt inn behandling av EUR.              RH   *
+      *                                                                 *
+      * 28080     280800  Lagt inn fast at valutakurs på avr.      RH   *
+      *                   tidspunktet (2.g.retur) skal hentes      RH   *
+      *                   med 8 desimaler fra pos. 191-208.        RH   *
+      *                                                                 *
+      * 05041     050410  Valutakurs for EURO skal ha forholdstall RH   *
+      *                   "1", og ikke "100".                           *
+      *                                                                 *
+      *                                                                 *
+      * 23092     230902  WPOKNO er num. og kan ikke inneholde *blanks  *
+T5.00 * V5.00     171002  Ikke lenger key i GUBFPF, bruker L8.     HFL  *
+      *                   "1", og ikke "100".                           *
+      *                                                                 *
+      * 21014     210104  Tester på at avregningskurs ikke har          *
+      *                   blanke tegn i seg, ved TF1.              RHO  *
+      *                                                                 *
+      * 13105     131005  Tar med leverandørnummer i paramterliste.RHO  *
+      *                   Verdi er hentet ut i fra BETFOR-post.    RHO  *
+6.10  * 25049     250409  Fjernet gange med hundre dersom 'J' til  NHO  *
+6.10  *                   valutakonto                                   *
+6.30  *  6.30     150814  Innført mulighet for arkivering og PDF   Bsa  *
+6.31  * R6.30 180816 bsa  Rokkert på rekkefølge av close printerfile
+      *                                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *                                                                 *
+      *  BRUK AV INDIKATORER                                            *
+      *                                                                 *
+      *       KC = F3  = Exit                                           *
+      *       KF = F6  = Overfør batcen(e) til GTRTPF                   *
+      *       KL = F12 = Annuller                                       *
+      *                                                                 *
+      *       LR = Avslutt program                                      *
+      *    60-69 = Fileindikatorer chain etc.                           *
+      *                                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     fgtrtlu    uf   e           k disk
+E5.00fgubfl8    if   e           k disk
+     fgurml1    if   e           k disk
+     f                                     rename(gurmpfr:gurmpf1)
+     fgurmpf    o  a e             disk
+     f                                     rename(gurmpfr:gurmpfp)
+     fgl110p    o    e             printer
+6.30 f                                     usropn
+      *
+     d tx              s             20    dim(1) ctdata perrcd(1)
+     d vk              s              3    dim(30) ctdata perrcd(1)
+     d vf              s              3    dim(30) ctdata perrcd(1)
+      /EJECT
+      *
+      * Generell datastruktur som GTRTPF legges over i:
+      *
+     d                 ds
+     d dsa00a                       160
+     d  dsretu                        2  0 overlay(dsa00a:4)
+     d  dsruti                        4    overlay(dsa00a:6)
+     d  dsbetf                        8    overlay(dsa00a:41)
+     d dsa00b                       160
+      *
+      * Datastruktur som GTRTPF legges over i dersom BETFOR01:
+      *
+     d                 ds
+     d dsb00a                       160
+     d  dsbref                        6    overlay(dsb00a:75)
+     d  dsbbdx                        6  0 overlay(dsb00a:81)
+     d  dsbfgr                        3    overlay(dsb00a:95)
+     d  dsbfir                        3  0 overlay(dsb00a:108)
+     d  dsbvko                        3    overlay(dsb00a:120)
+     d dsb00b                       160
+21014d  dsvkur                       12    overlay(dsb00b:31)
+     d  dsakur                       12  8 overlay(dsb00b:31)
+     d   dsaku2                       8  4 overlay(dsakur)
+     d   ds4des                       4    overlay(dsakur:9)
+     d  dsbbda                        6  0 overlay(dsb00b:106)
+     d  dsbpro                        9  2 overlay(dsb00b:112)
+     d   protst                       9    overlay(dsbpro)
+     d  dsbkur                        8  4 overlay(dsb00b:121)
+     d   kurtst                       8    overlay(dsbkur)
+      *
+      * Datastruktur som GTRTPF legges over i dersom BETFOR21:
+      *
+     d                 ds
+     d dsc00a                       160
+     d  dscref                        6    overlay(dsc00a:75)
+     d  dscbdx                        6  0 overlay(dsc00a:81)
+     d  dscfgr                        3    overlay(dsc00a:95)
+     d  dscfir                        3  0 overlay(dsc00a:108)
+13105d  dsclev                        6  0 overlay(dsc00a:111)
+     d  dsckto                       11  0 overlay(dsc00a:118)
+     d   ktotst                      11    overlay(dsckto)
+     d dsc00b                       160
+     d  dscbda                        6  0 overlay(dsc00b:129)
+      *
+      * Datastruktur som GTRTPF legges over i dersom BETFOR04:
+      *
+     d                 ds
+     d dsd00a                       160
+     d  dsdref                        6    overlay(dsd00a:75)
+     d  dsdfgr                        3    overlay(dsd00a:131)
+     d  dsdfir                        3  0 overlay(dsd00a:134)
+     d  dsdubf                        3  0 overlay(dsd00a:137)
+     d  dsdbfl                        5  0 overlay(dsd00a:140)
+     d dsdbel                151    165  2
+     d dsd00b                161    320
+     d  dsddbk                        1    overlay(dsd00b:6)
+      *
+      * Datastruktur som GTRTPF legges over i dersom BETFOR22:
+      *
+     d                 ds
+     d dsg00a                       160
+     d  dsgref                        6    overlay(dsg00a:75)
+     d  dsgkto                       11  0 overlay(dsg00a:81)
+     d  dsgnav                       30    overlay(dsg00a:92)
+     d  dsgbel                       15  2 overlay(dsg00a:122)
+     d dsg00b                       160
+     d  dsgubf                        3  0 overlay(dsg00b:123)
+     d  dsgbfl                        5  0 overlay(dsg00b:126)
+      *
+      * Datastruktur som GTRTPF legges over i dersom BETFOR23:
+      *
+     d                 ds
+     d dse00a                       160
+     d  dseref                        6    overlay(dse00a:75)
+     d dse00b                       160
+     d  dsekid                       27    overlay(dse00b:41)
+     d  dsefgr                        3    overlay(dse00b:83)
+     d  dsefir                        3  0 overlay(dse00b:86)
+     d  dseubf                        3  0 overlay(dse00b:89)
+     d  dsebfl                        5  0 overlay(dse00b:92)
+     d  dsebel                       15  2 overlay(dse00b:98)
+     d  dsedbk                        1    overlay(dse00b:113)
+      *
+      * Datastruktur som GTRTPF legges over i dersom BETFOR03:
+      *
+     d                 ds
+     d dsf00a                       160
+     d  dsfkto                       35    overlay(dsf00a:81)
+     d dsf00b                       160
+      *
+      * Datastruktur som brukes til å snu dato:
+      *
+     d                 ds
+     d dsdat1                         8  0
+     d  dsdatÅ                        4  0 overlay(dsdat1)
+     d  dsdatm                        2  0 overlay(dsdat1:5)
+     d  dsdatd                        2  0 overlay(dsdat1:7)
+      *
+      * Datastruktur som brukes til å snu dato:
+      *
+     d                 ds
+     d dsdat2                         8  0
+     d  dssnud                        2  0 overlay(dsdat2)
+     d  dssnum                        2  0 overlay(dsdat2:3)
+     d  dssnuÅ                        4  0 overlay(dsdat2:5)
+      *
+      * Henter firmainformasjon:
+      *
+     d                uds
+6.30 d l_poff                584    584
+6.30 d l_utqm                585    594
+6.30 d l_bach                595    635
+6.30 d l_arch                636    636  0
+6.30 d l_skje                637    637  0
+6.30 d l_land                638    638  0
+6.30 d l_exlp                639    639  0
+6.30 d l_mail                640    640  0
+6.30 d l_ruti                800    809
+6.30 d l_outq                810    819
+6.30 d l_wsid                901    910
+6.30 d l_user                911    920
+     d dsfgrp                931    933
+     d dsfirm                944    946  0
+6.30 d l_fnav                951    980
+      *---------------------------------------------------------------------
+      * Stand Alone Fields - TOP
+      *---------------------------------------------------------------------
+     d i               s              3  0
+     d wbatch          s              4
+     d wpalfa          s              1
+     d wpbefe          s              2  0
+     d wpbelØ          s             15  2
+     d wpbetd          s              8  0
+     d wpbetf          s              8
+     d wpbe00          s              1
+     d wpbfli          s              5  0
+     d wpbfnr          s              3  0
+     d wpbref          s              6
+     d wpdato          s              8  0
+     d wpfeil          s              2  0
+     d wpfgrp          s              3
+     d wpfilg          s              3
+     d wpfirm          s              3  0
+     d wpkidi          s             27
+     d wpklok          s              6  0
+     d wpktoi          s             11  0
+     d wpktou          s             35
+     d wpkurs          s             12  8
+     d wplØnn          s              3
+     d wplØre          s              1
+     d wpnavn          s             30
+     d wpnu02          s              2  0
+     d wpnu04          s              4  0
+     d wpnytt          s              2
+     d wpokno          s              8  4
+     d wpprov          s              9  2
+     d wpretu          s              1
+     d wpruti          s              4
+     d wpstat          s              2
+     d wpvalb          s             15  2
+     d wpvkod          s              3
+13105d wplevr          s              6  0
+     d x               s              3  0
+      *
+6.30 d p_btyp          s            100
+6.30 d w_year          s              4  0
+6.30 d w_dato          s               d   datfmt(*iso)
+      *
+6.30 d splfname2       s             10a
+6.30 d jobname2        s             10a
+6.30 d username2       s             10a
+6.30 d jobnbr2         s              6a
+6.30 d splfnbr2        s             10i 0
+6.30 d splfname3       s             10a
+6.30 d jobname3        s             10a
+6.30 d username3       s             10a
+6.30 d jobnbr3         s              6a
+6.30 d splfnbr3        s             10i 0
+6.30 d p_tagg0         s             20
+6.30 d p_tagg0val      s             50
+6.30 d p_tagg1         s             20
+6.30 d p_tagg1val      s             50
+6.30 d p_tagg2         s             20
+6.30 d p_tagg2val      s             50
+6.30 d p_tagg3         s             20
+6.30 d p_tagg3val      s             50
+6.30 d p_tagg4         s             20
+6.30 d p_tagg4val      s             50
+6.30 d p_tagg5         s             20
+6.30 d p_tagg5val      s             50
+6.30 d p_tagg6         s             20
+6.30 d p_tagg6val      s             50
+6.30 d p_tagg7         s             20
+6.30 d p_tagg7val      s             50
+6.30 d p_tagg8         s             20
+6.30 d p_tagg8val      s             50
+6.30 d p_tagg9         s             20
+6.30 d p_tagg9val      s             50
+6.30 d p_refn          s             50
+6.30 d p_dspl          s            100
+      *
+6.30 d qsprilsp        pr                  extpgm('QSPRILSP')
+6.30 d rcvvar                     32767a   options(*varsize)
+6.30 d rcvvarlen                     10i 0 const
+6.30 d format                         8a   const
+6.30 d errorcode                  32767a   options(*varsize)
+      *
+6.30 d sprl0100        ds
+6.30 d  bytesrtn                     10i 0
+6.30 d  bytesavl                     10i 0
+6.30 d  splfname                     10a
+6.30 d  jobname                      10a
+6.30 d  username                     10a
+6.30 d  jobnbr                        6a
+6.30 d  splfnbr                      10i 0
+6.30 d  systemname                    8a
+6.30 d  createdate                    7a
+6.30 d                                1a
+6.30 d  createtime                    6a
+      *
+6.30 d errorcode       ds
+6.30 d  bytesprov                    10i 0 inz(0)
+6.30 d  byteavail                    10i 0 inz(0)
+      *
+      *---------------------------------------------------------------------
+      * Stand Alone Fields - BOTTOM
+      *---------------------------------------------------------------------
+      /EJECT
+      *
+     c                   dow       *in60 = *off
+      *                                                              .
+      * Legger record i fra file over til generell datastruktur:     .
+      *                                                              .
+     c                   exsr      xoverf
+      *                                                              .
+      * Behandler transaksjon:                                       .
+      *                                                              .
+     c                   exsr      xteste
+      *                                                              .
+      * Sletter post etter at den er behandlet:                      .
+      *                                                              .
+     c                   delete    gtrtpfr
+      *                                                              .
+     c     key02         reade     gtrtlu                                 60
+      *                                                              .
+     c                   enddo
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Avslutt program                                                 *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xslutt        tag
+      * Generer xml for videre utskrift
+6.30 c                   if        l_poff = '1'
+6.30 c                   exsr      spoolnbr
+6.31 c                   close     gl110p
+6.31 c                   exsr      xml_create
+6.30 c                   exsr      pdf_preview
+6.30  * Avslutt jobbiden
+6.30 c                   call      'AB710R'
+6.30 c                   parm                    l_bach
+6.30 c                   endif
+      *
+     c                   eval      *inlr = *on
+     c                   return
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for å behandle post i fra GTRTPF:                     *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xteste        begsr
+      *
+      * Tester på om det er BETFOR00-transaksjon, og om denne har
+      * returkode ulik 01 eller 02.  I såfall vil hele batchen bli
+      * avvist.
+      *
+     c                   if        dsbetf = 'BETFOR00'
+      *                                                              .
+     c                   eval      wbatch = *blanks
+      *                                                              .
+     c                   if        dsretu <> 01
+     c                             and dsretu <> 02
+     c                   movel     'FEIL'        wbatch
+     c                   endif
+      *                                                              .
+      * Hjelpevariabel må "nullstilles".  Den brukes til å indikere  .
+      * om det er lønns- eller regnskapstransaksjon som behandles.   .
+      *                                                              .
+     c                   eval      wplØnn = *blanks
+     c                   eval      wpfgrp = *blanks
+     c                   eval      wpfirm = 0
+      *                                                              .
+      * Leser GTRTPF til neste post blir enten BETFOR01 eller        .
+      * BETFOR21.  De må leses for å få hentet inn informasjon       .
+      * om filgruppe og firma, samt om det er en lønns- eller        .
+      * regnskapsbatch som skal behandles.                           .
+      *                                                              .
+     c                   eval      i = 0
+     c                   eval      wpstat = *blanks
+      *                                                              .
+     c                   dow       wpstat <> 'OK'
+     c     key02         reade     gtrtlu                                 60
+     c                   exsr      xoverf
+     c                   if        *in60 = *off
+     c                   eval      i = i + 1
+     c                   endif
+     c                   if        *in60 = *on
+     c                             or dsbetf = 'BETFOR01'
+     c                             or dsbetf = 'BETFOR21'
+     c                   movel     'OK'          wpstat
+     c                   endif
+     c                   enddo
+      *                                                              .
+      * Setter status og leser deretter en tilbake v/BETFOR01:       .
+      *                                                              .
+     c                   if        dsbetf = 'BETFOR01'
+     c                   movel     dsbfgr        wpfgrp
+     c                   eval      wpfirm = dsbfir
+     c                   movel     'NEI'         wplØnn
+      * Leser tilbake:                                             . .
+     c                   dow       i <> 0
+     c     key02         readpe    gtrtlu                                 60
+     c                   eval      i = i - 1
+     c                   enddo
+      *                                                            . .
+     c                   exsr      xoverf
+      *                                                            . .
+      * Transaksjon "under" BETFOR21 kan være enten BETFOR22       . .
+      * eller BETFOR23.  Denne må derfor leses for å teste         . .
+      * om det er en lønns eller regnskapstransaksjon.             . .
+      *                                                            . .
+     c                   else
+     c                   if        dsbetf = 'BETFOR21'
+     c                   movel     dscfgr        wpfgrp
+     c                   eval      wpfirm = dscfir
+      *                                                          . . .
+     c                   eval      wpstat = *blanks
+      *                                                          . . .
+     c                   dow       wpstat <> 'OK'
+     c     key02         reade     gtrtlu                                 60
+     c                   exsr      xoverf
+     c                   if        *in60 = *off
+     c                   eval      i = i + 1
+     c                   endif
+     c                   if        *in60 = *on
+     c                             or dsbetf = 'BETFOR22'
+     c                             or dsbetf = 'BETFOR23'
+     c                   movel     'OK'          wpstat
+     c                   endif
+     c                   enddo
+      *                                                          . . .
+      *                                                          . . .
+     c                   if        dsbetf = 'BETFOR23'
+     c                   movel     'NEI'         wplØnn
+     c                   endif
+      *                                                          . . .
+     c                   if        dsbetf = 'BETFOR22'
+     c                   movel     'JA '         wplØnn
+     c                   endif
+      * Leser tilbake:                                           . . .
+     c                   dow       i <> 0
+     c     key02         readpe    gtrtlu                                 60
+     c                   eval      i = i - 1
+     c                   enddo
+      * Legger over i datastruktur:                              . . .
+     c                   exsr      xoverf
+     c                   endif
+     c                   endif
+      *                                                              .
+     c                   endif
+      *
+      * Oppdaterer file GURMPF ( Kvittering på returmottak fra Bank)
+      * dersom post ikke finnes der fra før:
+      *
+     c                   if        dsbetf = 'BETFOR04'
+     c                             or dsbetf = 'BETFOR23'
+     c                             or dsbetf = 'BETFOR22'
+      *                                                              .
+      * Dersom det er BETFOR04, BETFOR22 eller BETFOR23, så må       .
+      * filgruppe hentes inn fra posten via datastrukturen:          .
+      *                                                              .
+     c                   if        dsbetf = 'BETFOR04'
+     c                   movel     dsdfgr        wpfilg
+     c                   movel     dsdfir        wpfirm
+     c                   movel     dsdubf        wpbfnr
+     c                   endif
+      *                                                              .
+     c                   if        dsbetf = 'BETFOR22'
+     c                   movel     dscfgr        wpfilg
+     c                   movel     dscfir        wpfirm
+     c                   movel     dsgubf        wpbfnr
+     c                   endif
+      *                                                              .
+     c                   if        dsbetf = 'BETFOR23'
+     c                   movel     dsefgr        wpfilg
+     c                   movel     dsefir        wpfirm
+     c                   movel     dseubf        wpbfnr
+     c                   endif
+      *                                                              .
+      * Oppdaterer file med "nøkkelinformasjon" om returer:          .
+      *                                                              .
+     c                   movel     0             gdmfgr
+     c                   eval      gdmfir = 0
+     c                   eval      gdmubf = 0
+     c                   eval      gdmrko = *blanks
+     c                   eval      gdmrid = *blanks
+     c                   eval      gdmtxt = *blanks
+     c                   eval      gdmdat = 0
+     c                   eval      gdmtim = 0
+     c                   eval      gdmtxt = *blanks
+      *                                                              .
+     c                   eval      wpdato = gdqdat
+     c                   eval      wpklok = gdqtim
+      *                                                              .
+     c     key01b        chain     gurml1                             61
+      *                                                              .
+      * *IN61 er "PÅ" dersom det IKKE finnes oppdateringer for dette .
+      * forslaget tidligere, på nøyaktig DET SAMME tidspunktet.      .
+      * Men det må i tillegg testes på om det finnes oppdateringer   .
+      * for forslaget med et "ANNET TIDSPUNKT":                      .
+      *                                                              .
+     c                   if        *in61 = *on
+      * Finnes d.s. forslaget?                                  .    .
+     c     key01a        chain     gurml1                             61
+     c                   if        *in61 = *off
+     c                   movel     tx(1)         gdmtxt
+     c                   endif
+      *                                                         .    .
+     c                   movel     wpfilg        gdmfgr
+     c                   eval      gdmfir = wpfirm
+     c                   eval      gdmubf = wpbfnr
+     c                   movel     wpretu        gdmrko
+     c                   movel     wpruti        gdmrid
+     c                   eval      gdmdat = wpdato
+     c                   eval      gdmtim = wpklok
+     c                   write     gurmpfp
+      * Skriver kvittering:                                     .    .
+     c                   exsr      xmkvit
+      *                                                         .    .
+     c                   endif
+      *                                                              .
+     c                   endif
+      *
+      * Initierer hjelpevariable ved ny BETFOR01 / BETFOR21:
+      *
+     c                   if        dsbetf = 'BETFOR01'
+     c                             or dsbetf = 'BETFOR21'
+     c                   eval      wpbetd = 0
+     c                   eval      wpbref = *blanks
+     c                   eval      wpbelØ = 0
+     c                   eval      wpvkod = *blanks
+     c                   eval      wpktoi = 0
+     c                   eval      wpktou = *blanks
+     c                   eval      wpkidi = *blanks
+      *                                                          .
+     c                   if        dsbetf = 'BETFOR01'
+      *                                                        . .
+      * Tester på om valutakurs er blankt:  (Dette er aktuelt  . .
+      * på 1.g.retur fra KLINK)                                . .
+      *                                                        . .
+14010c                   if        kurtst = *blanks
+14010c                   eval      dsbkur = 0
+14010c                   eval      wpkurs = 0
+14010c                   endif
+      *                                                        . .
+      * Dersom Valutakonto skal kurs brukes fra pos 281-288:   . .
+      * MEN dersom 2.g.retur, så skal kurs hentes i fra pos.   . .
+      * 191-202 med 8 desimaler.                               . .
+      *                                                        . .
+26040c                   if        kurtst <> *zeros
+28080c                             and dsretu <> 2
+26040c                   eval      dsakur = dsbkur
+26040c                   endif
+      *                                                        . .
+      *                                                        . .
+      * Legger over valutakurs fra 4 desimaler, til felt på    . .
+      * 8 desimaler:                                           . .
+      *                                                        . .
+10059c                   eval      wpkurs = dsbkur
+      *                                                        . .
+      * Oversetter " " til "0" i valutakursfeltet:             . .
+      *                                                        . .
+21014c     ' ':'0'       xlate     dsvkur        dsvkur
+      *                                                        . .
+      * Bruker kurs i valutakurs i fra posisjon 191-202 (8 des). .
+      * dersom denne er utfylt:                                . .
+      *                                                        . .
+14059c                   if        dsaku2 > 0
+      *                                                      . . .
+      * Tester på om valutakurs er returnert med 4 eller 8   . . .
+      * desimaler:                                           . . .
+      *                                                      . . .
+19059c                   if        ds4des = *blanks
+19059c                   move      '0000'        ds4des
+19059c                   endif
+      *                                                      . . .
+      * Ved. 2.g.retur legges det ut 8 desimaler.  Hvis det  . . .
+      * ikke er 2.g.retur, så er det kun 4 desimaler, og     . . .
+      * de fire siste er null.                               . . .
+      *                                                      . . .
+14059c                   if        dsretu = 2
+14059c                   eval      wpkurs = dsakur
+14059c                   else
+14059c                   eval      wpkurs = dsaku2
+14059c                   endif
+      *                                                      . . .
+03059c                   endif
+      *                                                      . . .
+      * Forfallsdato ligger i forskjellige posisjoner på       . .
+      * file, avhengig av om det er 1. eller 2. gangsretur.    . .
+      *                                                        . .
+     c                   if        dsretu = 2
+     c                   eval      wpbetd = dsbbda
+     c                   movel     dsbbda        wpnu02
+     c                   else
+     c                   eval      wpbetd = dsbbdx
+     c                   movel     dsbbdx        wpnu02
+     c                   endif
+      *                                                        . .
+      * Legger til århundre:                                   . .
+     c                   if        wpnu02 >= 80
+     c                             and wpnu02 <= 99
+     c                   eval      wpnu04 = 1900 + wpnu02
+     c                   movel     wpnu04        wpbetd
+     c                   endif
+     c                   if        wpnu02 < 80
+     c                   eval      wpnu04 = 2000 + wpnu02
+     c                   movel     wpnu04        wpbetd
+     c                   endif
+      *                                                        . .
+     c                   movel     dsbref        wpbref
+     c                   movel     dsbvko        wpvkod
+     c                   endif
+      *                                                          .
+     c                   if        dsbetf = 'BETFOR21'
+      *                                                        . .
+      * Forfallsdato ligger i forskjellige posisjoner på       . .
+      * file, avhengig av om det er 1. eller 2. gangsretur.    . .
+      *                                                        . .
+     c                   if        dsretu = 2
+     c                   eval      wpbetd = dscbda
+     c                   movel     dscbda        wpnu02
+     c                   else
+     c                   eval      wpbetd = dscbdx
+     c                   movel     dscbdx        wpnu02
+     c                   endif
+      *                                                        . .
+      * Legger til århundre:                                   . .
+     c                   if        wpnu02 >= 80
+     c                             and wpnu02 <= 99
+     c                   eval      wpnu04 = 1900 + wpnu02
+     c                   movel     wpnu04        wpbetd
+     c                   endif
+     c                   if        wpnu02 < 80
+     c                   eval      wpnu04 = 2000 + wpnu02
+     c                   movel     wpnu04        wpbetd
+     c                   endif
+      *                                                        . .
+     c                   movel     dscref        wpbref
+      *                                                        . .
+04010c                   if        ktotst = *blanks
+04010c                   eval      ktotst = *zeros
+04010c                   endif
+      *                                                        . .
+     c                   eval      wpktoi = dsckto
+     c                   endif
+      *                                                          .
+     c                   endif
+      *
+      * Legger over verdier ved BETFOR03:
+      *
+     c                   if        dsbetf = 'BETFOR03'
+     c                   movel     dsfkto        wpktou
+     c                   endif
+      *
+      * Legger over verdier ved BETFOR04:
+      *
+     c                   if        dsbetf = 'BETFOR04'
+      * Valuta:                                                .
+     c                   eval      wpvalb = dsdbel
+      *                                                        .
+      * OMREGNING TIL NOK:                                     .
+      *                                                        .
+28068 * Tester på om valutakurs er blankt:  (Dette er aktuelt  .
+28068 * på 1.g.retur fra KLINK)                                .
+28068 *                                                        .
+28068c                   if        kurtst = *blanks
+28068c                   eval      dsbkur = 0
+28068c                   eval      wpkurs = 0
+28068c                   endif
+      *                                                        .
+14078 * Tester på om provisjon er blankt:  (Dette er aktuelt   .
+14078 * på 1.g.retur fra KLINK)                                .
+14078 *                                                        .
+14078c                   if        protst = *blanks
+14078c                   eval      dsbpro = 0
+14078c                   endif
+      *                                                        .
+      * Dersom DET IKKE ER BRUKT valutakonto, så skal kursen   .
+      * på avregningstidpunktet for betaling benyttes:         .
+      *                                                        .
+10059c                   eval      wpbelØ = dsdbel * wpkurs
+      *                                                        .
+      * Dersom det er brukt utenlandstransaksjon for betaling  .
+      * i NOK til utenlandsk leverandør, så vil DSBKUR være 0: .
+      *                                                        .
+     c                   if        dsbvko = 'NOK'
+     c                   eval      wpbelØ = dsdbel
+     c                   endif
+      *                                                        .
+      * Det må testes på om valuta som brukes er i forholdet   .
+      * 1 eller 100 mot NOK:                                   .
+      *                                                        .
+     c                   eval      x = 1
+     c     dsbvko        lookup    vk(x)                                  62
+      *                                                        .
+     c                   if        vf(x) = '100'
+     c                   eval(h)   wpbelØ = wpbelØ / 100
+     c                   endif
+      *                                                        .
+      * Leser post i fra utbet.forslagsfile for å teste på     .
+      * om det er brukt valutakonto:                           .
+      *                                                        .
+E5.00c     key03         chain     gubfl8                             62
+      *                                                        .
+      * Dersom DET ER BRUKT valutakonto, så skal kursen        .
+      * på avregningstidpunktet for betaling benyttes:         .
+      *                                                        .
+     c                   if        *in62 = *off
+     c                             and gabeva = 'J'
+     c                             and gavalb <> 0
+      *                                                      . .
+6.10 c*********          eval      gabelØ = gabelØ * 100
+     c                   eval(h)   wpkurs = gabelØ / gavalb
+     c                   eval      wpbelØ = dsdbel * wpkurs
+      *                                                      . .
+     c                   if        vf(x) = '100'
+6.10 c*********          eval(h)   wpbelØ = wpbelØ / 100
+     c                   endif
+      *                                                      . .
+     c                   eval(h)   wpokno = wpkurs
+      *                                                      . .
+     c                   endif
+      *                                                        .
+     c                   endif
+      *
+      * Legger over verdier ved BETFOR22:
+      *
+     c                   if        dsbetf = 'BETFOR22'
+     c                   eval      wpbelØ = dsgbel
+     c                   endif
+      *
+      * Legger over verdier ved BETFOR23:
+      *
+     c                   if        dsbetf = 'BETFOR23'
+     c                   eval      wpbelØ = dsebel
+     c                   endif
+      *
+      * Oppdaterer file for produsering av data til kvitteringsliste
+      * ved 1.gangs-, 2.gangs- eller feilretur:
+      *
+     c                   if        dsretu = 1
+     c                             or dsretu = 2
+     c                   exsr      xgodpo
+     c                   else
+     c                   exsr      xerrpo
+     c                   endif
+      *
+     c                   endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for å oppdatere kvitteringsfiler ved godkjent post.   *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xgodpo        begsr
+      *
+      * Lønn:
+      *
+     c                   if        dsbetf = 'BETFOR22'
+      *                                                        .
+      * Legger inn verdier i parameterliste;                   .
+      *                                                        .
+     c                   movel     'L'           wplØre
+     c                   eval      wpvalb = 0
+     c                   eval      wpbfnr = dsgubf
+     c                   eval      wpbfli = dsgbfl
+     c                   movel     dsgref        wpbref
+     c                   eval      wpktoi = dsgkto
+     c                   movel     dsgnav        wpnavn
+13105c                   eval      wplevr = 0
+      *                                                        .
+      * Kaller opp pgm. for oppdatering av file:               .
+      *                                                        .
+     c                   call      'GL112C'
+     c                   parm                    wpfgrp
+     c                   parm                    wpfirm
+     c                   parm                    wpbfnr
+     c                   parm                    wpbfli
+     c                   parm                    wpretu
+     c                   parm                    wplØre
+      *                                                        .
+     c                   parm                    wpbetd
+     c                   parm                    wpbref
+     c                   parm                    wpbelØ
+     c                   parm                    wpvalb
+     c                   parm                    wpvkod
+     c                   parm                    wpktoi
+     c                   parm                    wpktou
+     c                   parm                    wpkidi
+     c                   parm                    wpfeil
+     c                   parm                    wpbetf
+     c                   parm                    wpnavn
+     c                   parm                    wpbe00
+     c                   parm                    wpbefe
+     c                   parm                    wpokno
+     c                   parm                    wpprov
+13105c                   parm                    wplevr
+      *                                                        .
+     c                   eval      wpnavn = *blanks
+      *                                                        .
+     c                   endif
+      *
+      * Regnskap, Utland:
+      *
+     c                   if        dsbetf = 'BETFOR04'
+      * Snur fortegn på beløp:                                 .
+     c                   if        dsddbk = 'K'
+     c                   eval      wpbelØ = wpbelØ * -1
+     c                   eval      wpvalb = wpvalb * -1
+13105c                   eval      wplevr = 0
+     c                   endif
+      *                                                        .
+      * Legger inn verdier i parameterliste;                   .
+      *                                                        .
+     c                   eval      wpkidi = *blanks
+     c                   eval      wpbfnr = dsdubf
+     c                   eval      wpbfli = dsdbfl
+     c                   movel     'R'           wplØre
+     c                   movel     dsdref        wpbref
+      *                                                        .
+      * PROVISJON TIL BANK:                                    .
+      *                                                        .
+      * Provisjonsbeløpet DSBPRO som hentes i fra BETFOR01 vil .
+      * gjelde for alle underliggende BETFOR04.  Beløpet blir  .
+      * derfor sendt med kun EN gang, d.v.s. på den FØRSTE     .
+      * posten, og nullstilles deretter.                       .
+      * Feltet vil få Ny verdi ved NY BETFOR01, dersom denne   .
+      * har utfylt verdi i feltet for provisjon.               .
+      *                                                        .
+     c                   eval      wpprov = dsbpro
+     c                   eval      dsbpro = 0
+      *                                                        .
+      * Dersom det betales via valutakonto, så er kursen mot   .
+      * NOK allerede beregnet ut i feltet WPOKNO.              .
+      *                                                        .
+     c                   if        gabeva <> 'J'
+10059c                   eval      wpokno = wpkurs
+     c                   endif
+      *                                                        .
+      * Kaller opp pgm. for oppdatering av file:               .
+      *                                                        .
+     c                   call      'GL112C'
+     c                   parm                    wpfgrp
+     c                   parm                    wpfirm
+     c                   parm                    wpbfnr
+     c                   parm                    wpbfli
+     c                   parm                    wpretu
+     c                   parm                    wplØre
+      *                                                        .
+     c                   parm                    wpbetd
+     c                   parm                    wpbref
+     c                   parm                    wpbelØ
+     c                   parm                    wpvalb
+     c                   parm                    wpvkod
+     c                   parm                    wpktoi
+     c                   parm                    wpktou
+     c                   parm                    wpkidi
+     c                   parm                    wpfeil
+     c                   parm                    wpbetf
+     c                   parm                    wpnavn
+     c                   parm                    wpbe00
+     c                   parm                    wpbefe
+     c                   parm                    wpokno
+     c                   parm                    wpprov
+13105c                   parm                    wplevr
+      * Nullstiller felt:                                      .
+     c                   eval      wpokno = 0
+     c                   eval      wpprov = 0
+      *                                                        .
+     c                   endif
+      *
+      * Regnskap, Innland:
+      *
+     c                   if        dsbetf = 'BETFOR23'
+      * Snur fortegn på beløp:                                 .
+     c                   if        dsedbk = 'K'
+     c                   eval      wpbelØ = wpbelØ * -1
+     c                   eval      wpvalb = wpvalb * -1
+     c                   endif
+      *                                                        .
+      * Legger inn verdier i parameterliste;                   .
+      *                                                        .
+     c                   eval      wpbfnr = dseubf
+     c                   eval      wpbfli = dsebfl
+     c                   eval      wpvalb = 0
+     c                   movel     'R'           wplØre
+     c                   movel     dseref        wpbref
+     c                   movel     dsekid        wpkidi
+      *                                                        .
+      * Kaller opp pgm. for oppdatering av file:               .
+      *                                                        .
+     c                   call      'GL112C'
+     c                   parm                    wpfgrp
+     c                   parm                    wpfirm
+     c                   parm                    wpbfnr
+     c                   parm                    wpbfli
+     c                   parm                    wpretu
+     c                   parm                    wplØre
+      *                                                        .
+     c                   parm                    wpbetd
+     c                   parm                    wpbref
+     c                   parm                    wpbelØ
+     c                   parm                    wpvalb
+     c                   parm                    wpvkod
+     c                   parm                    wpktoi
+     c                   parm                    wpktou
+     c                   parm                    wpkidi
+     c                   parm                    wpfeil
+     c                   parm                    wpbetf
+     c                   parm                    wpnavn
+     c                   parm                    wpbe00
+     c                   parm                    wpbefe
+     c                   parm                    wpokno
+     c                   parm                    wpprov
+13105c                   parm                    wplevr
+      *                                                        .
+     c                   endif
+      *
+     c                   endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for å oppdatere kvitteringsfiler ved avvist post.     *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xerrpo        begsr
+      *
+      * Legger inn verdier i parameterliste;
+      *
+     c                   eval      wpbfnr = 0
+     c                   eval      wpbfli = 0
+     c                   eval      wplØre = *blanks
+      *
+      * Legger ut forslagsnummer dersom BETFOR04 eller BETFOR23:
+      *
+     c                   if        dsbetf = 'BETFOR04'
+     c                   eval      wpbfnr = dsdubf
+     c                   eval      wpbfli = dsdbfl
+     c                   movel     'R'           wplØre
+13105c                   eval      wplevr = 0
+     c                   endif
+      *
+     c                   if        dsbetf = 'BETFOR22'
+     c                   movel     dsgnav        wpnavn
+     c                   eval      wpbfnr = dsgubf
+     c                   eval      wpbfli = dsgbfl
+     c                   movel     'L'           wplØre
+13105c                   eval      wplevr = 0
+     c                   endif
+      *
+     c                   if        dsbetf = 'BETFOR23'
+     c                   eval      wpbfnr = dseubf
+     c                   eval      wpbfli = dsebfl
+     c                   movel     'R'           wplØre
+     c                   endif
+      *
+      * Betfortransaksjon:
+      *
+     c                   movel     dsbetf        wpbetf
+      *
+      * Returkode, d.v.s. feilmeldingskode:
+      *
+     c                   eval      wpfeil = dsretu
+      *
+      * Kaller opp pgm. for oppdatering av file:
+      *
+     c                   call      'GL112C'
+     c                   parm                    wpfgrp
+     c                   parm                    wpfirm
+     c                   parm                    wpbfnr
+     c                   parm                    wpbfli
+     c                   parm                    wpretu
+     c                   parm                    wplØre
+      *
+     c                   parm                    wpbetd
+     c                   parm                    wpbref
+     c                   parm                    wpbelØ
+     c                   parm                    wpvalb
+     c                   parm                    wpvkod
+     c                   parm                    wpktoi
+     c                   parm                    wpktou
+     c                   parm                    wpkidi
+     c                   parm                    wpfeil
+     c                   parm                    wpbetf
+     c                   parm                    wpnavn
+     c                   parm                    wpbe00
+     c                   parm                    wpbefe
+     c                   parm                    wpokno
+     c                   parm                    wpprov
+13105c                   parm                    wplevr
+      *
+     c                   eval      wpnavn = *blanks
+      *
+     c                   endsr
+      *
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for å skrive ut mottakskvittering:                    *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+     c     xmkvit        begsr
+      *
+      * Nullstiller rapportindikatorer:
+      *
+     c                   move      *off          *in31
+     c                   move      *off          *in32
+     c                   move      *off          *in33
+     c                   move      *off          *in34
+      *
+      * Skriver header:
+      *
+     c                   if        wpnytt = *blanks
+     c                   movel     'JA'          wpnytt
+     c                   write     a1hdr
+     c                   endif
+      *
+      * Legger over felt i fra file til variabel i rapport:
+      *
+     c                   movel     gdmfgr        d1mfgr
+     c                   movel     gdmtxt        d1mtxt
+     c                   eval      d1mfir = gdmfir
+     c                   eval      d1mubf = gdmubf
+     c                   eval      d1time = gdmtim
+      *
+     c                   eval      dsdat1 = gdmdat
+     c                   eval      dssnuÅ = dsdatÅ
+     c                   eval      dssnum = dsdatm
+     c                   eval      dssnud = dsdatd
+     c                   eval      d1dato = dsdat2
+      * Returkode=1:
+     c                   if        gdmrko = '1'
+     c                   move      *on           *in31
+     c                   endif
+      * Returkode=2:
+     c                   if        gdmrko = '2'
+     c                   move      *on           *in32
+     c                   endif
+      * Returkode=F:
+     c                   if        gdmrko = 'F'
+     c                   move      *on           *in33
+     c                   endif
+      * Utland:
+     c                   move      gdmrid        wpalfa
+      *
+     c                   if        wpalfa = 'U'
+     c                   move      *on           *in34
+     c                   endif
+      * Skriver detaljlinje:
+     c                   write     d1det                                30
+      * Overflow?
+     c                   if        *in30 = *on
+     c                   write     a1hdr
+     c                   endif
+      *
+     c                   endsr
+      *                                                              .
+      /EJECT
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Legger record i fra file over til datastruktur:
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     c     xoverf        begsr
+      * Generell datastruktur:
+     c                   movel     gdqbet        dsa00a
+     c                   move      gdqbet        dsa00b
+      * Datastruktur ved BETFOR01:
+     c                   if        dsbetf = 'BETFOR01'
+     c                   movel     gdqbet        dsb00a
+     c                   move      gdqbet        dsb00b
+     c                   endif
+      * Datastruktur ved BETFOR03:
+     c                   if        dsbetf = 'BETFOR03'
+     c                   movel     gdqbet        dsf00a
+     c                   move      gdqbet        dsf00b
+     c                   endif
+      * Datastruktur ved BETFOR04:
+     c                   if        dsbetf = 'BETFOR04'
+     c                   movel     gdqbet        dsd00a
+     c                   move      gdqbet        dsd00b
+     c                   endif
+      * Datastruktur ved BETFOR21:
+     c                   if        dsbetf = 'BETFOR21'
+     c                   movel     gdqbet        dsc00a
+     c                   move      gdqbet        dsc00b
+13105c                   eval      wplevr = dsclev
+     c                   endif
+      * Datastruktur ved BETFOR22:
+     c                   if        dsbetf = 'BETFOR22'
+     c                   movel     gdqbet        dsg00a
+     c                   move      gdqbet        dsg00b
+     c                   endif
+      * Datastruktur ved BETFOR23:
+     c                   if        dsbetf = 'BETFOR23'
+     c                   movel     gdqbet        dse00a
+     c                   move      gdqbet        dse00b
+     c                   endif
+      * Tester på om 1. gangs retur:
+     c                   if        dsretu = 1
+     c                   movel     '1'           wpretu
+     c                   endif
+      * Tester på om 2. gangs retur:
+     c                   if        dsretu = 2
+     c                   movel     '2'           wpretu
+     c                   endif
+      * Tester på om feilretur:
+     c                   if        dsretu <> 1
+     c                             and dsretu <> 2
+     c                   movel     'F'           wpretu
+     c                   endif
+      * Tester på om hele batchen skal avvises:
+     c                   if        wbatch = 'FEIL'
+     c                   movel     'F'           wpretu
+     c                   endif
+      * Rutine-id:
+     c                   movel     dsruti        wpruti
+      *
+     c                   endsr
+      *
+      /EJECT
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.30  * Finner spool som er generert av jobben
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.30 c     spoolnbr      begsr
+6.30  /Free
+6.30
+6.30           QSPRILSP( SPRL0100
+6.30                   : %size(SPRL0100)
+6.30                   : 'SPRL0100'
+6.30                   : errorcode );
+6.30  /End-free
+6.30  *
+6.30 c                   endsr
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.30  * Kaller eget program for generering av xml fil. Eget pgm         *
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.30 c     xml_create    begsr
+6.30  *
+6.30 c                   eval      splfname2 = *blanks
+6.30 c                   eval      splfname3 = *blanks
+6.30 c                   eval      jobname2 = *blanks
+6.30 c                   eval      jobname3 = *blanks
+6.30 c                   eval      username2 = *blanks
+6.30 c                   eval      username3 = *blanks
+6.30 c                   eval      jobnbr2 = *blanks
+6.30 c                   eval      jobnbr3 = *blanks
+6.30 c                   eval      splfnbr2 = *zeros
+6.30 c                   eval      splfnbr3 = *zeros
+6.30 c                   eval      p_btyp = 'RETURMOTTAK'
+6.30 c                   eval      p_dspl = 'Returmottak - bank ' +
+6.30 c                                      %char(w_dato)
+6.30 c                   eval      p_refn = %char(w_year)+%char(w_dato)
+6.30 c                   eval      p_tagg0 = *blanks
+6.30 c                   eval      p_tagg0val = *blanks
+6.30 c                   eval      p_tagg1 = *blanks
+6.30 c                   eval      p_tagg1val = *blanks
+6.30 c                   eval      p_tagg2 = *blanks
+6.30 c                   eval      p_tagg2val = *blanks
+6.30 c                   eval      p_tagg3 = *blanks
+6.30 c                   eval      p_tagg3val = *blanks
+6.30 c                   eval      p_tagg4 = *blanks
+6.30 c                   eval      p_tagg4val = *blanks
+6.30 c                   eval      p_tagg5 = *blanks
+6.30 c                   eval      p_tagg5val = *blanks
+6.30 c                   eval      p_tagg6 = *blanks
+6.30 c                   eval      p_tagg6val = *blanks
+6.30 c                   eval      p_tagg7 = *blanks
+6.30 c                   eval      p_tagg7val = *blanks
+6.30 c                   eval      p_tagg8 = *blanks
+6.30 c                   eval      p_tagg8val = *blanks
+6.30 c                   eval      p_tagg9 = *blanks
+6.30 c                   eval      p_tagg9val = *blanks
+      *
+6.30 c                   call      'AP627R'
+6.30 c                   PARM                    splfname
+6.30 c                   PARM                    jobname
+6.30 c                   PARM                    username
+6.30 c                   PARM                    jobnbr
+6.30 c                   PARM                    splfnbr
+6.30 c                   PARM                    splfname2
+6.30 c                   PARM                    jobname2
+6.30 c                   PARM                    username2
+6.30 c                   PARM                    jobnbr2
+6.30 c                   PARM                    splfnbr2
+6.30 c                   PARM                    splfname3
+6.30 c                   PARM                    jobname3
+6.30 c                   PARM                    username3
+6.30 c                   PARM                    jobnbr3
+6.30 c                   PARM                    splfnbr3
+6.30 c                   parm                    p_tagg0
+6.30 c                   parm                    p_tagg0val
+6.30 c                   parm                    p_tagg1
+6.30 c                   parm                    p_tagg1val
+6.30 c                   parm                    p_tagg2
+6.30 c                   parm                    p_tagg2val
+6.30 c                   parm                    p_tagg3
+6.30 c                   parm                    p_tagg3val
+6.30 c                   parm                    p_tagg4
+6.30 c                   parm                    p_tagg4val
+6.30 c                   parm                    p_tagg5
+6.30 c                   parm                    p_tagg5val
+6.30 c                   parm                    p_tagg6
+6.30 c                   parm                    p_tagg6val
+6.30 c                   parm                    p_tagg7
+6.30 c                   parm                    p_tagg7val
+6.30 c                   parm                    p_tagg8
+6.30 c                   parm                    p_tagg8val
+6.30 c                   parm                    p_tagg9
+6.30 c                   parm                    p_tagg9val
+6.30 c                   parm                    l_bach
+6.30 c                   parm                    p_btyp
+6.30 c                   parm                    p_refn
+6.30 c                   parm                    p_dspl
+6.30  *
+6.30 c                   endsr
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.30  * Subrutiner for XML/jasper integrasjon - Skjermvisning           *
+6.30  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+6.30 c     pdf_preview   begsr
+6.30 c                   if        l_skje = 1
+6.30  * Vi kaller program for launch av PDF i browser
+6.30 c                   call      'AP621R'
+6.30 c                   parm                    l_bach
+6.30  *
+6.30 c                   endif
+6.30  *
+6.30 c                   endsr
+6.30  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutine for initiering av program                             *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     c     *inzsr        begsr
+      *
+      * Definering av variable:
+      *
+     c                   eval      wpnytt = *blanks
+     c                   eval      wplØnn = *blanks
+     c                   eval      wpnu02 = 0
+     c                   eval      wpnu04 = 0
+      *
+      * Feltet WPALFA inneholder siste posisjon av feltet
+      * for rutine-id i applikasjonsheader fra BETFORxx.
+      *
+     c                   eval      wpalfa = *blanks
+      *
+      * Definering av variabel som skal indikerer om hele
+      * batchen er feil, d.v.s. at BETFOR00 har returkode
+      * ulik 01 og 02.
+      *
+     c                   eval      wbatch = *blanks
+      *
+      * Definering av variabel som skal brukes til å lagre antall
+      * les som er foretatt på GTRTPF.  Dette er nødvendig å vite
+      * når GTRTPF skal leses "bakover".
+      *
+     c                   eval      i = 0
+     c                   eval      wpstat = *blanks
+      *
+      * X brukes til oppslag i tabell for å finne valutaforhold:
+      *
+     c                   eval      x = 0
+      *
+      * Definering av variabel som brukes i forbindelse med
+      * beregning av kurs mot NOK når utbetaling belastes
+      * valutakonto.  I dette tilfellet skal kursen ved inngående
+      * faktura benyttes.
+      *
+     c                   eval      wpkurs = 0
+      *
+      * Definering av parameterliste v/CALL av GL112c:
+      *
+     c                   eval      wpfgrp = *blanks
+     c                   eval      wpfirm = 0
+     c                   eval      wpbfnr = 0
+     c                   eval      wpbfli = 0
+     c                   eval      wpretu = *blanks
+     c                   eval      wpbetf = *blanks
+     c                   eval      wpfeil = 0
+     c                   eval      wplØre = *blanks
+      *
+     c                   eval      wpbetd = 0
+     c                   eval      wpbref = *blanks
+     c                   eval      wpbelØ = 0
+     c                   eval      wpvalb = 0
+     c                   eval      wpvkod = *blanks
+     c                   eval      wpktoi = 0
+     c                   eval      wpktou = *blanks
+     c                   eval      wpkidi = *blanks
+     c                   eval      wpnavn = *blanks
+S5.00c*                  eval      wpokno = *blanks
+T5.00c                   eval      wpokno = *zeros
+     c                   eval      wpprov = 0
+13105c                   eval      wplevr = 0
+      *
+      * WPBE00 brukes i GL112R som "flagg" for å teste på om
+      * BETFOR00 har feilkode.  WPBEFE inneholder videre
+      * denne feilkoden, d.v.s. blir tildelt i program GL112R.
+      * denne feilkoden.  Feiltransaksjon vil bli lagt ut
+      * på henholdsvis GURFPF eller GULFPF i program GL112R
+      * først når det er lest en ny BETFOR-transakjon, som viser
+      * hvilken filgruppe/firma/forslag filen gjelder.
+      * BETFOR00 inneholder IKKE informasjon om dette!
+      *
+     c                   eval      wpbe00 = *blanks
+     c                   eval      wpbefe = 0
+6.30 c                   open      gl110p
+6.30 c                   eval      w_year = *year
+6.30 c                   time                    w_dato
+      *
+      * Avgrenset Key for GURML1 - Kvittering på returmottak:
+      *
+     c     key01a        klist
+     c                   kfld                    wpfilg
+     c                   kfld                    wpfirm
+     c                   kfld                    wpbfnr
+     c                   kfld                    wpretu
+     c                   kfld                    wpruti
+      *
+      * Full Key for GURML1 - Kvittering på returmottak:
+      *
+     c     key01b        klist
+     c                   kfld                    wpfilg
+     c                   kfld                    wpfirm
+     c                   kfld                    wpbfnr
+     c                   kfld                    wpretu
+     c                   kfld                    wpruti
+     c                   kfld                    wpdato
+     c                   kfld                    wpklok
+      *
+      * Key for les av returfile telegiro:
+      *
+     c     key02         klist
+     c                   kfld                    dsfgrp
+     c                   kfld                    dsfirm
+      *
+E5.00 * Key med verdier i fra BETFOR04 for les av GUBFL8:
+      *
+     c     key03         klist
+     c                   kfld                    dsdfir
+     c                   kfld                    dsdubf
+     c                   kfld                    dsdbfl
+      *
+      * Starter les av GTRTPF:
+      *
+     c     key02         setll     gtrtlu
+     c     key02         reade     gtrtlu                                 60
+      *
+     c                   endsr
+      *
+**
+* MOTTATT TIDLIGERE *                                               01
+**
+USD
+DEM
+SEK
+DKK
+NLG
+BEF
+GBP
+CHF
+FRF
+ITL
+JPY
+ATS
+FIM
+CAD
+ESP
+PTE
+ISK
+IEP
+GRD
+ECU
+SDR
+AUD
+HKD
+INR
+SGD
+EUR
+*
+*
+*
+*
+**
+1  USD
+100DEM
+100SEK
+100DKK
+100NLG
+100BEF ?
+1  GBP
+100CHF
+100FRF
+100ITL
+100JPY
+100ATS
+100FIM
+1  CAD
+100ESP
+1  PTE
+1  ISK
+1  IEP
+1  GRD
+1  ECU
+1  SDR
+   AUD  ?
+   HKD  ?
+   INR  ?
+   SGD  ?
+1  EUR
+*
+*
+*
+*

@@ -1,0 +1,489 @@
+     H datedit(*dmy) option(*nodebugio)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : FO632R
+      * Beskrivelse . . : Utskrift av kontroll-liste
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      * V3.20 170700 KOB  Lagt inn valg på avdeling
+      * V3.20 170700 KOB  Lagt inn spørring på avdeling/kunde
+3.31  * V3.31 060401 AMD  Lagt inn valg også på pakkseddeldato.
+5.01  * V5.01 030502 AMD  Lagt inn valg også på info-kode.
+      * R5.21 200803 AMD  Lagt om til AP600R i stedet for AP100R
+5.31  * R5.31 160904 GRO  Lagt inn utplukk på alternativ fakturering
+6.nu  * R6.30 160614 bof  Endret ihht. nummerutvidelse
+7.xx  * 7.00  280116 bsa  Endringer reltart til ny GUI. NB Kan kun gjelde DDS
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *
+     FFO632D    CF   E             WORKSTN
+      *
+     FVOTYL1    IF   E           K DISK    RENAME(VOTYPFR:VOTYL1R)
+     fra07pf    if   e           k disk
+      *
+     d w_firm          s              3  0
+     d w_atxt          s             20
+5.01 d w_itxt          s             35
+     d w_navn          s             30
+5.21 d w_tvbt          s              1
+5.21 d w_btch          s              1
+5.31 d w_kftp          s              2  0
+5.31 d w_ktpn          s             20
+      *
+     d ra07pf_firm     s                   like(ragfir)
+     d ra07pf_gkod     s                   like(ragkod)
+      *
+     D                 DS
+      *                                                      Filemember
+     D  LDAMBR                 1     10
+     D  LDABOK                 1      1
+     D  LDAFIR                 2      4  0
+     D  LDALST                 5     10  0
+      *
+     D                 DS
+      *                                                      Parameter-inn
+6.nu D  LDPREC                 1     84
+     D  LDOTYP                 1      2
+     D  LDSEKV                 3      4  0
+6.nu D  LDFONR                 5     12  0
+6.nu D  LDTONR                13     20  0
+6.nu D  LDFKUN                21     26  0
+6.nu D  LDTKUN                27     32  0
+6.nu D  LDFDAT                33     42d   datfmt(*iso)
+6.nu D  LDTDAT                43     52d   datfmt(*iso)
+6.nu D  LDVAL1                53     53  0
+6.nu D  LDVAL2                54     54  0
+6.nu D  LDVAL3                55     55  0
+6.nu D  LDVAL4                56     56  0
+6.nu D  LDVAL5                57     57  0
+6.nu D  LDVAL6                58     58  0
+6.nu D  LDVAL7                59     59  0
+6.nu D  LDPROS                60     61  0
+6.nu D  ldavde                62     65  0
+6.nu D  ldkjor                66     67  0
+6.nu D  ldldat                68     77d   datfmt(*iso)
+6.nu D  ldityp                78     79
+6.nu D  ldaltf                80     81
+      *
+      * Definering av local data area
+      *
+     d lda            uds
+     d  l_ruti               800    809
+     d  l_chgv               844    844
+     D  l_firm               944    946  0
+     D  l_fnav               951    980
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *  Behandle bilde for registrering av parametre                   *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      *
+     C     B1TAG         TAG
+      *
+      *  Nullstiller variable som skal vises i skjermbildet
+      *
+     C                   MOVE      *BLANK        B1OTYP
+5.01 c                   move      *blank        b1ityp
+     C                   MOVE      *ZERO         B1SEKV
+     C                   MOVE      *ZERO         B1FONR
+     C                   MOVE      *ZERO         B1TONR
+     C                   MOVE      *ZERO         B1FKUN
+     C                   MOVE      *ZERO         B1TKUN
+     C                   MOVE      *ZERO         B1FDAT
+     C                   MOVE      *ZERO         B1TDAT
+3.31 c                   move      *zero         b1ldat
+     C                   move      *zero         b1avde
+5.31 C                   move      *zero         b1altf
+      *
+     C     B1TAGB        TAG
+      *
+     C                   eval      *in31 = *off
+     C                   eval      *in32 = *off
+      *
+     C                   EXFMT     B1BLD
+      *
+      * Behandling av standard funksjonstaster
+      *
+     c                   select
+     c                   when      *inkc
+     c                   goto      xslutt
+     c                   when      *inkd
+     c                   exsr      spØrring
+     c                   goto      b1tagb
+     c                   endsl
+      *
+      *  Sjekk   Finnes ordretype i ORDRE-TYPE-REGISTER
+      *
+     C                   MOVE      B1OTYP        OTYTYP
+     C     OTYKEY        CHAIN     VOTYL1R                            90
+     C     *IN90         IFEQ      *ON
+     C                   MOVE      *ON           *IN31
+     C                   GOTO      B1TAGB
+     C                   END
+      *
+      *  Sjekk   Er avdeling gyldig
+      *
+     c                   if        b1avde <> *zeros
+     C                   eval      ra07pf_firm = w_firm
+     C                   eval      ra07pf_gkod = b1avde
+     C     ra07pf_key    chain     ra07pfr                            90
+     C                   if        *in90 = *on
+     C                   eval      *in32 = *on
+     C                   goto      b1tagb
+     C                   endif
+     C                   endif
+      *
+      *  Sjekk   Er dato fra større enn dato til
+      *
+     c                   eval      wwfdat = *loval
+     c                   eval      wwtdat = *loval
+3.31 c                   eval      wwldat = *loval
+3.31  *
+3.31 c                   if        b1ldat <> 0
+3.31 c     *dmy          move      b1ldat        wwldat
+3.31 c                   endif
+      *
+     c                   if        b1fdat <> 0
+     c     *dmy          move      b1fdat        wwfdat
+     c                   endif
+      *
+     c                   if        b1tdat <> 0
+     c     *dmy          move      b1tdat        wwtdat
+     c                   endif
+      *
+     c     WWFDAT        IFGT      WWTDAT
+     c                   MOVE      *ON           *IN35
+     c                   GOTO      B1TAGB
+     c                   END
+      *
+      *  Legger inntastede opplysninger i Hjelpe-felter for Parameter
+      *
+     C                   MOVE      B1OTYP        LDOTYP
+     C                   MOVE      B1SEKV        LDSEKV
+     C                   MOVE      B1FONR        LDFONR
+     C                   MOVE      B1TONR        LDTONR
+     C                   MOVE      B1FKUN        LDFKUN
+     C                   MOVE      B1TKUN        LDTKUN
+     C                   MOVE      WWFDAT        LDFDAT
+     C                   MOVE      WWTDAT        LDTDAT
+     C                   MOVE      b1avde        ldavde
+     C                   MOVE      *zeros        ldkjor
+3.31 c                   move      wwldat        ldldat
+5.01 c                   move      b1ityp        ldityp
+5.31 c                   move      b1altf        ldaltf
+      *
+      *  Dersom ordrenummer til=0 skal t.o.m. alle ordrenmmer velges
+      *
+     C     LDTONR        IFEQ      *ZERO
+     C                   MOVE      999999        LDTONR
+     C                   END
+      *
+      *  Dersom kundenummer til=0 skal t.o.m. alle kunder velges
+      *
+     C     LDTKUN        IFEQ      *ZERO
+     C                   MOVE      999999        LDTKUN
+     C                   END
+      *
+      *  Dersom dato til=0 skal t.o.m. alle datoer velges
+      *
+     C     B1TDAT        IFEQ      *ZERO
+     C                   MOVE      *hival        LDTDAT
+     C                   END
+3.31  *
+3.31 c     b1ldat        ifeq      *zero
+3.31 c                   move      *hival        ldldat
+3.31 c                   end
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *  Behandle bilde for valg av sortering/uttrekk osv.              *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      *
+     C     C1TAG         TAG
+      *
+      *  Nullstiller variable som skal vises i skjermbildet
+      *
+     C                   MOVE      1             C1VAL1
+     C                   MOVE      *ZERO         C1VAL2
+     C                   MOVE      *ZERO         C1VAL3
+     C                   MOVE      *ZERO         C1VAL4
+     C                   MOVE      *ZERO         C1VAL5
+     C                   MOVE      *ZERO         C1VAL6
+     C                   MOVE      *ZERO         C1VAL7
+     C                   MOVE      *ZERO         C1PROS
+      *
+     C     C1TAGA        TAG
+      *
+     C     C1TAGB        TAG
+     C                   EXFMT     C1BLD
+      *
+      *  F3=Gå tilbake  (Avslutt)
+      *
+     C     *INKC         CABEQ     *ON           B1TAG
+      *
+      *  Legger inntastede opplysninger i Hjelpe-felter for Parameter
+      *
+     C                   MOVE      C1VAL1        LDVAL1
+     C                   MOVE      C1VAL2        LDVAL2
+     C                   MOVE      C1VAL3        LDVAL3
+     C                   MOVE      C1VAL4        LDVAL4
+     C                   MOVE      C1VAL5        LDVAL5
+     C                   MOVE      C1VAL6        LDVAL6
+     C                   MOVE      C1VAL7        LDVAL7
+     C                   MOVE      C1PROS        LDPROS
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *  Inntasting er ferdig !  Oppstart av utvalg/utskriftsprogrammer *
+      *  Kaller opp neste 'CL'-program                                  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      *
+      *  Legg inn verdi for bare henting av opplysninger
+      *
+     c                   move      *blank        l_chgv                          KODE VISE BILDE
+     c                   movel     'FO636'       l_ruti                          RUTINE
+     c                   out       *dtaara
+      *
+      *  Kaller opp program før utskrift
+      *
+5.21 c                   call      'AP600R'
+5.21 c                   parm                    l_ruti
+5.21 c                   parm                    l_chgv
+5.21 c                   parm                    w_tvbt
+5.21 c                   parm                    w_in03
+5.21 c                   parm                    w_btch
+      *
+      *  F4=Legge jobb på jobbkø
+      *
+     C     *INKD         IFEQ      *ON
+     C                   MOVE      '1'           WWVALG
+     C                   END
+      *
+      *  Henter siste nummer for File-member
+      *
+     C                   CALL      'FA920R'
+     C                   PARM                    WCQNNN
+     C                   PARM                    WCNUMM
+      *
+     C                   MOVE      'K'           LDABOK
+     C                   MOVE      WCNUMM        LDALST
+      *
+      *  Kaller opp subprogram
+      *
+     C                   CALL      'FO633C'
+     C                   PARM                    LDPREC
+     C                   PARM                    LDAMBR
+     C                   PARM                    WWVALG
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *  Avslutt program                                                *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      *
+     C     XSLUTT        TAG
+      *
+     C                   SETON                                        LR
+     C                   RETURN
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Behandling av spørringer
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     spØrring      begsr
+      *
+      * Ordretype
+      *
+     c                   if        w_afld = 'B1OTYP'
+     c                   call      'VA550R'
+     c                   parm                    w_firm
+     c                   parm                    b1otyp
+     c                   goto      end_spØrr
+     c                   endif
+      *
+      * Avdeling
+      *
+     c                   if        w_afld = 'B1AVDE'
+     c                   call      'RA507R'
+     c                   parm                    w_firm
+     c                   parm                    b1avde
+     c                   parm                    w_atxt
+     c                   goto      end_spØrr
+     c                   endif
+      *
+      * Kunde fra
+      *
+     c                   if        w_afld = 'B1FKUN'
+     c                   call      'RK500R'
+     c                   parm                    w_firm
+     c                   parm                    b1fkun
+     c                   parm                    w_navn
+     c                   goto      end_spØrr
+     c                   endif
+      *
+      * Kunde til
+      *
+     c                   if        w_afld = 'B1TKUN'
+     c                   call      'RK500R'
+     c                   parm                    w_firm
+     c                   parm                    b1tkun
+     c                   parm                    w_navn
+     c                   goto      end_spØrr
+     c                   endif
+5.01  *
+5.01  * Ordre-info-type
+5.01  *
+5.01 c                   if        w_afld = 'B1ITYP'
+5.01 c                   call      'VA540R'
+5.01 c                   parm                    w_firm
+5.01 c                   parm                    b1ityp
+5.01 c                   parm                    w_itxt
+5.01 c                   goto      end_spØrr
+5.01 c                   endif
+5.31  *
+5.31  * Alt.fakturering
+5.31  *
+5.31 c                   if        w_afld = 'B1ALTF'
+5.31 c                   exsr      xf1win1
+5.31 c                   eval      b1altf = w_kftp
+5.31 c                   eval      b1altn = w_ktpn
+5.31 c                   goto      end_spØrr
+5.31 c                   endif
+      *
+     c     end_spØrr     endsr
+5.31  *
+5.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.31  * Subrutine for behandling av hardkodet søk  (F1WIN)
+5.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.31  *
+5.31 c     xf1win1       begsr
+5.31  *
+5.31 c                   exsr      xf1nul
+5.31 c                   eval      f1alt1 = 'Kort/Purchasing          '
+5.31 c                   eval      f1alt2 = '                         '
+5.31 c                   eval      f1alt3 = '                         '
+5.31 c                   eval      f1alt4 = '                         '
+5.31 c                   eval      f1alt5 = '                         '
+5.31 c                   eval      f1alt6 = '                         '
+5.31 c                   eval      f1alt7 = '                         '
+5.31 c                   eval      f1alt8 = '                         '
+5.31  *
+5.31 c                   exfmt     f1win
+5.31  *
+5.31 c                   if        *inkc or *inkl
+5.31 c                   goto      end_f1win1
+5.31 c                   endif
+5.31  *
+5.31 c                   select
+5.31 c                   when      f1val1 = '1'
+5.31 c                   eval      w_kftp = 01
+5.31 c                   eval      w_ktpn = f1alt1
+5.31 c                   when      f1val2 = '1'
+5.31 c                   eval      w_kftp = 02
+5.31 c                   eval      w_ktpn = f1alt2
+5.31 c                   when      f1val3 = '1'
+5.31 c                   eval      w_kftp = 03
+5.31 c                   eval      w_ktpn = f1alt3
+5.31 c                   when      f1val4 = '1'
+5.31 c                   eval      w_kftp = 04
+5.31 c                   eval      w_ktpn = f1alt4
+5.31 c                   when      f1val5 = '1'
+5.31 c                   eval      w_kftp = 05
+5.31 c                   eval      w_ktpn = f1alt5
+5.31 c                   when      f1val6 = '1'
+5.31 c                   eval      w_kftp = 06
+5.31 c                   eval      w_ktpn = f1alt6
+5.31 c                   when      f1val7 = '1'
+5.31 c                   eval      w_kftp = 07
+5.31 c                   eval      w_ktpn = f1alt7
+5.31 c                   when      f1val8 = '1'
+5.31 c                   eval      w_kftp = 08
+5.31 c                   eval      w_ktpn = f1alt8
+5.31 c                   endsl
+5.31  *
+5.31 c     end_f1win1    endsr
+5.31  *
+5.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.31  * Subrutine for å blanke ut hardkodet spørrebilde
+5.31  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+5.31  *
+5.31 c     xf1nul        begsr
+5.31  *
+5.31 c                   eval      f1alt1 = *blank
+5.31 c                   eval      f1alt2 = *blank
+5.31 c                   eval      f1alt3 = *blank
+5.31 c                   eval      f1alt4 = *blank
+5.31 c                   eval      f1alt5 = *blank
+5.31 c                   eval      f1alt6 = *blank
+5.31 c                   eval      f1alt7 = *blank
+5.31 c                   eval      f1alt8 = *blank
+5.31 c                   eval      f1val1 = *blank
+5.31 c                   eval      f1val2 = *blank
+5.31 c                   eval      f1val3 = *blank
+5.31 c                   eval      f1val4 = *blank
+5.31 c                   eval      f1val5 = *blank
+5.31 c                   eval      f1val6 = *blank
+5.31 c                   eval      f1val7 = *blank
+5.31 c                   eval      f1val8 = *blank
+5.31  *
+5.31 c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *  Subrutine for initiering av program                            *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      *
+      *
+     C     *INZSR        BEGSR
+      *
+      *  Definisjon av local data area for output
+      *
+     C     *DTAARA       DEFINE    *LDA          LDA
+      *
+5.21 c                   move      *blank        w_in03            1
+      *
+      *  Nullstilling av felter som ikke kan redefineres
+      *
+     C                   MOVE      *ZERO         WWVALG            1
+     C                   MOVE      *ZERO         WCQNNN            1
+     C                   MOVE      *ZERO         WCNUMM            6 0
+      *
+      *  Redefinering av felter
+      *
+     C     *LIKE         DEFINE    LDFDAT        WWFDAT
+     C     *LIKE         DEFINE    LDTDAT        WWTDAT
+3.31 c     *like         define    ldldat        wwldat
+      *
+      *  Redefinering av nøkler
+      *
+     C     *LIKE         DEFINE    VAOFIR        OTYFIR
+     C     *LIKE         DEFINE    VAOTYP        OTYTYP
+      *
+      *  Key for file : ORDRE-TYPE-REGISTER
+      *
+     C     OTYKEY        KLIST
+     C                   KFLD                    OTYFIR
+     C                   KFLD                    OTYTYP
+      *
+      *  Key for file : Avdeling
+      *
+     C     ra07pf_key    klist
+     C                   kfld                    ra07pf_firm
+     C                   kfld                    ra07pf_gkod
+      *
+      *  Legge inn firmanummer i nøkklene
+      *
+     C                   MOVE      l_firm        OTYFIR
+     C                   MOVE      l_firm        LDAFIR
+      *
+     C                   eval      w_firm      = l_firm
+     C                   eval      ra07pf_firm = l_firm
+      *
+     CSR                 ENDSR
