@@ -1,0 +1,276 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * System. . . . . : ASOFAK
+      * Program . . . . : RX601R
+      * Beskrivelse . . : Eksport av kunde informasjon til excel
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *       150925 bsa  Nytt program
+      *
+9.xx  *K0000  220925 bsa  Kun for test
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     frkunlr    if   e           k disk    rename(rkunpfr:rkunlrr)
+     frkbpl1    if   e           k disk    rename(rkbppfr:rkbpl1r)
+     frku2l1    if   e           k disk    rename(rku2pfr:rku2l1r)
+     frx01st    uf a e           k disk    rename(rx01st:rx01str)
+      *
+      * Definering av parametre
+      *
+     d p_parm          s            256
+      *
+      * Parameter overføringer
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                911    920
+     d l_firm                944    946  0
+     d l_fnav                951    980                                         Navn
+     d l_lage               1001   1002  0
+      *
+      * Definering av variabler i nøkler
+      *
+     d rkunlr_kund     s                   like(rkkund)
+      *
+      * Datastruktur for parameterliste -ut
+      *
+     d                 ds
+     d d_list                       512
+     d  d_firm                        3  0 overlay(d_list)
+     d  d_kund                        6  0 overlay(d_list:4)
+     d  d_txt1                       60    overlay(d_list:36)
+     d  d_txt2                       60    overlay(d_list:96)
+     d  d_txt3                       60    overlay(d_list:156)
+     d  d_emal                       60    overlay(d_list:216)
+     d  d_subj                       60    overlay(d_list:276)
+     d  d_avse                       60    overlay(d_list:336)
+     d  d_dumm                        1    overlay(d_list:512) inz('*')
+      *
+     d                 ds
+     d d_frie                         5
+     d  d_fri1                        1    overlay(d_frie)
+     d  d_fri2                        1    overlay(d_frie:2)
+     d  d_fri3                        1    overlay(d_frie:3)
+     d  d_fri4                        1    overlay(d_frie:4)
+     d  d_fri5                        1    overlay(d_frie:5)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(rkfirm)
+     d w_aar           s              4  0
+     d w_excel_url     s            100
+     d w_numm          s              8  0
+     d w_kode          s              1
+     d w_fell          s              6
+     d w_type          s              2
+     d w_fast          s             10
+     d w_lnvn          s             30
+     d w_btxt          s             30
+9.xx d w_x             s              6  0
+      *
+     d p_excel_url     s            100
+      *
+     d u_excl          s              1    inz(*off)
+      *
+      * Eksternt program
+      *
+       dcl-s co402_verdi1  char(1);
+       dcl-s co402_verdi2  char(2048);
+       DCL-PR CO402R EXTPGM('CO402R');
+         p_filgrp            char(3)     const;
+         p_firm              packed(3:0) const;
+         p_lager             packed(2:0) const;
+         p_nokkel            char(50)    const;
+         p_verdi1            char(1);
+         p_verdi2            char(2048);
+       END-PR;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Hovedprogram
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+9.xx c                   eval      w_x = 1
+      *
+     c                   eval      rkunlr_kund = d_kund
+     c                   if        d_kund <> 0
+     c     rkunlr_key    chain     rkunlr
+     c                   if        %found
+     c                   exsr      add_line
+     c                   endif
+     c                   else
+     c     rkunlr_key    setll     rkunlr
+     c                   read      rkunlr
+     c                   dow       not  %eof(rkunlr)
+      *
+9.xx c**                 if        w_x < 100
+      *
+     c                   exsr      add_line
+      *
+9.xx c**                 endif
+      *
+9.xx c**                 eval      w_x = w_x +1
+      *
+     c                   read      rkunlr
+     c                   enddo
+     c                   endif
+      *
+      *  Kaller opp program for exccel eksport
+      *
+     c                   if        u_excl = *on
+     c                   eval      p_excel_url = w_excel_url
+     c                   call      'RX601C'
+     c                   parm                    p_excel_url
+     c                   parm                    w_numm
+     c                   endif
+      *
+9.xx c**                 if        1 = 2
+      *
+     c/exec sql
+     c+ DELETE FROM RX01ST WHERE RXOIDE = :w_numm
+     c/end-exec
+       exec sql commit;
+      *
+9.xx c**                 endif
+      *
+      * Avslutt program
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+      *
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine legge ut kundepost
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     add_line      begsr
+      * Hent tilleggsinfo
+     c     rkunlr_key    chain     rkbpl1
+     c     rkunlr_key    chain     rku2l1
+      *
+     c                   eval      rxoide = w_numm
+     c                   eval      rxfirm = w_firm
+     c                   eval      rxkund = rkkund
+     c                   eval      rxnavn = rknavn
+     c                   eval      rxalfa = rkalfa
+     c                   eval      rxgate = rkgate
+     c                   eval      rxadr2 = rkadr2
+     c                   eval      rxponr = rkponr
+     c                   eval      rxupnr = rkupnr
+     c                   eval      rxsted = rksted
+      *
+     c                   eval      rxbetb = rkbetb
+     c                   eval      rxbetm = rkbetm
+     c                   eval      rxsamm = rksamm
+     c                   eval      rxprpa = rkprpa
+     c                   eval      rxgrns = rkgrns
+     c                   eval      rxkres = rkkres
+     c                   eval      rxrabk = rkrabk
+     c                   eval      rxkatg = rkkatg
+      *
+     c                   eval      rxftnr = rkftnr
+     c                   eval      rxfagb = rkfagb
+     c                   eval      rxemal = rkemal
+     c                   eval      rxtlfn = rktlfn
+     c                   eval      rxtlfx = rktlfx
+     c                   eval      rxmobn = rkmobn
+     c                   eval      rxland = rkland
+     c                   eval      rxpass = rkpass
+     c                   eval      rxsekv = rksekv
+     c                   eval      rxpbok = rkpbok
+     c                   eval      rxsald = rksald
+     c                   eval      rxsaif = rksaif
+      *
+     c                   eval      rxmkod = rkmkod
+     c                   eval      rxrekv = rkrekv
+     c                   eval      rxfaty = rkfaty
+     c                   eval      rxsprk = rksprk
+     c                   eval      rxndat = rkndat
+     c                   eval      rxpenr = rkpenr
+     c                   eval      rxeank = rkeank
+     c                   eval      rxeanf = rkeanf
+     c                   eval      rxogrn = rkogrn
+     c                   eval      rxtgrn = rktgrn
+     c                   eval      rxgdat = rkgdat
+     c                   eval      rxfcop = rkfcop
+      *
+     c                   eval      rxrenk = rkrenk
+     c                   eval      rxpurr = rkpurr
+     c                   eval      rxslgr = rkslgr
+     c                   eval      rxdist = rkdist
+     c                   eval      rxavde = rkavde
+     c                   eval      rxlage = rklagr
+      *
+     c                   eval      d_frie = rkfrie
+     c                   eval      rxfri1 = d_fri1
+     c                   eval      rxfri2 = d_fri2
+     c                   eval      rxfri3 = d_fri3
+     c                   eval      rxfri4 = d_fri4
+     c                   eval      rxfri5 = d_fri5
+     c                   eval      rxneto = rkneto
+     c                   eval      rxkkod = 0
+     c                   eval      rxebiz = rkebiz
+      *
+     c                   write     rx01str
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      * Parametre
+      *
+     c     *entry        plist
+     c                   parm                    p_parm
+      *
+      * Key for oppslag på kunde
+      *
+     c     rkunlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    rkunlr_kund
+      *
+      * Henter inn løpenummer teller
+      *
+     c                   eval      w_firm = 0
+     c                   eval      w_numm = 0
+     c                   eval      w_kode = '0'
+     c                   eval      w_fell = 'NXTKLI'
+     c                   eval      w_type = *blank
+     c                   eval      w_fast = *blank
+     c                   eval      w_numm = *zero
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_numm
+      *
+      * Henter parameter
+      *
+     c                   eval      w_firm = l_firm
+     c                   eval      d_list = p_parm
+      *
+      * OBS!!  Felles for alle filgrupper og firma
+      *
+       CallP CO402R('   ':0:0:'NX_EXCEL_URL':
+                        co402_verdi1:co402_verdi2);
+       if co402_verdi1 = '1';
+         u_excl = *on;
+         w_excel_url = co402_verdi2;
+       endif;
+      *
+     c                   endsr

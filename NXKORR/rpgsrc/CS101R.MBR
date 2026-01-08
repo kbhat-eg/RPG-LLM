@@ -1,0 +1,307 @@
+     h option(*nodebugio) datedit(*dmy-) decedit('0.')
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Program . . . . : CS101R
+      *  Beskrivelse . . : Eksport av ordrelinjer til coolspool
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Spesialversjon. :
+      *  Tilpasset for . :
+      *
+      *  Referanse  Dato   Endringsbeskrivelse                     Sign.
+      *  --------- ------  -------------------------------------------------
+8.xx  *  K0000     180124  Nytt program                            bsa
+8.01  *  K0000     020725  Felt er alfanumerisk                    bsa
+      *
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     ffohel1    if   e           k disk    rename(fohepfr:fohel1r)
+     feddtl2    if   e           k disk    rename(eddtpfr:eddtl2r)
+     ffodtlr    if   e           k disk    rename(fodtpfr:fodtlrr)
+     flxl3st    uf a e           k disk    rename(lxl3st:lxl3str)
+      *
+      * Definering av LDA
+      *
+     d                uds
+     d l_wsid                901    910
+     d l_user                        10
+      *
+      * Definering av parametre
+      *
+      *
+      * Definering av variable i parametre
+      *
+     d p_firm          s                   like(fofirm)
+     d p_numm          s                   like(fonumm)
+     d p_suff          s                   like(fosuff)
+     d p_url_link      s            100
+      *
+      * Definering av variable i nøkler
+      *
+     d fodtlr_line     s                   like(fdline)
+     d eddtl2_onum     s                   like(edonum)
+     d eddtl2_osuf     s                   like(edosuf)
+     d eddtl2_olin     s                   like(edolin)
+      *
+      * Definering av variable
+      *
+     d w_firm          s                   like(fofirm)
+     d w_sumn          s             11  2
+     d w_sumk          s             11  2
+     d w_kode          s              1
+     d w_fell          s              6
+     d w_type          s              2
+     d w_fast          s             10
+     d w_numm          s              8  0
+     d w_time          s               t   timfmt(*iso)
+     d w_exsql         s          10000
+     d w_sqlwhere      s           8000
+     d w_excel_url     s            100
+     d w_exfil         s             50    inz('Lageravvik')
+      *
+      * Eksternt program
+       dcl-s co402_verdi1  char(1);
+       dcl-s co402_verdi2  char(2048);
+       DCL-PR CO402R EXTPGM('CO402R');
+         p_filgrp            char(3)     const;
+         p_firm              packed(3:0) const;
+         p_lager             packed(2:0) const;
+         p_nokkel            char(50)    const;
+         p_verdi1            char(1);
+         p_verdi2            char(2048);
+       END-PR;
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Behandling av LAGER-RECORD-Opplysninger
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  Sjekk om ordrenumemr finnes
+      *
+     c     fohel1_key    chain     fohel1
+     c                   if        not %found
+     c                   goto      avslutt
+     c                   endif
+      *
+      * Henter inn løpenummer teller
+      *
+     c                   eval      w_numm = 0
+     c                   eval      w_kode = '0'
+     c                   eval      w_fell = 'NXTKLI'
+     c                   eval      w_type = *blank
+     c                   eval      w_fast = *blank
+     c                   eval      w_numm = *zero
+      *
+     c                   call      'AS100R'
+     c                   parm                    w_kode
+     c                   parm                    w_firm
+     c                   parm                    w_fell
+     c                   parm                    w_type
+     c                   parm                    w_fast
+     c                   parm                    w_numm
+      *
+     c                   eval      fodtlr_line = 0
+     c     fodtlr_key    setll     fodtlr
+     c     fodtlr_key2   reade     fodtlr
+     c                   dow       not %eof
+      *
+     c                   exsr      skriv_grunnlag
+      *
+     c     fodtlr_key2   reade     fodtlr
+     c                   enddo
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     slutt         tag
+      *
+      * Lag excel
+      *
+     c                   exsr      lag_excel
+      *
+      * Slett utvalget fra tabell
+      *
+     c                   exsr      rydd_xls
+      *
+     c     avslutt       tag
+      *
+     c                   eval      *inlr = *on
+      *
+     c                   return
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+      * Subrutiner for å legge ut ordrelinjer i tabell                  *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - *
+     c     skriv_grunnlagbegsr
+      *
+     c                   clear                   lxl3str
+      * Member
+     c                   eval      lx3ide = w_numm
+      * Varenummer
+     c                   eval      lx3var = fdvare
+      * Nobbnummer
+     c                   eval      lx3nob = fdnobb
+      * Varetekst1
+     c                   eval      lx3tx1 = fdtek1
+      * Varetekst2
+     c                   eval      lx3tx2 = fdtek2
+      * Antall
+     c                   eval      lx3ant = fdanta
+      * Enhet
+     c                   eval      lx3enh = fdenh1
+      * Enhetspris
+     c                   eval      lx3bsa = fdsapr
+      * Nettopris
+     c                   if        fdvare <> *blanks and
+     c                             fdanta <> 0
+     c                   eval      lx3nsa = ((fdsums - fdsumr)/fdanta)
+     c                   endif
+      * Bruttosum
+     c                   eval      lx3bsu = fdsums
+      * Rabatt 1
+     c                   eval      lx3ra1 = fdrab1
+      * Rabatt 2
+     c                   eval      lx3ra2 = fdrab2
+      * Nettosum
+     c                   eval      lx3nsu = fdsums - fdsumr
+      * Kostpris
+     c                   eval      lx3kos = fdkopr
+      * Sum kost
+     c                   eval      lx3sko = fdsumk
+      * Dekningsbidrag
+     c                   eval      lx3dbi = (fdsums - fdsumr - fdsumk)
+      * Dekningsgrad
+     c                   eval      w_sumn = (fdsums-fdsumr-fdsumk)
+     c                   eval      w_sumk = (fdsums-fdsumr)
+     c                   if        w_sumk = 0
+     c                   eval      w_sumk = 1
+     c                   endif
+     c                   eval      lx3dgr = (w_sumn / w_sumk) * 100
+      * Linjenummer
+     c                   eval      lx3lin = fdline
+      * GTIN nummer
+     c                   eval      lx3gti = fdeann
+      * Salgsordrenummer
+8.01 c*                  eval      lx3num = fonumm
+8.01 c                   eval      lx3num = %char(fonumm)
+      *
+      * Eksterne referanser - sjekk om det har kommet elektronisk
+      *
+     c                   eval      eddtl2_onum = fdnumm
+     c                   eval      eddtl2_osuf = 0
+     c                   eval      eddtl2_olin = fdline
+     c     eddtl2_key    chain     eddtl2
+     c                   if        not %found
+     c                   eval      ednref = *blanks
+     c                   eval      ednlin = 0
+     c                   eval      edanta = 0
+     c                   eval      edenhe = *blanks
+     c                   endif
+      * Bestilt antall
+     c                   eval      lx3ban = edanta
+      * Bestilt enhet
+     c                   eval      lx3ben = edenhe
+      * Kundens ordrenummer
+     c                   eval      lx3kor = ednref
+      * Kundens linjenummer
+     c                   eval      lx3kol = %trim(%char(ednlin))
+      * SSCC kode
+     c                   eval      lx3ssc = *blanks
+      *
+     c                   write     lxl3str
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Lag excel fil via coolspool
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     lag_excel     begsr
+      *
+     c                   eval      w_exsql = %trim(w_sqlwhere)
+     c                   eval      w_exfil = %trim(w_exfil) + %char(w_time)
+      *
+      * NB Krever at det er satt opp server for visning i browser
+      *
+     c                   call      'CS101C   '
+     c                   parm                    w_sqlwhere
+     c                   parm                    w_excel_url
+     c                   parm                    w_numm
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Rydd opp etter generering
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     rydd_xls      begsr
+      *
+     c/exec sql
+     c+ DELETE FROM LXL3ST WHERE LX3IDE = :w_numm
+     c/end-exec
+       exec sql commit;
+      *
+     c                   endsr
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *  Key for les av ordre
+      *
+     c     fohel1_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    p_numm
+     c                   kfld                    p_suff
+      *
+      *  Key for les av ordre
+      *
+     c     fodtlr_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    p_numm
+     c                   kfld                    p_suff
+     c                   kfld                    fodtlr_line
+      *
+      *  Key for les av ordre
+      *
+     c     fodtlr_key2   klist
+     c                   kfld                    w_firm
+     c                   kfld                    p_numm
+     c                   kfld                    p_suff
+      *
+      *  Key for les av ordre
+      *
+     c     eddtl2_key    klist
+     c                   kfld                    w_firm
+     c                   kfld                    eddtl2_onum
+     c                   kfld                    eddtl2_osuf
+     c                   kfld                    eddtl2_olin
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *  Tar inn parameter fra forrige program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *entry        plist
+     c                   parm                    p_firm
+     c                   parm                    p_numm
+     c                   parm                    p_suff
+     c                   parm                    p_url_link
+      *
+      *  Legger inn firmanummer i nøklene
+      *
+     c                   eval      w_firm = p_firm
+     c                   time                    w_time
+      *
+      * OBS!!  Felles for alle filgrupper og firma
+       CallP CO402R('   ':0:0:'NX_EXCEL_URL':
+                        co402_verdi1:co402_verdi2);
+       if co402_verdi1 = '1';
+         w_excel_url = co402_verdi2;
+       endif;
+      *
+     c                   endsr

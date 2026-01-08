@@ -1,0 +1,413 @@
+     h option(*nodebugio) datedit(*dmy)
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Program . . . . : AA030R
+      * Beskrivelse . . : Syst. Adm. Generering av Ip-program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Spesialversjon. :
+      * Tilpasset for . :
+      *
+      * Ref.   Dato  Sign Endringsbeskrivelse
+      * ----- ------ ---- -------------------------------------------------
+      *              AMD  Nytt program febr.-94
+5.31  * V5.31 010704 AMD  Lagt inn løsning for å generere biblioteks-
+5.31  *                   lister med versjonsnummer
+      *
+9.01  *K0000  210725 bsa  Ved kompilering må paramer USRPRF overstyres fra *USER til *OWNER
+9.01  *K0000              Etterpå må eier til programmet enbdres til en ASP_xxx bruker.
+9.01  *K0000              Hvis ikke vil ikke den som kjører programmet ha tilstrekkelig
+9.01  *K0000              rettigheter.
+      *
+      *
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      *  BRUK AV INDIKATORER
+      *
+      *       LR = Avslutt program
+      *    60-69 = Fileindikatorer chain etc.
+      *    70-79 = Arbeidsindikatorer i sub-rutiner
+      *    80-89 = Arbeidsindikatorer ordinære
+      *    90-99 = Benyttes ved std. sub-rutiner
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     fausrl1    if   e           k disk    rename(ausrpfr:ausrl1r)
+     falibl1    if   e           k disk    rename(alibpfr:alibl1r)
+     fqcllesrc  o  a f  096        disk
+      *
+      *
+      * Definering av tabeller
+      *
+     d rec             s             80    dim(90) ctdata perrcd(1)             Programlinjer
+      *
+      * Definering av data-strukturer
+      *
+     d                 ds
+     d d_dato                         6  0
+     d  d_aaar                        2  0 overlay(d_dato)
+     d  d_mmnd                        2  0 overlay(d_dato:3)
+     d  d_ddag                        2  0 overlay(d_dato:5)
+      *
+     d                 ds
+     d d_recc                        84
+     d  d_flt1                       27    overlay(d_recc)
+     d  d_flt2                       12    overlay(d_recc:28)
+     d  d_flt3                       45    overlay(d_recc:40)
+      *
+      *
+      * Definering av local data area
+      *
+     d                uds
+     d l_a4s3                995    995
+      *
+      * Definering av parametere
+      *
+     d p_user          s                   like(abuser)
+      *
+      * Definering av variable i nøkler
+      *
+     d ausrl1_user     s                   like(abuser)
+     d alibl1_plas     s                   like(alplas)
+     d alibl1_user     s                   like(aluser)
+      *
+      * Definering av variable
+      *
+     d n               s              2  0
+     d w_dato          s              6  0
+     d w_recc          s             84
+     d w_tell          s              6  0
+     d y               s              2  0
+5.31 d w_vers          s              3  0
+5.31 d w_vera          s              3
+5.31 d w_w02a          s              2
+5.31 d w_w07a          s              7
+5.31 d w_w12a          s             12
+      *
+      * Definering av save variable
+      *
+     d s_user          s                   like(abuser)
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Legg ut records til Cl-program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+      * Slå opp i brukerfilen
+      *
+     c                   eval      ausrl1_user = p_user
+     c     ausrl1_key    chain     ausrl1
+     c                   if        not %found
+     c                   goto      xover1
+     c                   endif
+5.31  *
+5.31  * Dersom det er lagt inn miljø på brukeren
+5.31  * finn i så fall hvilken versjon dette miljø
+5.31  * kjører i og legg dette på i bibliotekslista.
+5.31  * Versjonsnummer legges bare på i bibliotek som
+5.31  * starter på 'AS'  Versjonsnummer må bli funnet
+5.31  * og være forskjellig fra 0 dersom det skal benyttes.
+5.31  * Versjonsnummer legges heller ikke på ASPGPLK.
+5.31  *
+5.31 c                   eval      w_vers = 0
+5.31  *
+5.31 c                   if        abmilj <> *blank
+5.31 c                   call      'AR700R'
+5.31 c                   parm                    abmilj
+5.31 c                   parm                    w_vers
+5.31 c                   endif
+      *
+      * Første del dersom native
+      *
+     c                   if        aba4s3 = ' '
+     c                   for       n = 1 to 16
+     c                   add       100           w_tell
+     c                   movel     rec(n)        w_recc
+     c                   except    xrecut
+     c                   endfor
+     c                   endif
+      *
+      * Første del dersom S/36-miljø
+      *
+     c                   if        aba4s3 = '1'
+     c                   for       n = 71 to 77
+     c                   add       100           w_tell
+     c                   movel     rec(n)        w_recc
+     c                   except    xrecut
+     c                   endfor
+     c                   endif
+      *
+      * Oppdater LDA
+      *
+     c                   eval      l_a4s3 = aba4s3
+      *
+      * Bygger biblioteksliste
+      * utfra file pr. bruker
+      * -----------------------
+      *
+      * Finne hvilken biblioteksliste
+      * som skal benyttes
+      *
+     c                   if        abrlib <> *blank
+     c                   eval      alibl1_user = abrlib
+     c                   eval      alibl1_plas = *zero
+     c                   else
+     c                   eval      alibl1_user = abuser
+     c                   eval      alibl1_plas = *zero
+     c                   endif
+5.31  *
+5.31  * Legger opp bibliotek for Miljø automatisk
+5.31  *
+5.31 c                   if        abmilj <> *blank
+5.31 c                   eval      albibl = abmilj
+5.31 c                   endif
+5.31  *
+5.31 c                   add       100           w_tell
+5.31 c                   exsr      xfixit
+5.31 c                   except    xrecut
+5.31  *
+5.31  * Legger opp bibliotek for ADB automatisk
+5.31  *
+5.31 c                   eval      albibl = 'ADB'
+5.31  *
+5.31 c                   add       100           w_tell
+5.31 c                   exsr      xfixit
+5.31 c                   except    xrecut
+      *
+      * Bygger bibliotekslister
+      *
+     c     alibl1_key    setll     alibl1
+     c                   read      alibl1                                 62
+     c     *in62         cabeq     *on           xover2
+     c                   eval      s_user = aluser
+      *
+     c                   dow       alibl1_user = s_user
+     c                   add       100           w_tell
+     c                   exsr      xfixit
+     c                   except    xrecut
+     c                   read      alibl1                                 62
+     c     *in62         cabeq     *on           xover2
+     c                   eval      s_user = aluser
+     c                   enddo
+      *
+     c     xover2        tag
+      *
+      * Andre del dersom native
+      *
+     c                   if        aba4s3 = ' '
+     c                   for       n = 20 to 52
+     c                   add       100           w_tell
+     c                   movel     rec(n)        w_recc
+     c                   except    xrecut
+     c                   endfor
+     c                   endif
+      *
+      * Andre del dersom S/36-miljø
+      *
+     c                   if        aba4s3 = '1'
+     c                   for       n = 80 to 84
+     c                   add       100           w_tell
+     c                   movel     rec(n)        w_recc
+     c                   except    xrecut
+     c                   endfor
+     c                   endif
+      *
+     c     xover1        tag
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Avslutt program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c                   eval      *inlr = *on
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for stokke på plass navn på bibliotek med ( ).
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     xfixit        begsr
+      *
+5.31 c                   eval      w_w12a = *blank
+5.31 c                   move      w_vers        w_vera
+     c                   movel     rec(19)       w_recc
+     c                   eval      d_recc = w_recc
+5.31  *
+5.31  * Dersom versjonsnummer ikke er oppgitt
+5.31  * rediger bibliotek med (Biblnavn)
+5.31  *
+5.31 c                   if        w_vers =  0
+5.31 c                   eval      w_w12a = '(' + %trim(albibl) + ')'
+5.31 c                   goto      xfixet
+5.31 c                   endif
+5.31  *
+5.31  * Det er bare bibliotek som starter
+5.31  * på 'AS' som skal redigeres m/versjonsnr
+5.31  *
+5.31 c                   eval      w_w02a = %subst(albibl:1:2)
+5.31 c                   if        w_w02a <> 'AS'
+5.31 c                   eval      w_w12a = '(' + %trim(albibl) + ')'
+5.31 c                   goto      xfixet
+5.31 c                   endif
+5.31  *
+5.31  * Biblioteket ASPGPLK skal ikke ha versjonsnummer
+5.31  *
+5.31 c                   eval      w_w07a = %subst(albibl:1:7)
+5.31 c                   if        w_w07a = 'ASPGPLK'
+5.31 c                   eval      w_w12a = '(' + %trim(albibl) + ')'
+5.31 c                   goto      xfixet
+5.31 c                   endif
+5.31  *
+5.31  * Dersom biblioteksnavnet er større enn
+5.31  * 7 posisjoner, kan ikke versjonsnummer
+5.31  * legges på.
+5.31  *
+5.31 c                   eval      w_w02a = %subst(albibl:8:2)
+5.31 c                   if        w_w02a <> '  '
+5.31 c                   eval      w_w12a = '(' + %trim(albibl) + ')'
+5.31 c                   goto      xfixet
+5.31 c                   endif
+5.31  *
+5.31  * Her redigeres biblioteksnavnet slik:
+5.31  * (XXXXXXXVVV)  X=Bibliotek V=Versjonsnr.
+5.31  *
+5.31 c                   eval      w_w12a = '(' + %trim(albibl) +
+5.31 c                                      w_vera + ')'
+5.31  *
+5.31 c     xfixet        tag
+5.31  *
+5.31 c                   eval      d_flt2 = w_w12a
+      *
+     c                   eval      w_recc = d_recc
+      *
+     c                   endsr
+      *
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      * Subrutine for initiering av program
+      * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+      *
+     c     *inzsr        begsr
+      *
+      *
+     c                   eval      w_recc = *blank
+     c                   eval      w_tell = *zero
+     c                   eval      w_dato = *zero
+     c                   eval      n = *zero
+     c                   eval      y = *zero
+      *
+     c                   eval      d_aaar = uyear
+     c                   eval      d_mmnd = umonth
+     c                   eval      d_ddag = uday
+     c                   eval      w_dato = d_dato
+      *
+      * Parameterliste
+      *
+     c     *entry        plist
+     c                   parm                    p_user
+      *
+      * Key for brukerregister
+      *
+     c     ausrl1_key    klist
+     c                   kfld                    ausrl1_user
+      *
+      * Key for bibliotekslister
+      *
+     c     alibl1_key    klist
+     c                   kfld                    alibl1_user
+     c                   kfld                    alibl1_plas
+      *
+     c                   endsr
+      *
+     oqcllesrc  eadd         xrecut
+     o                       w_recc              96
+     o                       w_tell               6
+     o                       w_dato              12
+**
+             PGM
+             DCL        VAR(&JOBB)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&OKOK)      TYPE(*DEC)  LEN(1 0)
+             DCL        VAR(&USER)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&MENY)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&SBIB)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&FNAV)      TYPE(*CHAR) LEN(30)
+             DCL        VAR(&MELD)      TYPE(*CHAR) LEN(50)
+             MONMSG     MSGID(CPF2103)  /*    Bibl finnes fra før    */
+             MONMSG     MSGID(CPF2110)  /*    Bibl ble ikke funnet   */
+             MONMSG     MSGID(CPF0000)  EXEC(GOTO CMDLBL(ERR))
+             RTVJOBA    JOB(&JOBB)      USER(&USER)
+/*                                                                   */
+/* Biblioteksliste start                                             */
+/*                                                                   */
+/*                                                                   */
+/*                                                                   */
+/* Record 18.........                                                */
+             ADDLIBLE   LIB             POSITION(*LAST)
+/*                                                                   */
+/* Call til bruker-file                                              */
+/*                                                                   */
+             CALL       PGM(AA000R) PARM(&OKOK &USER &JOBB)
+/*                                                                   */
+/* Sjekk om bruker ble funnet                                        */
+/*                                                                   */
+             IF         COND(&OKOK *EQ 1) THEN(DO)
+             CHGVAR     VAR(&MELD) VALUE('Denne bruker ble ikke +
+                          funnet i brukerregister')
+             CALL       PGM(AA005R) PARM(&MELD)
+             GOTO       CMDLBL(END)
+             ENDDO
+/*                                                                   */
+/* Endre biblioteksliste                                             */
+/*                                                                   */
+             RTVDTAARA  DTAARA(*LDA (934 10)) RTNVAR(&SBIB)
+             IF         COND(&SBIB *NE ' ') THEN(DO)
+             CHGCURLIB  CURLIB(&SBIB)
+             ENDDO
+/*                                                                   */
+/* Finne første meny                                                 */
+/*                                                                   */
+             RTVDTAARA  DTAARA(*LDA (921 10)) RTNVAR(&MENY)
+             RTVDTAARA  DTAARA(*LDA (951 30)) RTNVAR(&FNAV)
+             IF         COND(&MENY *NE ' ') THEN(DO)
+             CALL       PGM(&MENY)
+             ENDDO
+/*                                                                   */
+             GOTO       CMDLBL(END)
+ ERR:        SNDPGMMSG  MSG('Det oppstod feil i tilordning av +
+                          biblioteksliste!!!') TOMSGQ(&JOBB)
+ END:        ENDPGM
+Record 53 ...
+Record 54 ...
+Record 55 ...
+Record 56 ...
+Record 57 ...
+Record 58 ...
+Record 59 ...
+Record 60 ...
+Record 61 ...
+Record 62 ...
+Record 63 ...
+Record 64 ...
+Record 65 ...
+Record 66 ...
+Record 67 ...
+Record 68 ...
+Record 69 ...
+Record 70 ...  Etter dette kommer program for S/36-miljø ...
+             PGM
+             MONMSG     MSGID(CPF2103)  /*  Finnes fra før           */
+             MONMSG     MSGID(CPF2104)  /*  Ligger ikke i bibl.liste */
+             MONMSG     MSGID(CPF2110)  /*  Bibliotek ikke funnet    */
+ /*                                                                  */
+ /* Biblioteksliste, bygges                                          */
+ /*                                                                  */
+Record 78
+Record 79
+ /*                                                                  */
+ /* Start av S/36 miljø                                              */
+ /*                                                                  */
+             STRS36
+ END:        ENDPGM
+Record 85 ...
+Record 86 ...
+Record 87 ...
+Record 88 ...
+Record 89 ...
+Record 90 ...

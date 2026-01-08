@@ -1,0 +1,125 @@
+/*             UTLEGG AV POSTER TIL Tripletex (faktura)              */
+             PGM
+
+             DCL        VAR(&FILN) TYPE(*CHAR) LEN(20)
+             DCL        VAR(&FILS) TYPE(*CHAR) LEN(40)
+             DCL        VAR(&MAPX) TYPE(*CHAR) LEN(30)
+             DCL        VAR(&CLIB) TYPE(*CHAR) LEN(10)
+             DCL        VAR(&IFSV) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILT) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILX) TYPE(*CHAR) LEN(65)
+             DCL        VAR(&FILG) TYPE(*CHAR) LEN(3)
+             DCL        VAR(&BIBL) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&BAN1) TYPE(*CHAR) LEN(5) +
+                          VALUE('/asp/')
+             DCL        VAR(&BAN2) TYPE(*CHAR) LEN(11) +
+                          VALUE('/tritex/')
+             DCL        VAR(&BAN3) TYPE(*CHAR) LEN(10) +
+                          VALUE('/qsys.lib/')
+             DCL        VAR(&BAN4) TYPE(*CHAR) LEN(39) +
+                          VALUE('.lib/trifak.file/trifak.mbr')
+             DCL        VAR(&BAN5) TYPE(*CHAR) LEN(39) +
+                          VALUE('.lib/trifax.file/trifax.mbr')
+             DCL        VAR(&nbr)      TYPE(*CHAR) LEN(6)
+             DCL        VAR(&usr)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&JOB)      TYPE(*CHAR) LEN(10)
+             DCL        VAR(&type)     TYPE(*CHAR) LEN(1)
+             DCLF       FILE(*LIBL/ROM00PF) /*  8.01*/
+/* ->       Finner hvilken rutine som kjøres                            */
+             CALL       PGM(ROM00C) PARM(&TYPE)
+/* -<       Finner hvilken rutine som kjøres                            */
+/* Henter filgruppe og firmanummer:                                  */
+
+             RTVDTAARA  DTAARA(*LDA (931 3)) RTNVAR(&FILG)
+             RTVDTAARA  DTAARA(*LDA (934 6)) RTNVAR(&BIBL)
+
+/* Lager til-katalogen på IFS hvis den ikke finnes                   */
+
+             CHGVAR     VAR(&MAPX)     VALUE(&BAN1 *CAT &FILG +
+                                             *CAT &BAN2)
+             CRTDIR     DIR(&MAPX)
+             MONMSG     MSGID(CPF0000)
+
+/* Tømmer transaksjonsfil før danning av transaksjoner               */
+
+             CLRPFM     FILE(RM11PF)
+             CLRPFM     FILE(RM1XPF)
+             CLRPFM     FILE(FOVIPF)
+             CLRPFM     FILE(FOVUPF)
+
+             if         cond(&type *eq 'B')   then(do)
+             CPYF       FROMFILE(FOMKPF) TOFILE(FOVIPF) MBROPT(*REPLACE)
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+             enddo
+             if         cond(&type *ne 'B')   then(do)
+             CPYF       FROMFILE(FOVFPF) TOFILE(FOVIPF) MBROPT(*REPLACE)
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+             enddo
+
+
+
+/* Kaller program for danning av transaksjoner                       */
+/* Endring for tripeltex, ikke summering av poster, men ren kopiering*/
+/*           CALL       PGM(RM009R)                                  */
+             if         cond(&type *eq 'B')   then(do)
+             CPYF       FROMFILE(FOMKPF) TOFILE(FOVUPF) MBROPT(*REPLACE)
+             enddo
+             if         cond(&type *ne 'B')   then(do)
+             CPYF       FROMFILE(FOVFPF) TOFILE(FOVUPF) MBROPT(*REPLACE)
+             enddo
+
+/* Kaller program for danning av transaksjoner                       */
+
+             CALL       PGM(RTR11R)
+
+/* Test om overføringsregister finnes - bygg evt.                    */
+
+             CHKOBJ     OBJ(*LIBL/TRIFAK) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+                CRTPF      FILE(TRIFAK) RCDLEN(800) TEXT('Posteringer +
+                           til Tripletex')
+             ENDDO
+             CHKOBJ     OBJ(*LIBL/TRIFAX) OBJTYPE(*FILE)
+             MONMSG     MSGID(CPF9801) EXEC(DO)
+                CRTPF      FILE(TRIFAX) RCDLEN(800) TEXT('Posteringer +
+                           til Tripletex')
+             ENDDO
+
+/* Kopier data til overføringsfil                                    */
+
+             CPYF       FROMFILE(*LIBL/RM11PF) TOFILE(*LIBL/TRIFAK) +
+                          FROMMBR(RM11PF) MBROPT(*REPLACE) +
+                          FMTOPT(*NOCHK)
+
+             MONMSG     MSGID(CPF2817)   EXEC(GOTO CMDLBL(END))
+             CPYF       FROMFILE(*LIBL/RM1XPF) TOFILE(*LIBL/TRIFAX) +
+                          FROMMBR(RM1XPF) MBROPT(*REPLACE) +
+                          FMTOPT(*NOCHK)
+             MONMSG     MSGID(CPF0000)
+
+/* Starter kopiering til integret filsystem                          */
+
+             CALL       PGM(LX762R) PARM(&FILN)
+/* CHGVAR VAR(&FILS) VALUE(&BAN1 *CAT &FILG *CAT &BAN2 *bcat &FILN)        */
+   CHGVAR VAR(&FILS) VALUE(&BAN1 *CAT &FILG *CAT &BAN2 *tcat &FILN *cat '.csv')
+   CHGVAR VAR(&FILT) VALUE(&BAN3 *CAT &BIBL *CAT &BAN4)
+   CHGVAR VAR(&FILX) VALUE(&BAN3 *CAT &BIBL *CAT &BAN5)
+             CPYTOSTMF  +
+                          FROMMBR(&FILT) TOSTMF(&FILS) +
+                          STMFOPT(*REPLACE) STMFCODPAG(*PCASCII)
+             CHGAUT     OBJ(&FILS) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+
+             CALL       PGM(LX763R) PARM(&FILN)
+/* CHGVAR VAR(&FILS) VALUE(&BAN1 *CAT &FILG *CAT &BAN2 *bcat &FILN)        */
+   CHGVAR VAR(&FILS) VALUE(&BAN1 *CAT &FILG *CAT &BAN2 *tcat &FILN)
+   CHGVAR VAR(&FILT) VALUE(&BAN3 *CAT &BIBL *CAT &BAN4)
+   CHGVAR VAR(&FILX) VALUE(&BAN3 *CAT &BIBL *CAT &BAN5)
+             CPYTOSTMF  +
+                          FROMMBR(&FILX) TOSTMF(&FILS) +
+                          STMFOPT(*REPLACE) STMFCODPAG(*PCASCII)
+             CHGAUT     OBJ(&FILS) USER(*PUBLIC) DTAAUT(*RWX) +
+                          OBJAUT(*ALL)
+
+
+ END:        ENDPGM
