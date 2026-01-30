@@ -1,0 +1,218 @@
+name: Analyze Business Rules
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+jobs:
+  analyze-rules:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Analyze invoicing business rules
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "Analyze RPG source files related to INVOICING/BILLING. Table SOHEPF and related tables.
+
+          Extract VALIDATION RULES and BUSINESS LOGIC for DB2 database AI context. Document:
+
+          ## Validation Rules
+          - Field validations with DB2 table.column references
+          - Data type constraints and allowed values
+          - Required fields and null handling
+
+          ## Blockers (What Stops the Process)
+          - Conditions that prevent invoice creation
+          - Error conditions that halt processing
+          - Business rule violations that block completion
+
+          ## Prerequisites
+          - What must exist before invoicing can proceed
+          - Required master data (customers, products, prices)
+          - Status requirements on related records
+
+          ## Key Calculations
+          - Tax/VAT (MVA) calculation rules with table references
+          - Discount and pricing logic
+          - Totaling and rounding rules
+
+          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable." \
+          --model sonnet \
+          --dangerously-skip-permissions \
+          --output-format text > /tmp/invoicing-rules-new.md
+
+      - name: Analyze sales order business rules
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "Analyze RPG source files related to SALES ORDERS. Main table FOHEPF and related tables.
+
+          Extract VALIDATION RULES and BUSINESS LOGIC for DB2 database AI context. Document:
+
+          ## Validation Rules
+          - Field validations with DB2 table.column references
+          - Data type constraints and allowed values
+          - Required fields and null handling
+
+          ## Flow
+          - How a salesorder moves through different stages
+
+          ## Blockers (What Stops the Process)
+          - Conditions that prevent order creation/processing
+          - Credit limit violations
+          - Inventory/availability blocks
+          - Error conditions that halt processing
+
+          ## Prerequisites
+          - What must exist before order can be created
+          - Required master data (customers, products, inventory)
+          - Status requirements on related records
+
+          ## Status Transitions
+          - Valid order status values and transitions
+          - What triggers status changes
+          - Conditions for order completion
+
+          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable." \
+          --model sonnet \
+          --dangerously-skip-permissions \
+          --output-format text > /tmp/sales-order-rules-new.md
+
+      - name: Analyze purchase order business rules
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "Analyze RPG source files related to PURCHASE ORDERS. Main table LOHEPF and related tables.
+
+          Extract VALIDATION RULES and BUSINESS LOGIC for DB2 database AI context. Document:
+
+          ## Validation Rules
+          - Field validations with DB2 table.column references
+          - Data type constraints and allowed values
+          - Required fields and null handling
+
+          ## Blockers (What Stops the Process)
+          - Conditions that prevent PO creation/processing
+          - Vendor/supplier validation failures
+          - Budget or approval blocks
+          - Error conditions that halt processing
+
+          ## Prerequisites
+          - What must exist before PO can be created
+          - Required master data (vendors, products, contracts)
+          - Approval requirements
+
+          ## Receiving Rules
+          - Goods receipt validation rules
+          - Quantity matching rules (over/under receipt handling)
+          - Quality inspection requirements
+
+          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable. Include source file references." \
+          --model sonnet \
+          --dangerously-skip-permissions \
+          --output-format text > /tmp/purchase-order-rules-new.md
+
+      - name: Check for changes
+        id: check-changes
+        run: |
+          mkdir -p docs
+          CHANGES_DETECTED=false
+
+          # Check invoicing rules
+          INVOICING_FILE="docs/invoicing-business-rules.md"
+          if [ -f "$INVOICING_FILE" ]; then
+            if ! diff -q "$INVOICING_FILE" /tmp/invoicing-rules-new.md > /dev/null 2>&1; then
+              CHANGES_DETECTED=true
+              echo "Changes detected in invoicing business rules"
+              cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
+            fi
+          else
+            CHANGES_DETECTED=true
+            echo "Creating new invoicing business rules file"
+            cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
+          fi
+
+          # Check sales order rules
+          SALES_FILE="docs/sales-order-business-rules.md"
+          if [ -f "$SALES_FILE" ]; then
+            if ! diff -q "$SALES_FILE" /tmp/sales-order-rules-new.md > /dev/null 2>&1; then
+              CHANGES_DETECTED=true
+              echo "Changes detected in sales order business rules"
+              cp /tmp/sales-order-rules-new.md "$SALES_FILE"
+            fi
+          else
+            CHANGES_DETECTED=true
+            echo "Creating new sales order business rules file"
+            cp /tmp/sales-order-rules-new.md "$SALES_FILE"
+          fi
+
+          # Check purchase order rules
+          PURCHASE_FILE="docs/purchase-order-business-rules.md"
+          if [ -f "$PURCHASE_FILE" ]; then
+            if ! diff -q "$PURCHASE_FILE" /tmp/purchase-order-rules-new.md > /dev/null 2>&1; then
+              CHANGES_DETECTED=true
+              echo "Changes detected in purchase order business rules"
+              cp /tmp/purchase-order-rules-new.md "$PURCHASE_FILE"
+            fi
+          else
+            CHANGES_DETECTED=true
+            echo "Creating new purchase order business rules file"
+            cp /tmp/purchase-order-rules-new.md "$PURCHASE_FILE"
+          fi
+
+          if [ "$CHANGES_DETECTED" = true ]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+            echo "No changes detected in any business rules files"
+          fi
+
+      - name: Create Pull Request
+        if: steps.check-changes.outputs.changes == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "docs: Update business rules documentation"
+          branch: docs/business-rules-update
+          delete-branch: true
+          title: "Update Business Rules Documentation"
+          body: |
+            ## Automated Business Rules Update
+
+            This PR was automatically generated by Claude Code analysis of the RPG codebase.
+
+            ### Files Updated
+            - `docs/invoicing-business-rules.md` - Invoice/billing validation rules
+            - `docs/sales-order-business-rules.md` - Sales order validation rules
+            - `docs/purchase-order-business-rules.md` - Purchase order validation rules
+
+            ### What's Documented
+            Each file focuses on:
+            - **Validation Rules** - Field validations with DB2 table.column references
+            - **Blockers** - Conditions that stop the process
+            - **Prerequisites** - What must exist before processing
+            - **Key calculations/transitions** - Domain-specific logic
+
+            ### Review checklist
+            - [ ] Review the extracted business rules for accuracy
+            - [ ] Verify DB2 table/column references are correct
+            - [ ] Check for any sensitive information that should be redacted
+          labels: |
+            documentation
+            automated
