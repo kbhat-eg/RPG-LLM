@@ -1,73 +1,73 @@
 # invoice-processing
 
 **Type**: Combined Analysis (Multiple Files)
-**Generated**: 2026-02-03 10:48:21
-**Processing Time**: 8743ms
+**Generated**: 2026-02-03 11:02:43
+**Processing Time**: 8154ms
 
 ---
 
 ```markdown
 # Business Logic for Invoice Processing
 
-This document outlines the business rules that govern the invoice processing workflow, derived from the analysis of the RPG programs: `FO605R`, `FO709R`.
+This document outlines the business rules that govern the invoice processing based on the analysis of the RPG programs: `FO605R`, `FO709R`.
 
 **Programs Analyzed:**
-- `FO605R`: Handles the initiation of invoice generation workflows.
-- `FO709R`: Updates the order header with necessary details about the order holder.
+- `FO605R`: This program initiates the printing of order documents for invoices and credit notes.
+- `FO709R`: This program updates the order header information with who is currently handling the order.
 
-## Order Processing Rules
+## Order Primer Checks and Rules
 
-1. **Direct Print Trigger (`FO605R`)**
-    *   **Logic:** The process checks if an order number (`p_numm`) has been provided; if not, the program will skip further processing.
-    *   **File:** N/A
+1. **Valid Order Number Check (`FO605R`)**
+    *   **Logic:** The program proceeds with the invoice process only if a valid order number is provided.
+    *   **File:** `FO605D` (Order Document File)
     *   **Field:** `p_numm`
-    *   **Condition:** `IF p_numm <> *ZERO`, indicating a valid order number is required for invoice processing.
-    *   **Note:** This serves as a basic entry validation to confirm whether to initiate the print job.
+    *   **Condition:** If `p_numm` is equal to `*ZERO`, the process will skip to the end. This ensures that only defined orders are processed.
 
-2. **Period and Invoice Date Entry Validation (`FO605R`)**
-    *   **Logic:** Validates that the period and invoice date entered by the user are acceptable.
-    *   **File:** N/A
-    *   **Field:** `f2peri`, `f2dato`
+2. **Invoice Date and Period Validation (`FO605R`)**
+    *   **Logic:** The program checks if both the invoice date and the selected period are valid before proceeding.
+    *   **File:** `FO605D` (Order Document File)
+    *   **Field:** `f2dato`, `f2peri`
     *   **Condition:** 
-        - Period must be valid and should not exceed one year difference from the current date.
-        - Invoice date must fall within the selected period.
-        - If invalid, the program sets specific indicators (`*in31`, `*in32`, `*in33`, etc.) to allow for user feedback.
-    *   **Note:** This ensures that generated invoices conform to correct dates, preventing operational issues later.
+        - The invoice date (`f2dato`) must pass the validation for a proper date format (`*dmy`).
+        - The selected period (`f2peri`) should not be blank, and must also not deviate more than a year from the current date. This validation prevents any out-of-scope entries.
 
-3. **Order Status Check (`FO605R`)**
-    *   **Logic:** Checks if the order is being processed by another screen.
-    *   **File:** N/A
-    *   **Field:** `w_onof`
-    *   **Condition:** If an order is actively processed elsewhere (checked using subroutine `FA730R`), the program exits (`goto xslutt`).
-    *   **Note:** This mechanism prevents double processing, enhancing data integrity.
-
-4. **Update Order Header Information (`FO709R`)**
-    *   **Logic:** Updates the order header with the current date, time, and user details.
-    *   **File:** `FOHELU` (Order Header File)
-    *   **Field:** `fokous`, `fokoda`, `fokoti`, `foedat`, `foetim`, `foeusr`
-    *   **Condition:** Order header updates are only executed if the record (`fohelur`) is found.
-    *   **Note:** Keeps order records current with user and timestamp annotations, which is essential for tracking changes and accountability.
+3. **Order Processing Check (`FO709R`, `FO605R`)**
+    *   **Logic:** Before processing the invoices, `FO605R` calls the `FO709R` program to determine who is handling the order.
+    *   **Impact:** If the order is being processed by another user, the operation will be halted, ensuring no double processing occurs.
 
 ## Subprogram Calls Affecting Logic
 
 Beyond direct file checks, several external subprograms are called that play a significant role in the workflow.
 
-1. **`FA730R` (Order Processing Check)**
-    *   **Trigger:** Called from `FO605R` while checking for ongoing invoicing.
-    *   **Logic:** Determines if the current order is locked due to being processed elsewhere.
-    *   **Impact:** This check is crucial in maintaining data integrity by ensuring that invoices are not duplicated or conflicted during processing.
+1.  **`FO612C` (Start Invoice Print Job)**
+    *   **Trigger:** Called from `FO605R` when the order number is valid and ready for processing.
+    *   **Logic:** Initiates the printing routine based on provided parameters.
+    *   **Impact:** Ensures that orders only start printing when all validations pass.
 
-2. **`FA720R` (Job Register Update)**
-    *   **Trigger:** Called from `FO605R` to update job registers with the active flag.
-    *   **Logic:** Updates records to indicate the job's current processing status.
-    *   **Impact:** This ensures that the system maintains accurate job tracking, especially in a multi-user environment.
+2.  **`FA730R` (Check Order Processing)**
+    *   **Trigger:** Called from `FO605R` to see if the order is currently active in processing.
+    *   **Logic:** Updates a flag indicating whether the order can continue based on the status of another process.
+    *   **Impact:** This check acts as a blocking condition that may prevent the invoice processing from further execution.
 
-3. **`FA920R` (Member Number Handling)**
-    *   **Trigger:** Called from `FO605R` to fetch and set the member number for processing.
-    *   **Logic:** Ensures that unique member numbers are assigned for transactions.
-    *   **Impact:** Crucial for maintaining uniqueness in generated documents and avoiding duplicates.
+3.  **`FA720R` (Update Job Register)**
+    *   **Trigger:** Called upon successful validation checks in `FO605R`.
+    *   **Logic:** Updates the job register with the current user and work station.
+    *   **Impact:** Acts to maintain an audit trail of who processed which invoices.
 
-## Conclusion
+4.  **`FO604C` (Check Member Usage)**
+    *   **Trigger:** Called from `FO605R` to verify if the current member being created is already in use.
+    *   **Logic:** It checks the status of a member to ensure it's unique and available.
+    *   **Impact:** Prevents conflicts in document generation between users.
 
-The `FO605R` and `FO709R` programs work together to establish a robust mechanism for handling invoice processing within the ASOFAK system. The former focuses on the initiation and validation of invoice parameters while the latter ensures that updated order information is accurately reflected in the system. Key checks and validations across both programs improve data integrity and operational efficiency, making safe processing of invoices a priority. This document serves as a foundational reference for understanding the interrelated functionalities of the involved RPG programs.
+## Summary of Program Relationships
+
+- The program `FO605R` is primarily responsible for initiating the invoice printing process, which relies heavily on the validations and checks implemented within it.
+- It interacts directly with `FO709R`, which prepares necessary header information about the order, ensuring that concurrent executions are well managed by passing relevant parameters.
+- The shared variables and calls between these two programs highlight the interconnectedness of the invoice processing functions, effectively creating a coherent workflow that emphasizes data integrity and user management.
+
+### Notable Differences
+- `FO605R` contains extensive logic for validating invoice dates and periods before processing, whereas `FO709R` focuses on updating order header attributes and does not involve as many validation checks.
+- `FO605R` invokes multiple external subprograms to complete its task, while its counterpart `FO709R` is more straightforward, dealing only with updating details in the database.
+
+Overall, the two programs work in tandem to provide a robust invoice processing mechanism, ensuring data integrity and efficient handling of orders while maintaining a seamless user experience.
 ```
