@@ -2,6 +2,12 @@ name: Analyze Business Rules
 
 on:
   workflow_dispatch:  # Manual trigger only
+  push:
+    paths:
+      - '**/SO*.MBR'
+      - '**/FO*.MBR'
+      - '**/LO*.MBR'
+      - '.github/workflows/analyze-invoicing-rules.yml'
 
 jobs:
   analyze-rules:
@@ -16,21 +22,116 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Detect changed modules
+        id: detect-changes
+        run: |
+          mkdir -p .github/cache
+
+          # Get changed files from the last commit or compare with main
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # For manual runs, get ALL relevant files for comprehensive business logic analysis
+            echo "Manual trigger - analyzing ALL module files for complete business logic extraction"
+            SO_FILES=$(find NXCLOUD NXKORR -name "SO*.MBR" -type f 2>/dev/null || echo "")
+            FO_FILES=$(find NXCLOUD NXKORR -name "FO*.MBR" -type f 2>/dev/null || echo "")
+            LO_FILES=$(find NXCLOUD NXKORR -name "LO*.MBR" -type f 2>/dev/null || echo "")
+
+            # Count files for logging
+            SO_COUNT=$(echo "$SO_FILES" | grep -c . || echo "0")
+            FO_COUNT=$(echo "$FO_FILES" | grep -c . || echo "0")
+            LO_COUNT=$(echo "$LO_FILES" | grep -c . || echo "0")
+            echo "Found $SO_COUNT invoicing files, $FO_COUNT sales order files, $LO_COUNT purchase order files"
+          else
+            # For push events, get only changed files
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+            SO_FILES=$(echo "$CHANGED_FILES" | grep "SO.*\.MBR" || echo "")
+            FO_FILES=$(echo "$CHANGED_FILES" | grep "FO.*\.MBR" || echo "")
+            LO_FILES=$(echo "$CHANGED_FILES" | grep "LO.*\.MBR" || echo "")
+          fi
+
+          # Calculate hash for invoicing files and check cache
+          if [ -n "$SO_FILES" ]; then
+            CURRENT_SO_HASH=$(echo "$SO_FILES" | xargs -r md5sum 2>/dev/null | md5sum | cut -d' ' -f1 || echo "none")
+            PREVIOUS_SO_HASH=$(cat .github/cache/invoicing-hash.txt 2>/dev/null || echo "")
+
+            if [ "$CURRENT_SO_HASH" != "$PREVIOUS_SO_HASH" ]; then
+              echo "invoicing=true" >> $GITHUB_OUTPUT
+              echo "$SO_FILES" > /tmp/so-files.txt
+              echo "$CURRENT_SO_HASH" > .github/cache/invoicing-hash.txt
+              echo "Invoicing files changed (hash: $CURRENT_SO_HASH)"
+            else
+              echo "invoicing=false" >> $GITHUB_OUTPUT
+              echo "Invoicing files unchanged - skipping analysis (cached)"
+            fi
+          else
+            echo "invoicing=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Calculate hash for sales order files and check cache
+          if [ -n "$FO_FILES" ]; then
+            CURRENT_FO_HASH=$(echo "$FO_FILES" | xargs -r md5sum 2>/dev/null | md5sum | cut -d' ' -f1 || echo "none")
+            PREVIOUS_FO_HASH=$(cat .github/cache/sales-order-hash.txt 2>/dev/null || echo "")
+
+            if [ "$CURRENT_FO_HASH" != "$PREVIOUS_FO_HASH" ]; then
+              echo "sales-order=true" >> $GITHUB_OUTPUT
+              echo "$FO_FILES" > /tmp/fo-files.txt
+              echo "$CURRENT_FO_HASH" > .github/cache/sales-order-hash.txt
+              echo "Sales order files changed (hash: $CURRENT_FO_HASH)"
+            else
+              echo "sales-order=false" >> $GITHUB_OUTPUT
+              echo "Sales order files unchanged - skipping analysis (cached)"
+            fi
+          else
+            echo "sales-order=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Calculate hash for purchase order files and check cache
+          if [ -n "$LO_FILES" ]; then
+            CURRENT_LO_HASH=$(echo "$LO_FILES" | xargs -r md5sum 2>/dev/null | md5sum | cut -d' ' -f1 || echo "none")
+            PREVIOUS_LO_HASH=$(cat .github/cache/purchase-order-hash.txt 2>/dev/null || echo "")
+
+            if [ "$CURRENT_LO_HASH" != "$PREVIOUS_LO_HASH" ]; then
+              echo "purchase-order=true" >> $GITHUB_OUTPUT
+              echo "$LO_FILES" > /tmp/lo-files.txt
+              echo "$CURRENT_LO_HASH" > .github/cache/purchase-order-hash.txt
+              echo "Purchase order files changed (hash: $CURRENT_LO_HASH)"
+            else
+              echo "purchase-order=false" >> $GITHUB_OUTPUT
+              echo "Purchase order files unchanged - skipping analysis (cached)"
+            fi
+          else
+            echo "purchase-order=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Setup Node.js
+        if: steps.detect-changes.outputs.invoicing == 'true' || steps.detect-changes.outputs.sales-order == 'true' || steps.detect-changes.outputs.purchase-order == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install Claude Code
+        if: steps.detect-changes.outputs.invoicing == 'true' || steps.detect-changes.outputs.sales-order == 'true' || steps.detect-changes.outputs.purchase-order == 'true'
         run: npm install -g @anthropic-ai/claude-code
 
       - name: Analyze invoicing business rules
+        if: steps.detect-changes.outputs.invoicing == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          claude -p "Analyze RPG source files related to INVOICING/BILLING. Table SOHEPF and related tables.
+          # Read the list of changed files
+          CHANGED_SO_FILES=$(cat /tmp/so-files.txt | tr '\n' ' ')
+          FILE_COUNT=$(cat /tmp/so-files.txt | wc -l)
 
-          Extract VALIDATION RULES and BUSINESS LOGIC for DB2 database AI context. Document:
+          echo "Analyzing $FILE_COUNT invoicing file(s): $CHANGED_SO_FILES"
+
+          # Create file list argument for Claude
+          FILE_ARGS=""
+          for file in $CHANGED_SO_FILES; do
+            FILE_ARGS="$FILE_ARGS --file $file"
+          done
+
+          claude -p "Analyze ONLY the provided RPG source files related to INVOICING/BILLING (Table SOHEPF and related tables).
+
+          Focus on extracting VALIDATION RULES and BUSINESS LOGIC from these specific files:
 
           ## Validation Rules
           - Field validations with DB2 table.column references
@@ -52,18 +153,32 @@ jobs:
           - Discount and pricing logic
           - Totaling and rounding rules
 
-          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable." \
+          Be concise and focus only on rules found in the provided files. Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable." \
+          $FILE_ARGS \
           --model sonnet \
           --dangerously-skip-permissions \
           --output-format text > /tmp/invoicing-rules-new.md
 
       - name: Analyze sales order business rules
+        if: steps.detect-changes.outputs.sales-order == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          claude -p "Analyze RPG source files related to SALES ORDERS. Main table FOHEPF and related tables.
+          # Read the list of changed files
+          CHANGED_FO_FILES=$(cat /tmp/fo-files.txt | tr '\n' ' ')
+          FILE_COUNT=$(cat /tmp/fo-files.txt | wc -l)
 
-          Extract VALIDATION RULES and BUSINESS LOGIC for DB2 database AI context. Document:
+          echo "Analyzing $FILE_COUNT sales order file(s): $CHANGED_FO_FILES"
+
+          # Create file list argument for Claude
+          FILE_ARGS=""
+          for file in $CHANGED_FO_FILES; do
+            FILE_ARGS="$FILE_ARGS --file $file"
+          done
+
+          claude -p "Analyze ONLY the provided RPG source files related to SALES ORDERS (Main table FOHEPF and related tables).
+
+          Focus on extracting VALIDATION RULES and BUSINESS LOGIC from these specific files:
 
           ## Validation Rules
           - Field validations with DB2 table.column references
@@ -89,18 +204,32 @@ jobs:
           - What triggers status changes
           - Conditions for order completion
 
-          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable." \
+          Be concise and focus only on rules found in the provided files. Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable." \
+          $FILE_ARGS \
           --model sonnet \
           --dangerously-skip-permissions \
           --output-format text > /tmp/sales-order-rules-new.md
 
       - name: Analyze purchase order business rules
+        if: steps.detect-changes.outputs.purchase-order == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          claude -p "Analyze RPG source files related to PURCHASE ORDERS. Main table LOHEPF and related tables.
+          # Read the list of changed files
+          CHANGED_LO_FILES=$(cat /tmp/lo-files.txt | tr '\n' ' ')
+          FILE_COUNT=$(cat /tmp/lo-files.txt | wc -l)
 
-          Extract VALIDATION RULES and BUSINESS LOGIC for DB2 database AI context. Document:
+          echo "Analyzing $FILE_COUNT purchase order file(s): $CHANGED_LO_FILES"
+
+          # Create file list argument for Claude
+          FILE_ARGS=""
+          for file in $CHANGED_LO_FILES; do
+            FILE_ARGS="$FILE_ARGS --file $file"
+          done
+
+          claude -p "Analyze ONLY the provided RPG source files related to PURCHASE ORDERS (Main table LOHEPF and related tables).
+
+          Focus on extracting VALIDATION RULES and BUSINESS LOGIC from these specific files:
 
           ## Validation Rules
           - Field validations with DB2 table.column references
@@ -123,7 +252,8 @@ jobs:
           - Quantity matching rules (over/under receipt handling)
           - Quality inspection requirements
 
-          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable. Include source file references." \
+          Be concise and focus only on rules found in the provided files. Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable. Include source file references." \
+          $FILE_ARGS \
           --model sonnet \
           --dangerously-skip-permissions \
           --output-format text > /tmp/purchase-order-rules-new.md
@@ -134,54 +264,65 @@ jobs:
           mkdir -p docs
           CHANGES_DETECTED=false
 
-          # Check invoicing rules
-          INVOICING_FILE="docs/invoicing-business-rules.md"
-          if [ -f "$INVOICING_FILE" ]; then
-            if ! diff -q "$INVOICING_FILE" /tmp/invoicing-rules-new.md > /dev/null 2>&1; then
+          # Check invoicing rules (only if it was analyzed)
+          if [ "${{ steps.detect-changes.outputs.invoicing }}" = "true" ] && [ -f "/tmp/invoicing-rules-new.md" ]; then
+            INVOICING_FILE="docs/invoicing-business-rules.md"
+            if [ -f "$INVOICING_FILE" ]; then
+              if ! diff -q "$INVOICING_FILE" /tmp/invoicing-rules-new.md > /dev/null 2>&1; then
+                CHANGES_DETECTED=true
+                echo "Changes detected in invoicing business rules"
+                cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
+              fi
+            else
               CHANGES_DETECTED=true
-              echo "Changes detected in invoicing business rules"
+              echo "Creating new invoicing business rules file"
               cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
             fi
-          else
-            CHANGES_DETECTED=true
-            echo "Creating new invoicing business rules file"
-            cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
           fi
 
-          # Check sales order rules
-          SALES_FILE="docs/sales-order-business-rules.md"
-          if [ -f "$SALES_FILE" ]; then
-            if ! diff -q "$SALES_FILE" /tmp/sales-order-rules-new.md > /dev/null 2>&1; then
+          # Check sales order rules (only if it was analyzed)
+          if [ "${{ steps.detect-changes.outputs.sales-order }}" = "true" ] && [ -f "/tmp/sales-order-rules-new.md" ]; then
+            SALES_FILE="docs/sales-order-business-rules.md"
+            if [ -f "$SALES_FILE" ]; then
+              if ! diff -q "$SALES_FILE" /tmp/sales-order-rules-new.md > /dev/null 2>&1; then
+                CHANGES_DETECTED=true
+                echo "Changes detected in sales order business rules"
+                cp /tmp/sales-order-rules-new.md "$SALES_FILE"
+              fi
+            else
               CHANGES_DETECTED=true
-              echo "Changes detected in sales order business rules"
+              echo "Creating new sales order business rules file"
               cp /tmp/sales-order-rules-new.md "$SALES_FILE"
             fi
-          else
-            CHANGES_DETECTED=true
-            echo "Creating new sales order business rules file"
-            cp /tmp/sales-order-rules-new.md "$SALES_FILE"
           fi
 
-          # Check purchase order rules
-          PURCHASE_FILE="docs/purchase-order-business-rules.md"
-          if [ -f "$PURCHASE_FILE" ]; then
-            if ! diff -q "$PURCHASE_FILE" /tmp/purchase-order-rules-new.md > /dev/null 2>&1; then
+          # Check purchase order rules (only if it was analyzed)
+          if [ "${{ steps.detect-changes.outputs.purchase-order }}" = "true" ] && [ -f "/tmp/purchase-order-rules-new.md" ]; then
+            PURCHASE_FILE="docs/purchase-order-business-rules.md"
+            if [ -f "$PURCHASE_FILE" ]; then
+              if ! diff -q "$PURCHASE_FILE" /tmp/purchase-order-rules-new.md > /dev/null 2>&1; then
+                CHANGES_DETECTED=true
+                echo "Changes detected in purchase order business rules"
+                cp /tmp/purchase-order-rules-new.md "$PURCHASE_FILE"
+              fi
+            else
               CHANGES_DETECTED=true
-              echo "Changes detected in purchase order business rules"
+              echo "Creating new purchase order business rules file"
               cp /tmp/purchase-order-rules-new.md "$PURCHASE_FILE"
             fi
-          else
-            CHANGES_DETECTED=true
-            echo "Creating new purchase order business rules file"
-            cp /tmp/purchase-order-rules-new.md "$PURCHASE_FILE"
           fi
 
           if [ "$CHANGES_DETECTED" = true ]; then
             echo "changes=true" >> $GITHUB_OUTPUT
           else
             echo "changes=false" >> $GITHUB_OUTPUT
-            echo "No changes detected in any business rules files"
+            echo "No changes detected in analyzed business rules files"
           fi
+
+      - name: Commit cache files
+        if: steps.check-changes.outputs.changes == 'true'
+        run: |
+          git add .github/cache/*.txt 2>/dev/null || true
 
       - name: Create Pull Request
         if: steps.check-changes.outputs.changes == 'true'
@@ -197,10 +338,15 @@ jobs:
 
             This PR was automatically generated by Claude Code analysis of the RPG codebase.
 
+            ### Modules Analyzed
+            ${{ steps.detect-changes.outputs.invoicing == 'true' && '- **Invoicing** - SO*.MBR files changed' || '' }}
+            ${{ steps.detect-changes.outputs.sales-order == 'true' && '- **Sales Orders** - FO*.MBR files changed' || '' }}
+            ${{ steps.detect-changes.outputs.purchase-order == 'true' && '- **Purchase Orders** - LO*.MBR files changed' || '' }}
+
             ### Files Updated
-            - `docs/invoicing-business-rules.md` - Invoice/billing validation rules
-            - `docs/sales-order-business-rules.md` - Sales order validation rules
-            - `docs/purchase-order-business-rules.md` - Purchase order validation rules
+            ${{ steps.detect-changes.outputs.invoicing == 'true' && '- `docs/invoicing-business-rules.md` - Invoice/billing validation rules' || '' }}
+            ${{ steps.detect-changes.outputs.sales-order == 'true' && '- `docs/sales-order-business-rules.md` - Sales order validation rules' || '' }}
+            ${{ steps.detect-changes.outputs.purchase-order == 'true' && '- `docs/purchase-order-business-rules.md` - Purchase order validation rules' || '' }}
 
             ### What's Documented
             Each file focuses on:
