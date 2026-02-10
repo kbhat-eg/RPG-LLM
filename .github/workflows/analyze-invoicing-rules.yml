@@ -16,15 +16,65 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Detect changed RPG programs by module
+        id: detect-changes
+        run: |
+          # Get list of changed files in last commit or compare with main
+          if [ "${{ github.event_name }}" = "push" ]; then
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          else
+            CHANGED_FILES=$(git diff --name-only origin/main HEAD)
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Initialize flags
+          INVOICING_CHANGED=false
+          SALES_ORDER_CHANGED=false
+          PURCHASE_ORDER_CHANGED=false
+
+          # Check for invoicing/billing related changes (SO*, RF*, FO6*)
+          if echo "$CHANGED_FILES" | grep -qE 'NXCLOUD/(rpgsrc|ddssrc|sqlsrc|clsrc)/.*(SO|RF|FO6|RN0).*\.(MBR|mbr)$'; then
+            INVOICING_CHANGED=true
+            echo "✓ Invoicing/Billing RPG programs changed"
+          fi
+
+          # Check for sales order related changes (FO*, FOHE*, FODT*)
+          if echo "$CHANGED_FILES" | grep -qE 'NXCLOUD/(rpgsrc|ddssrc|sqlsrc|clsrc)/.*(FO[01234589]|FOHE|FODT|FOPS|FPLO).*\.(MBR|mbr)$'; then
+            SALES_ORDER_CHANGED=true
+            echo "✓ Sales Order RPG programs changed"
+          fi
+
+          # Check for purchase order related changes (LO*, LOHE*, LODT*)
+          if echo "$CHANGED_FILES" | grep -qE 'NXCLOUD/(rpgsrc|ddssrc|sqlsrc|clsrc)/.*(LO|LOHE|LODT|LLDI).*\.(MBR|mbr)$'; then
+            PURCHASE_ORDER_CHANGED=true
+            echo "✓ Purchase Order RPG programs changed"
+          fi
+
+          # Set outputs
+          echo "invoicing_changed=$INVOICING_CHANGED" >> $GITHUB_OUTPUT
+          echo "sales_order_changed=$SALES_ORDER_CHANGED" >> $GITHUB_OUTPUT
+          echo "purchase_order_changed=$PURCHASE_ORDER_CHANGED" >> $GITHUB_OUTPUT
+
+          # Summary
+          echo "=== Change Detection Summary ==="
+          echo "Invoicing: $INVOICING_CHANGED"
+          echo "Sales Order: $SALES_ORDER_CHANGED"
+          echo "Purchase Order: $PURCHASE_ORDER_CHANGED"
+
       - name: Setup Node.js
+        if: steps.detect-changes.outputs.invoicing_changed == 'true' || steps.detect-changes.outputs.sales_order_changed == 'true' || steps.detect-changes.outputs.purchase_order_changed == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install Claude Code
+        if: steps.detect-changes.outputs.invoicing_changed == 'true' || steps.detect-changes.outputs.sales_order_changed == 'true' || steps.detect-changes.outputs.purchase_order_changed == 'true'
         run: npm install -g @anthropic-ai/claude-code
 
       - name: Analyze invoicing business rules
+        if: steps.detect-changes.outputs.invoicing_changed == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
@@ -58,6 +108,7 @@ jobs:
           --output-format text > /tmp/invoicing-rules-new.md
 
       - name: Analyze sales order business rules
+        if: steps.detect-changes.outputs.sales_order_changed == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
@@ -95,6 +146,7 @@ jobs:
           --output-format text > /tmp/sales-order-rules-new.md
 
       - name: Analyze purchase order business rules
+        if: steps.detect-changes.outputs.purchase_order_changed == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
@@ -128,59 +180,94 @@ jobs:
           --dangerously-skip-permissions \
           --output-format text > /tmp/purchase-order-rules-new.md
 
-      - name: Check for changes
+      - name: Check for changes and copy files
         id: check-changes
         run: |
           mkdir -p docs
           CHANGES_DETECTED=false
+          UPDATED_FILES=""
 
-          # Check invoicing rules
-          INVOICING_FILE="docs/invoicing-business-rules.md"
-          if [ -f "$INVOICING_FILE" ]; then
-            if ! diff -q "$INVOICING_FILE" /tmp/invoicing-rules-new.md > /dev/null 2>&1; then
-              CHANGES_DETECTED=true
-              echo "Changes detected in invoicing business rules"
-              cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
+          # Check invoicing rules (only if it was analyzed)
+          if [ "${{ steps.detect-changes.outputs.invoicing_changed }}" = "true" ]; then
+            INVOICING_FILE="docs/invoicing-business-rules.md"
+            if [ -f /tmp/invoicing-rules-new.md ]; then
+              if [ -f "$INVOICING_FILE" ]; then
+                if ! diff -q "$INVOICING_FILE" /tmp/invoicing-rules-new.md > /dev/null 2>&1; then
+                  CHANGES_DETECTED=true
+                  echo "✓ Changes detected in invoicing business rules"
+                  cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
+                  UPDATED_FILES="$UPDATED_FILES\n- Invoicing/Billing rules"
+                else
+                  echo "○ No content changes in invoicing business rules"
+                fi
+              else
+                CHANGES_DETECTED=true
+                echo "✓ Creating new invoicing business rules file"
+                cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
+                UPDATED_FILES="$UPDATED_FILES\n- Invoicing/Billing rules (new)"
+              fi
             fi
           else
-            CHANGES_DETECTED=true
-            echo "Creating new invoicing business rules file"
-            cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
+            echo "⊘ Skipped invoicing analysis - no RPG changes detected"
           fi
 
-          # Check sales order rules
-          SALES_FILE="docs/sales-order-business-rules.md"
-          if [ -f "$SALES_FILE" ]; then
-            if ! diff -q "$SALES_FILE" /tmp/sales-order-rules-new.md > /dev/null 2>&1; then
-              CHANGES_DETECTED=true
-              echo "Changes detected in sales order business rules"
-              cp /tmp/sales-order-rules-new.md "$SALES_FILE"
+          # Check sales order rules (only if it was analyzed)
+          if [ "${{ steps.detect-changes.outputs.sales_order_changed }}" = "true" ]; then
+            SALES_FILE="docs/sales-order-business-rules.md"
+            if [ -f /tmp/sales-order-rules-new.md ]; then
+              if [ -f "$SALES_FILE" ]; then
+                if ! diff -q "$SALES_FILE" /tmp/sales-order-rules-new.md > /dev/null 2>&1; then
+                  CHANGES_DETECTED=true
+                  echo "✓ Changes detected in sales order business rules"
+                  cp /tmp/sales-order-rules-new.md "$SALES_FILE"
+                  UPDATED_FILES="$UPDATED_FILES\n- Sales Order rules"
+                else
+                  echo "○ No content changes in sales order business rules"
+                fi
+              else
+                CHANGES_DETECTED=true
+                echo "✓ Creating new sales order business rules file"
+                cp /tmp/sales-order-rules-new.md "$SALES_FILE"
+                UPDATED_FILES="$UPDATED_FILES\n- Sales Order rules (new)"
+              fi
             fi
           else
-            CHANGES_DETECTED=true
-            echo "Creating new sales order business rules file"
-            cp /tmp/sales-order-rules-new.md "$SALES_FILE"
+            echo "⊘ Skipped sales order analysis - no RPG changes detected"
           fi
 
-          # Check purchase order rules
-          PURCHASE_FILE="docs/purchase-order-business-rules.md"
-          if [ -f "$PURCHASE_FILE" ]; then
-            if ! diff -q "$PURCHASE_FILE" /tmp/purchase-order-rules-new.md > /dev/null 2>&1; then
-              CHANGES_DETECTED=true
-              echo "Changes detected in purchase order business rules"
-              cp /tmp/purchase-order-rules-new.md "$PURCHASE_FILE"
+          # Check purchase order rules (only if it was analyzed)
+          if [ "${{ steps.detect-changes.outputs.purchase_order_changed }}" = "true" ]; then
+            PURCHASE_FILE="docs/purchase-order-business-rules.md"
+            if [ -f /tmp/purchase-order-rules-new.md ]; then
+              if [ -f "$PURCHASE_FILE" ]; then
+                if ! diff -q "$PURCHASE_FILE" /tmp/purchase-order-rules-new.md > /dev/null 2>&1; then
+                  CHANGES_DETECTED=true
+                  echo "✓ Changes detected in purchase order business rules"
+                  cp /tmp/purchase-order-rules-new.md "$PURCHASE_FILE"
+                  UPDATED_FILES="$UPDATED_FILES\n- Purchase Order rules"
+                else
+                  echo "○ No content changes in purchase order business rules"
+                fi
+              else
+                CHANGES_DETECTED=true
+                echo "✓ Creating new purchase order business rules file"
+                cp /tmp/purchase-order-rules-new.md "$PURCHASE_FILE"
+                UPDATED_FILES="$UPDATED_FILES\n- Purchase Order rules (new)"
+              fi
             fi
           else
-            CHANGES_DETECTED=true
-            echo "Creating new purchase order business rules file"
-            cp /tmp/purchase-order-rules-new.md "$PURCHASE_FILE"
+            echo "⊘ Skipped purchase order analysis - no RPG changes detected"
           fi
 
+          # Set outputs
           if [ "$CHANGES_DETECTED" = true ]; then
             echo "changes=true" >> $GITHUB_OUTPUT
+            echo "updated_files<<EOF" >> $GITHUB_OUTPUT
+            echo -e "$UPDATED_FILES" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           else
             echo "changes=false" >> $GITHUB_OUTPUT
-            echo "No changes detected in any business rules files"
+            echo "○ No documentation changes needed"
           fi
 
       - name: Create Pull Request
@@ -198,9 +285,12 @@ jobs:
             This PR was automatically generated by Claude Code analysis of the RPG codebase.
 
             ### Files Updated
-            - `docs/invoicing-business-rules.md` - Invoice/billing validation rules
-            - `docs/sales-order-business-rules.md` - Sales order validation rules
-            - `docs/purchase-order-business-rules.md` - Purchase order validation rules
+            ${{ steps.check-changes.outputs.updated_files }}
+
+            ### Change Detection
+            - ✓ Analyzed only modules with RPG program changes
+            - ○ Skipped modules without changes
+            - ⊘ Optimized for efficiency
 
             ### What's Documented
             Each file focuses on:
