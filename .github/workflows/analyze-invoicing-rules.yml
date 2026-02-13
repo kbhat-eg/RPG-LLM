@@ -16,93 +16,78 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect changed RPG programs by module
-        id: detect-changes
-        run: |
-          # Get list of changed files in last commit or compare with main
-          if [ "${{ github.event_name }}" = "push" ]; then
-            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
-          else
-            CHANGED_FILES=$(git diff --name-only origin/main HEAD)
-          fi
-
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-
-          # Initialize flags
-          INVOICING_CHANGED=false
-          SALES_ORDER_CHANGED=false
-          PURCHASE_ORDER_CHANGED=false
-
-          # Check for invoicing/billing related changes (SO*, RF*, FO6*)
-          if echo "$CHANGED_FILES" | grep -qE 'NXCLOUD/(rpgsrc|ddssrc|sqlsrc|clsrc)/.*(SO|RF|FO6|RN0).*\.(MBR|mbr)$'; then
-            INVOICING_CHANGED=true
-            echo "✓ Invoicing/Billing RPG programs changed"
-          fi
-
-          # Check for sales order related changes (FO*, FOHE*, FODT*)
-          if echo "$CHANGED_FILES" | grep -qE 'NXCLOUD/(rpgsrc|ddssrc|sqlsrc|clsrc)/.*(FO[01234589]|FOHE|FODT|FOPS|FPLO).*\.(MBR|mbr)$'; then
-            SALES_ORDER_CHANGED=true
-            echo "✓ Sales Order RPG programs changed"
-          fi
-
-          # Check for purchase order related changes (LO*, LOHE*, LODT*)
-          if echo "$CHANGED_FILES" | grep -qE 'NXCLOUD/(rpgsrc|ddssrc|sqlsrc|clsrc)/.*(LO|LOHE|LODT|LLDI).*\.(MBR|mbr)$'; then
-            PURCHASE_ORDER_CHANGED=true
-            echo "✓ Purchase Order RPG programs changed"
-          fi
-
-          # Set outputs
-          echo "invoicing_changed=$INVOICING_CHANGED" >> $GITHUB_OUTPUT
-          echo "sales_order_changed=$SALES_ORDER_CHANGED" >> $GITHUB_OUTPUT
-          echo "purchase_order_changed=$PURCHASE_ORDER_CHANGED" >> $GITHUB_OUTPUT
-
-          # Summary
-          echo "=== Change Detection Summary ==="
-          echo "Invoicing: $INVOICING_CHANGED"
-          echo "Sales Order: $SALES_ORDER_CHANGED"
-          echo "Purchase Order: $PURCHASE_ORDER_CHANGED"
-
       - name: Setup Node.js
-        if: steps.detect-changes.outputs.invoicing_changed == 'true' || steps.detect-changes.outputs.sales_order_changed == 'true' || steps.detect-changes.outputs.purchase_order_changed == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install Claude Code
-        if: steps.detect-changes.outputs.invoicing_changed == 'true' || steps.detect-changes.outputs.sales_order_changed == 'true' || steps.detect-changes.outputs.purchase_order_changed == 'true'
         run: npm install -g @anthropic-ai/claude-code
-
-      - name: Analyze invoicing business rules
-        if: steps.detect-changes.outputs.invoicing_changed == 'true'
+           - name: Analyze invoicing business rules
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          claude -p "Analyze RPG source files related to INVOICING/BILLING. Table SOHEPF and related tables.
+          claude -p "Analyze RPG source files related to INVOICE PROCESSING. Focus on programs FO616R (invoice engine) and FO615R (invoice line processing). Main table: SOHEPF (Invoice Header) and SODTPF (Invoice Lines).
 
-          Extract VALIDATION RULES and BUSINESS LOGIC for DB2 database AI context. Document:
+          Extract INVOICE PROCESSING RULES. Document the business logic that occurs DURING invoice calculation and creation, AFTER orders have been selected.
 
-          ## Validation Rules
-          - Field validations with DB2 table.column references
-          - Data type constraints and allowed values
-          - Required fields and null handling
+          ## Product and Pricing Rules
+          - Product validation during invoice creation
+          - Price validation and application
+          - Quantity validation on invoice lines
 
-          ## Blockers (What Stops the Process)
-          - Conditions that prevent invoice creation
-          - Error conditions that halt processing
-          - Business rule violations that block completion
+          ## Tax/VAT (MVA) Rules
+          - Tax code validation with VMVAPF table
+          - Tax rate matching and application
+          - Tax base amount calculation (Quantity × Price - Discounts)
+          - Tax amount calculation and rounding (Norwegian rules)
 
-          ## Prerequisites
-          - What must exist before invoicing can proceed
-          - Required master data (customers, products, prices)
-          - Status requirements on related records
+          ## Discount Rules
+          - Customer discount application from RKUNPF (RERAB1, RERAB2, RERAB3)
+          - Discount cascade calculation sequence
+          - Product group discount handling
+          - Special discounts (bruksrett) validation
 
-          ## Key Calculations
-          - Tax/VAT (MVA) calculation rules with table references
-          - Discount and pricing logic
-          - Totaling and rounding rules
+          ## Deposit and Prepayment Rules
+          - Deposit amount validation from SDEPPFR
+          - Deposit deduction from final invoice (SOFORS field)
+          - Deposit invoice vs. final invoice type handling
 
-          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable." \
+          ## Total Calculation Rules
+          - Line totals summation logic
+          - Invoice header total calculation (SOFSUM)
+          - Rounding difference tolerance (±0.05 øre)
+          - Zero-value invoice handling
+
+          ## Payment and KID Rules
+          - Payment terms validation and due date calculation
+          - KID (Customer ID) number generation via RN012R
+          - MOD10/MOD11 checksum algorithms
+
+          ## Configuration and System Rules
+          - Accounting period validation (AARRF.ARSTRT)
+          - System lock checks via FA730R
+          - Invoice number sequence generation
+
+          NOTE: Do NOT include order validation rules (customer exists, order status, order locks, user authorization). Those belong in sales-order-business-rules.md.
+
+          Format as markdown with this structure:
+          - Each rule has: Logic, File, Field, Condition sections
+          - Group rules by the categories above
+          - Include subprogram calls section
+          - Include summary of critical blocking conditions
+          - Include invoice processing flow diagram
+
+          Use DB2 TABLE.COLUMN notation where identifiable.
+
+          IMPORTANT: Do NOT include SQL queries (SELECT, INSERT, UPDATE, DELETE statements). Instead, use plain English explanations with:
+          - 'What is checked' descriptions
+          - 'Why this is required' reasoning
+          - 'What happens when...' scenarios
+          - Real-world examples with actual values
+          - Conversational, simple language
+
+          Keep DB2 TABLE.COLUMN references but explain validations in words, not SQL code.\" \
           --model sonnet \
           --dangerously-skip-permissions \
           --output-format text > /tmp/invoicing-rules-new.md
@@ -140,7 +125,16 @@ jobs:
           - What triggers status changes
           - Conditions for order completion
 
-          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable." \
+          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable.
+
+          IMPORTANT: Do NOT include SQL queries (SELECT, INSERT, UPDATE, DELETE statements). Instead, use plain English explanations with:
+          - 'What is checked' descriptions
+          - 'Why this is required' reasoning
+          - 'What happens when...' scenarios
+          - Real-world examples with actual values
+          - Conversational, simple language
+
+          Keep DB2 TABLE.COLUMN references but explain validations in words, not SQL code.\" \
           --model sonnet \
           --dangerously-skip-permissions \
           --output-format text > /tmp/sales-order-rules-new.md
@@ -175,7 +169,16 @@ jobs:
           - Quantity matching rules (over/under receipt handling)
           - Quality inspection requirements
 
-          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable. Include source file references." \
+          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable. Include source file references.
+
+          IMPORTANT: Do NOT include SQL queries (SELECT, INSERT, UPDATE, DELETE statements). Instead, use plain English explanations with:
+          - 'What is checked' descriptions
+          - 'Why this is required' reasoning
+          - 'What happens when...' scenarios
+          - Real-world examples with actual values
+          - Conversational, simple language
+
+          Keep DB2 TABLE.COLUMN references but explain validations in words, not SQL code.\" \
           --model sonnet \
           --dangerously-skip-permissions \
           --output-format text > /tmp/purchase-order-rules-new.md
