@@ -25,6 +25,7 @@ jobs:
         run: npm install -g @anthropic-ai/claude-code
 
       - name: Analyze invoicing business rules
+        if: false  # temporarily skipped
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
@@ -93,6 +94,7 @@ jobs:
           --output-format text > /tmp/invoicing-rules-new.md
 
       - name: Analyze sales order business rules
+        if: false
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
@@ -206,73 +208,63 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          claude -p "Analyze the Customer and Accounts Receivable RPG programs in this repository.
-          Focus on these program groups:
-          - Customer master: RK100R, RK108R, RK110R, RK400R, RK500R
-          - AR ledger/posting: RE600R, RE601R, RE602R, RE603R, RE609R, RE613R, RE615R
-          - AR aging/collections: RE110R, RE120R, RE121R, RE123R, RE126R, RE130R, RE140R
-          - AR reporting: AR100R, AR700R, AR710R, RK620R
+          claude -p "Analyze RPG programs RK100R, RK108R, RK110R, RK400R, RK500R, RK620R, RE110R, RE120R, RE600R, RE601R, RE602R, RE603R, RE609R, RE613R, RE615R, RE621R, RE623R, RE630R, RE632R, RE633R, AR100R, AR700R to document the complete Customer and Accounts Receivable business rules for the NexStep ERP system.
 
-          Primary tables to discover from source: RKUNPF (customer master), RKMEPF (memo balance),
-          RKTRPF (transactions), RE01PF (AR header), RE02PF (allocations), REKUPF (AR ledger),
-          REMSPF (remittance matching).
+          FIELD CORRECTIONS (verified from DDS source):
+          - RKTRPF field prefix is RN (RNFIRM, RNKUND, RNBILK, RNBELØ, RNREST, RNSTAT, RNKID, RNFDAT) — not RT
+          - RE01PF/RE02PF/RE03PF are GL reporting tables (Trioplan balance matrix, income register, trial balance) — NOT AR transaction tables
+          - Key RKUNPF field names: RKGRNS=credit limit, RKKRES=credit block, RKSPRK=block status, RKSALD=sales YTD, RKEMAL=email, RKFTNR=org number, RKRABK=discount, RKLAGR=warehouse, RKPASS=passive flag, RKMEPF.RKMEMA=memo amount
 
-          Produce a business rules document with EXACTLY these 12 sections:
+          Primary tables (read DDS source for all field names):
+          - RKUNPF: Customer Master
+          - RKMEPF: Customer Memo Balance (real-time credit exposure, amount field RKMEMA)
+          - RKTRPF: Customer Postings (field prefix RN, not RT)
+          - REKUPF: Customer AR Ledger Summary
+          - REMSPF: GL/AR Posting Registration (field prefix RT)
+
+          Lookup tables: AKIDPF (KID references), RA1HKT/RA1HRS (customer number range config), ARAFPF (company), RA09PF (salespersons), SOHEPF (sales orders for deletion check)
+
+          Produce a comprehensive business rules document with EXACTLY these 12 sections:
 
           ## 1. Introduction
-          Purpose, how to use, and key terminology (Kunderegister, Memosaldo, Postering,
-          Aldersfordeling, KID, Remisse, Spesialavtale).
+          Purpose, how to use it, field prefix conventions (RK=customer master, RN=postings in RKTRPF, RT=GL registration in REMSPF), key Norwegian terminology: Kunderegister, Memosaldo, Postering, Aldersfordeling, KID, Remisse, Spesialavtale.
 
           ## 2. Database Schema Overview
-          For each primary table above: field name, type, and English description.
-          Include a related lookup tables summary.
+          Field tables for RKUNPF, RKMEPF, RKTRPF, REKUPF, REMSPF — each with field name, type, length, English description from DDS source. Note that RE01PF/RE02PF/RE03PF are GL reporting tables only.
 
           ## 3. Customer Master Prerequisites
-          Required master data, user permissions, and customer number range rules.
+          Required master data lookups (company, payment terms, salesperson in RA09PF, department, category), user permission model (maintenance rights, department restriction ABBAVD), customer number range rules (RA1HKT to RA1HRS).
 
           ## 4. Customer Master Validation Rules
-          Name, alpha key, organization number, block status, invoice customer relationship,
-          duplicate detection, deletion rules (RK400R), and merge/move rules (RK108R).
+          Name (RKNAVN) required; alpha key (RKALFA) auto-populated via RK750R; org number (RKFTNR) format; block status (RKSPRK); invoice customer (RKFAKU); duplicate detection via RK108R; deletion checklist via RK400R (no open RKTRPF/SOHEPF); merge/move rules via RK108R with TESTSPERRE check.
 
           ## 5. Credit and Financial Limit Rules
-          Credit limit check, credit block, memo balance accuracy, payment terms inheritance,
-          and public discount limit (Almenning).
+          Credit limit (RKGRNS) vs memo balance (RKMEPF.RKMEMA); why RKMEPF is used over RKSALD for real-time checks; four-level credit block (RKKRES); payment terms inheritance (RKBETB); Almenning purchase limit (RKKJAL/RKGRAL).
 
           ## 6. Customer Transaction Rules
-          Transaction type codes, date and period validation, amount sign rules, KID generation,
-          and accounting period assignment.
+          Document types in RKTRPF (RNBILK): FA=Invoice, BE=Payment, KR=Credit note; period/date validation (1–13, open period check); amount sign rules; KID generation via RN012R (MOD10/MOD11); accounting period assignment with two-digit year handling.
 
-          ## 7. Accounts Receivable Ledger Rules
-          AR document creation, status lifecycle (O/L/D), payment allocation, balance
-          reconciliation, and interest charge processing.
+          ## 7. AR Ledger Rules
+          Document creation rules; RNSTAT status lifecycle (O=Open, L=Settled, D=Deleted); payment allocation; three-way balance reconciliation (RKTRPF/RKMEPF/RKSALD); interest calculation using RA6 configuration.
 
           ## 8. Payment Processing Rules
-          Manual payment entry, remittance file matching logic (KID → invoice → status),
-          overpayment handling, write-off rules, and credit note application.
+          Manual payment entry via REMSPF; remittance/OCR KID matching 4-step process via RE630R–RE633R; overpayment credit posting; write-off rules; credit note lifecycle.
 
           ## 9. AR Aging and Collections Rules
-          Aging bucket calculation (by due date), dunning/reminder processing, collections
-          escalation, and customer statement generation.
+          Aging bucket boundaries by due date with real-world example; dunning configuration (level increments, charges, dispute flag); what updates when a dunning notice is sent; collections escalation via RKINKK; statement generation parameters via RK620R.
 
           ## 10. Customer Account Status and Workflow Rules
-          Customer lifecycle states, passive customer handling, modification restrictions,
-          and year-end processing.
+          Five lifecycle states (Active/Order Blocked/Credit Locked/Fully Blocked/Passive); passive customer rules (RKPASS); modification restrictions on key fields (RKFAKU, RKKUND, RKBETB, RKGRNS); year-end processing (RKSALD/RKSAIF sequence reset).
 
           ## 11. Integration Rules
-          External system import, sales order credit check integration, GL posting,
-          KID/bank file processing, and email/PDF invoice delivery.
+          External import via RE110R/RK110R (7 rules including non-zero-overwrite logic, number range check); sales order credit check flow (reads RKGRNS and RKMEMA); GL posting split (dann_resk vs dann_trans); KID/bank file matching via RE630R–RE633R; email/PDF delivery via RKEMAL.
 
           ## 12. Field Reference
-          Complete field tables for RKUNPF, RE01PF, and RKMEPF with Norwegian and
-          English descriptions for every field found in the source.
+          Complete field tables for RKUNPF, RKTRPF, RKMEPF — every field with Norwegian name, English description, type, length from DDS source.
 
-          IMPORTANT: Do NOT include SQL queries. Use plain English with:
-          - 'What is checked' descriptions
-          - 'Why this is required' reasoning
-          - 'What happens when...' scenarios
-          - Real-world examples with actual values
+          Do NOT include SQL queries. Use plain English with 'What is checked', 'Why this is required', 'What happens when' explanations and real-world examples. Use DB2 TABLE.COLUMN notation. Format as markdown.
 
-          Use DB2 TABLE.COLUMN notation. Format as markdown." \
+          OUTPUT RULE: Write the markdown document directly. Do NOT write a summary or describe what you created. Start immediately with the # title heading." \
           --model sonnet \
           --dangerously-skip-permissions \
           --output-format text > /tmp/customer-ar-rules-new.md
