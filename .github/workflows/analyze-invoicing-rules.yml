@@ -96,56 +96,99 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          claude -p "Analyze RPG source files related to SALES ORDERS. Main table FOHEPF and related tables.
+          claude -p "Analyze RPG programs FO100R, FO500R, FO614R, and FO730R to document the complete sales order business rules for the NexStep ERP system.
 
-          Extract VALIDATION RULES and BUSINESS LOGIC for DB2 database AI context. Document:
+          Primary tables:
+          - SOHEPF: Sales Order/Invoice Header (key fields: SOFIRM, SOAARR, SOBINR, SONUMM, SOSUFF, SOOTYP, SOKUND, SOLKUN, SOKPRO, SOBDAT, SOLDAT, SOFKDA, SOSELG, SOAVDE, SOLAGE, SOLETY, SOLMAT, SOBETB, SORABP, SOFSUM)
+          - SODTPF: Sales Order/Invoice Line Items (key fields: SDFIRM, SDAARR, SDBINR, SDNUMM, SDSUFF, SDLINE, SDVARE, SDANTA, SDSAPR, SDKOPR, SDRAB1, SDRAB2, SDSALG, SDLTYP, SDLAGE, SDAVDE)
 
-          ## Order Header Creation Rules
-          - Customer validation (RKUNPF.REKUND, RESPER)
-          - Order type validation (VOTYF.VAOTYP)
-          - Order date and delivery date validation
-          - Currency validation
+          Lookup/reference tables: RKUNPF (customer master), VOTYPF (order types), VLTPPF (delivery types), FKPRPF (customer projects), VVARPF (item master), RKMEPF (customer memo balance), RA07PF (warehouses), RA09PF (salespersons), RA17PF (shipping methods)
 
-          ## Order Line Creation Rules
-          - Product validation (VVARPF.VAVARE, VASTOP)
-          - Quantity validation (FDANTA > 0)
-          - Unit of measure validation (FDENHE)
-          - Price determination (FDSAPR)
-          - Line total calculation
+          Produce a comprehensive business rules document with EXACTLY these 12 sections:
 
-          ## Inventory and Stock Rules
-          - Stock availability checks (LVAREF.LLDISP)
-          - Order type affects stock flag (VOTYF.VAOOKO)
-          - Warehouse/location validation (FDLOKE)
+          ## 1. Introduction
+          - Purpose of the document
+          - How to use it (field prefix convention: SO = header fields, SD = line fields)
+          - Key terminology: Order vs Quote (Tilbud), Memo Balance (Memosaldo), Resting (back-order), Customer Project (Kundeprosjekt)
 
-          ## Pricing and Discount Rules
-          - Customer price agreements
-          - Promotional pricing
-          - Discount cascade (FDRAB1, FDRAB2, FDRAB3)
-          - Manual discount authorization
+          ## 2. Database Schema Overview
+          - SOHEPF table with field name, type, and English description for the core fields listed above
+          - SODTPF table with field name, type, and English description for the core fields listed above
+          - Related lookup tables summary
 
-          ## Credit Limit and Financial Rules
-          - Credit limit validation (RKUNPF.REKRLI, REKSDO)
-          - Credit hold checks (RKUNPF.REKRSP)
-          - Payment terms assignment
+          ## 3. Order Creation Prerequisites
+          - Required master data (customer in RKUNPF, order type in VOTYPF with VASYST=0, warehouse in RA07PF, salesperson, payment terms)
+          - User permission requirements (FUSRPF, warehouse/department restrictions, packing slip mode)
 
-          ## Order Status and Flow Rules
-          - Valid status transitions (FOSTUS)
-          - Order modification restrictions
-          - Order deletion restrictions
-          - Cancelled order audit trail
+          ## 4. Customer Validation Rules
+          - 4.1 Customer existence: SOKUND/SOLKUN must exist in RKUNPF by RKKUND
+          - 4.2 Customer status: RKUNPF.RKSPER (0=active, 1=blocked)
+          - 4.3 Cash customer restrictions: cash customers can only create quotes not orders
+          - 4.4 Invoice customer vs goods customer: RKUNPF.RKFAKU must match SOKUND
+          - 4.5 Customer project requirements [CONFIGURABLE]: driven by RKKATG, project must exist in FKPRPF
+          - 4.6 Internal customer validation: RKAVGF/RKFABI require internal order types
 
-          ## Partial Delivery and Invoicing Rules
-          - Partial shipment tracking (FDANTA vs FDLEVQ)
-          - Partial invoicing reference handling
+          ## 5. Credit Limit Rules
+          - 5.1 Credit limit check: Available Credit = RKUNPF.RKGREN minus RKMEPF.RKMEMS
+          - 5.2 Credit block status: RKUNPF.RKKRSP — blocked orders, quotes still allowed, F18 override
+          - 5.3 Quote exception: order types with accumulator type=0 bypass credit block
+          - 5.4 Credit override permissions: F18 approval, audit logging
+          - 5.5 Extended memo balance [CONFIGURABLE]: includes future uninvoiced orders with VAT
+          - 5.6 Public discount limit (Almenning): RKUNPF.RKGRAL
 
-          ## Special Order Types
-          - Project orders (FOPROJ)
-          - Credit notes
-          - Rush orders (FOEKSP)
-          - Direct delivery orders (FOLEVT)
+          ## 6. Order Header Validation
+          - 6.1 Order type (SOOTYP): must exist in VOTYPF, VASYST=0, cannot change when lines exist
+          - 6.2 Order number (SONUMM): system-assigned from order type number series, suffix rules for backorders
+          - 6.3 Salesperson (SOSELG): must exist in RA09PF, inherits from user profile or RKUNPF.RKSLGR
+          - 6.4 Warehouse (SOLAGE): must exist in RA07PF, user restrictions apply
+          - 6.5 Department (SOAVDE) [CONFIGURABLE]: must exist in department register, consistent with warehouse
+          - 6.6 Warehouse-department consistency: cross-reference defines valid combinations
+          - 6.7 Delivery type (SOLETY): must exist in VLTPPF; affects purchase order creation and pricing
+          - 6.8 Shipping method (SOLMAT): must exist in RA17PF
+          - 6.9 Payment terms (SOBETB): must exist in payment terms register, inherits from customer master
+          - 6.10 Customer references: SOVREF, SODREF, SOREKV — configurable required fields
+          - 6.11 Delivery address: from customer project or goods customer; LAOK confirmation may be required
 
-          Use DB2 TABLE.COLUMN notation where identifiable.
+          ## 7. Order Line Validation
+          - 7.1 Line type (SDLTYP): Normal (full validation), Text (no pricing), D-Type (manual pricing); check VLTYPF.VALKTX
+          - 7.2 Item number (SDVARE): must exist in VVARPF, item status must allow sales
+          - 7.3 Quantity (SDANTA): sign rules (positive=sales, negative=returns via VALKRE='-'), 3 decimal places
+          - 7.4 Unit of measure (SDENH1): must be valid for the item
+          - 7.5 Line-level warehouse (SDLAGE): defaults from header, can be overridden, must be valid
+          - 7.6 Line-level department (SDAVDE): defaults from header, must be consistent with warehouse
+
+          ## 8. Price and Discount Rules
+          - 8.1 Price determination via VP900R: hierarchy = customer-specific → customer price group → standard → manual (type D)
+          - 8.2 Discount hierarchy: Order Discount (SORABP) → Line Disc 1 (SDRAB1) → Line Disc 2 (SDRAB2) → Bracket Disc 1 (SDBRR1) → Bracket Disc 2 (SDBRR2); show calculation formula
+          - 8.3 Discount category override: FL710R customer project discount override
+          - 8.4 Price group (SDPRGR): 2-char code determined by VL712R, used in price matrix
+          - 8.5 Return fee [CONFIGURABLE]: CO402R configuration, added as extra line in FOD2PF
+          - 8.6 Manual pricing (type D items): VVARPF.VVVTYP='D', skip automatic lookup
+          - 8.7 Public discount limit: RKUNPF.RKGRAL tracking
+
+          ## 9. Date Validation Rules
+          - 9.1 Order date (SOBDAT): valid date, not more than 1 year past/future, not in closed accounting period
+          - 9.2 Delivery date (SOLDAT): valid date, must be >= SOBDAT, [CONFIGURABLE] required
+          - 9.3 Follow-up date (FODDAT) for quotes: >= order date, auto-calculated from FAAOPF days
+          - 9.4 Expiry date (FOTDAT) for quotes: > order date, auto-calculated from FAAUTG days
+          - 9.5 Invoice date (SOFKDA): set by invoicing process FO614R, not validated on entry
+
+          ## 10. Status and Workflow Rules
+          - 10.1 Order states: New (no lines) → Open (has lines) → On Hold (info code) → Picking (FOAKKT) → Picked → Invoiced (SOBINR>0) → Partial
+          - 10.2 Order lock: system locks during processing, user override may be available
+          - 10.3 Picking status: FOAKKT set locks the order; limited modifications may be allowed
+          - 10.4 Info code hold: SOINF1/SOINF2 can block processing; must be cleared before fulfillment
+          - 10.5 Backorder (Resting) processing: original suffix incremented, new suffix for backordered items
+
+          ## 11. Integration Rules
+          - 11.1 Customer project integration: delivery address, contact info, discount category, payment terms, invoice type all overridden by project
+          - 11.2 EDI requirements: SOEDIH indicates EDI order, SONREF required; line-level SDEDIH/SDEDIL
+          - 11.3 Transport integration: certain SOLMAT values trigger transport API calls and cancellation on change
+          - 11.4 Deposit/prepayment: SODEPO indicator, SODEPB billing ref, SOFOSA/SOFOSI settlement; cannot delete orders with unsettled deposits
+
+          ## 12. Field Reference
+          - Complete SOHEPF header field table: Field | Type | Norwegian | English Description (include all fields from SOFIRM through SOEUSR)
+          - Complete SODTPF line field table: Field | Type | Norwegian | English Description (include all fields from SDFIRM through SDEUSR)
 
           IMPORTANT: Do NOT include SQL queries (SELECT, INSERT, UPDATE, DELETE statements). Instead, use plain English explanations with:
           - 'What is checked' descriptions
@@ -154,7 +197,7 @@ jobs:
           - Real-world examples with actual values
           - Conversational, simple language
 
-          Format as markdown. Use DB2 TABLE.COLUMN notation where identifiable." \
+          Use DB2 TABLE.COLUMN notation where identifiable. Format as markdown." \
           --model sonnet \
           --dangerously-skip-permissions \
           --output-format text > /tmp/sales-order-rules-new.md
