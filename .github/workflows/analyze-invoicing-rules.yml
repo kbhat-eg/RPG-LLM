@@ -202,10 +202,85 @@ jobs:
           --dangerously-skip-permissions \
           --output-format text > /tmp/sales-order-rules-new.md
 
+      - name: Analyze customer and AR business rules
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude -p "Analyze the Customer and Accounts Receivable RPG programs in this repository.
+          Focus on these program groups:
+          - Customer master: RK100R, RK108R, RK110R, RK400R, RK500R
+          - AR ledger/posting: RE600R, RE601R, RE602R, RE603R, RE609R, RE613R, RE615R
+          - AR aging/collections: RE110R, RE120R, RE121R, RE123R, RE126R, RE130R, RE140R
+          - AR reporting: AR100R, AR700R, AR710R, RK620R
+
+          Primary tables to discover from source: RKUNPF (customer master), RKMEPF (memo balance),
+          RKTRPF (transactions), RE01PF (AR header), RE02PF (allocations), REKUPF (AR ledger),
+          REMSPF (remittance matching).
+
+          Produce a business rules document with EXACTLY these 12 sections:
+
+          ## 1. Introduction
+          Purpose, how to use, and key terminology (Kunderegister, Memosaldo, Postering,
+          Aldersfordeling, KID, Remisse, Spesialavtale).
+
+          ## 2. Database Schema Overview
+          For each primary table above: field name, type, and English description.
+          Include a related lookup tables summary.
+
+          ## 3. Customer Master Prerequisites
+          Required master data, user permissions, and customer number range rules.
+
+          ## 4. Customer Master Validation Rules
+          Name, alpha key, organization number, block status, invoice customer relationship,
+          duplicate detection, deletion rules (RK400R), and merge/move rules (RK108R).
+
+          ## 5. Credit and Financial Limit Rules
+          Credit limit check, credit block, memo balance accuracy, payment terms inheritance,
+          and public discount limit (Almenning).
+
+          ## 6. Customer Transaction Rules
+          Transaction type codes, date and period validation, amount sign rules, KID generation,
+          and accounting period assignment.
+
+          ## 7. Accounts Receivable Ledger Rules
+          AR document creation, status lifecycle (O/L/D), payment allocation, balance
+          reconciliation, and interest charge processing.
+
+          ## 8. Payment Processing Rules
+          Manual payment entry, remittance file matching logic (KID → invoice → status),
+          overpayment handling, write-off rules, and credit note application.
+
+          ## 9. AR Aging and Collections Rules
+          Aging bucket calculation (by due date), dunning/reminder processing, collections
+          escalation, and customer statement generation.
+
+          ## 10. Customer Account Status and Workflow Rules
+          Customer lifecycle states, passive customer handling, modification restrictions,
+          and year-end processing.
+
+          ## 11. Integration Rules
+          External system import, sales order credit check integration, GL posting,
+          KID/bank file processing, and email/PDF invoice delivery.
+
+          ## 12. Field Reference
+          Complete field tables for RKUNPF, RE01PF, and RKMEPF with Norwegian and
+          English descriptions for every field found in the source.
+
+          IMPORTANT: Do NOT include SQL queries. Use plain English with:
+          - 'What is checked' descriptions
+          - 'Why this is required' reasoning
+          - 'What happens when...' scenarios
+          - Real-world examples with actual values
+
+          Use DB2 TABLE.COLUMN notation. Format as markdown." \
+          --model sonnet \
+          --dangerously-skip-permissions \
+          --output-format text > /tmp/customer-ar-rules-new.md
+
       - name: Cleanup extra files
         run: |
           # Remove any files created by Claude in root directory
-          rm -f invoice*.md sales*.md purchase*.md
+          rm -f invoice*.md sales*.md purchase*.md customer*.md
           echo "Cleaned up extra files"
 
       - name: Check for changes
@@ -242,6 +317,20 @@ jobs:
             cp /tmp/sales-order-rules-new.md "$SALES_FILE"
           fi
 
+          # Check customer/AR rules
+          CUSTOMER_AR_FILE="docs/customer-ar-business-rules.md"
+          if [ -f "$CUSTOMER_AR_FILE" ]; then
+            if ! diff -q "$CUSTOMER_AR_FILE" /tmp/customer-ar-rules-new.md > /dev/null 2>&1; then
+              CHANGES_DETECTED=true
+              echo "Changes detected in customer/AR business rules"
+              cp /tmp/customer-ar-rules-new.md "$CUSTOMER_AR_FILE"
+            fi
+          else
+            CHANGES_DETECTED=true
+            echo "Creating new customer/AR business rules file"
+            cp /tmp/customer-ar-rules-new.md "$CUSTOMER_AR_FILE"
+          fi
+
           if [ "$CHANGES_DETECTED" = true ]; then
             echo "changes=true" >> $GITHUB_OUTPUT
           else
@@ -264,8 +353,9 @@ jobs:
             This PR was automatically generated by Claude Code analysis of the RPG codebase.
 
             ### Files Updated
-            - `docs/invoicing-business-rules.md` - Invoice/billing validation rules
+            - `docs/invoice-business-rules.md` - Invoice/billing validation rules
             - `docs/sales-order-business-rules.md` - Sales order validation and processing rules
+            - `docs/customer-ar-business-rules.md` - Customer master and accounts receivable rules
 
             ### What's Documented
             Each file focuses on:
