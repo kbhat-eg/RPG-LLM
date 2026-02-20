@@ -2,6 +2,19 @@ name: AI Jira Auto-Update
 
 on:
   workflow_dispatch:
+    inputs:
+      pr_title:
+        description: 'PR Title (include Jira ID, e.g. feat(PROJ-123): my change)'
+        required: true
+        default: 'feat(PROJ-123): test run'
+      pr_body:
+        description: 'PR Body / description'
+        required: false
+        default: 'Manual test run to verify Jira integration'
+      pr_number:
+        description: 'PR Number'
+        required: false
+        default: '1'
   pull_request:
     types: [closed]
     branches:
@@ -9,7 +22,7 @@ on:
 
 jobs:
   update-jira:
-    if: github.event.pull_request.merged == true
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -22,12 +35,16 @@ jobs:
           fetch-depth: 0
 
       - name: Get PR Diff
-        id: diff
         run: |
-          git diff ${{ github.event.pull_request.base.sha }} \
-                   ${{ github.event.pull_request.merge_commit_sha }} \
-                   --unified=5 > pr_diff.txt
-          echo "Diff captured successfully"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual test run - no real PR diff available." > pr_diff.txt
+            echo "Treat this as a sample change for testing Jira update." >> pr_diff.txt
+          else
+            git diff ${{ github.event.pull_request.base.sha }} \
+                     ${{ github.event.pull_request.merge_commit_sha }} \
+                     --unified=5 > pr_diff.txt
+          fi
+          echo "Diff step complete"
 
       - name: Claude AI - Analyze and Update Jira
         uses: anthropics/claude-code-action@beta
@@ -36,10 +53,10 @@ jobs:
           direct_prompt: |
             You are a technical writer. Analyze the git diff and update the Jira ticket automatically.
 
-            PR Title  : ${{ github.event.pull_request.title }}
-            PR Body   : ${{ github.event.pull_request.body }}
-            PR Number : ${{ github.event.pull_request.number }}
-            Merged By : ${{ github.event.pull_request.merged_by.login }}
+            PR Title  : ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_title || github.event.pull_request.title }}
+            PR Body   : ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_body || github.event.pull_request.body }}
+            PR Number : ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number || github.event.pull_request.number }}
+            Merged By : ${{ github.actor }}
             Repository: ${{ github.repository }}
 
             STEP 1 - Extract the Jira ticket ID from the PR title using pattern [A-Z]+-\d+
