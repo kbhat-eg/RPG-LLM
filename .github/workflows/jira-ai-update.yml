@@ -49,11 +49,16 @@ jobs:
 
       - name: Claude AI - Analyze and Update Jira
         uses: anthropics/claude-code-action@beta
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          mode: agent
+          allowed_tools: "Bash,Read"
           direct_prompt: |
             You are a technical writer. Analyze the git diff and update the Jira ticket automatically.
+            Use your Bash tool to run all curl commands. Use your Read tool to read files.
 
             PR Title  : ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_title || github.event.pull_request.title }}
             PR Body   : ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_body || github.event.pull_request.body }}
@@ -61,18 +66,20 @@ jobs:
             Merged By : ${{ github.actor }}
             Repository: ${{ github.repository }}
 
-            STEP 1 - Extract the Jira ticket ID from the PR title using pattern [A-Z]+-\d+
+            STEP 1 - Extract the Jira ticket ID from the PR title using the pattern [A-Z]+-\d+
             Example: "feat(PROJ-123): add login API" means Jira ID is PROJ-123.
             If no Jira ID is found, print a warning and stop.
 
-            STEP 2 - Read the file pr_diff.txt to understand what code changed.
+            STEP 2 - Use your Read tool to read the file pr_diff.txt and understand what code changed.
 
-            STEP 3 - Call the Jira API to get ticket details:
-              GET ${{ secrets.JIRA_BASE_URL }}/rest/api/3/issue/{JIRA_ID}
-              Authorization: Basic (Base64 of ${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }})
-              Accept: application/json
+            STEP 3 - Use your Bash tool to run this curl command to get the Jira ticket details:
+              curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+                -H "Accept: application/json" \
+                "$JIRA_BASE_URL/rest/api/3/issue/{JIRA_ID}"
+            Read the response to understand the current ticket state.
 
-            STEP 4 - Generate a detailed Jira description based on the diff:
+            STEP 4 - Generate a detailed Jira description (as plain text) based on the diff.
+            Structure the description with these sections:
 
               ## Summary
               [What was implemented or fixed and why, based on actual code changes]
@@ -93,38 +100,53 @@ jobs:
               ## Impact and Notes
               [Breaking changes, dependencies updated, deployment steps if needed]
 
-            STEP 5 - Update Jira ticket description:
-              PUT ${{ secrets.JIRA_BASE_URL }}/rest/api/3/issue/{JIRA_ID}
-              Authorization: Basic (Base64 of ${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }})
-              Content-Type: application/json
-              Body:
-              {
-                "fields": {
-                  "description": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [{
-                      "type": "paragraph",
-                      "content": [{"type": "text", "text": "<YOUR GENERATED DESCRIPTION>"}]
+            STEP 5 - Use your Bash tool to update the Jira ticket description. Write the full
+            description text to /tmp/jira_desc.txt first, then use jq to build the JSON payload
+            and run curl to PUT it:
+
+              DESCRIPTION=$(cat /tmp/jira_desc.txt)
+              PAYLOAD=$(jq -n --arg desc "$DESCRIPTION" '{
+                fields: {
+                  description: {
+                    type: "doc",
+                    version: 1,
+                    content: [{
+                      type: "paragraph",
+                      content: [{ type: "text", text: $desc }]
                     }]
                   }
                 }
-              }
+              }')
+              curl -s -o /tmp/update_response.json -w "%{http_code}" \
+                -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+                -X PUT \
+                -H "Content-Type: application/json" \
+                -d "$PAYLOAD" \
+                "$JIRA_BASE_URL/rest/api/3/issue/{JIRA_ID}"
 
-            STEP 6 - Add a comment to the Jira ticket:
-              POST ${{ secrets.JIRA_BASE_URL }}/rest/api/3/issue/{JIRA_ID}/comment
-              Authorization: Basic (Base64 of ${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }})
-              Content-Type: application/json
-              Body:
-              {
-                "body": {
-                  "type": "doc",
-                  "version": 1,
-                  "content": [{
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": "AI Auto-Generated after merge to develop"}]
+            Check the HTTP status code. A 204 means success.
+
+            STEP 6 - Use your Bash tool to add a comment to the Jira ticket:
+
+              COMMENT="PR #$PR_NUMBER merged by $GITHUB_ACTOR. This description was auto-generated by Claude AI after merge to develop."
+              COMMENT_PAYLOAD=$(jq -n --arg body "$COMMENT" '{
+                body: {
+                  type: "doc",
+                  version: 1,
+                  content: [{
+                    type: "paragraph",
+                    content: [{ type: "text", text: $body }]
                   }]
                 }
-              }
+              }')
+              curl -s -o /tmp/comment_response.json -w "%{http_code}" \
+                -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+                -X POST \
+                -H "Content-Type: application/json" \
+                -d "$COMMENT_PAYLOAD" \
+                "$JIRA_BASE_URL/rest/api/3/issue/{JIRA_ID}/comment"
 
-            STEP 7 - Print a summary of everything that was done.
+            Check the HTTP status code. A 201 means success.
+
+            STEP 7 - Print a summary: Jira ticket ID updated, description length, comment status,
+            and any errors encountered.
