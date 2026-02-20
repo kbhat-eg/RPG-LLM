@@ -139,8 +139,38 @@ jobs:
           echo "Comment generated:"
           cat /tmp/jira_comment.txt
 
-      - name: Update Jira ticket description
+      - name: Verify Jira credentials
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
         run: |
+          AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64 -w 0)
+          JIRA_ID="${{ steps.jira.outputs.jira_id }}"
+
+          HTTP_STATUS=$(curl -s -o /tmp/get_response.json -w "%{http_code}" \
+            -H "Authorization: Basic ${AUTH}" \
+            -H "Accept: application/json" \
+            "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ID}")
+
+          echo "Credential check HTTP status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "403" ]; then
+            echo "ERROR: Jira authentication failed (HTTP $HTTP_STATUS)"
+            echo "Check that JIRA_EMAIL is your Atlassian account email"
+            echo "Check that JIRA_API_TOKEN is an API token from https://id.atlassian.com/manage-profile/security/api-tokens"
+            echo "Check that JIRA_BASE_URL is correct (e.g. https://yourcompany.atlassian.net)"
+            cat /tmp/get_response.json
+            exit 1
+          fi
+          echo "Jira credentials verified OK (HTTP $HTTP_STATUS)"
+
+      - name: Update Jira ticket description
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        run: |
+          AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64 -w 0)
           JIRA_ID="${{ steps.jira.outputs.jira_id }}"
           DESCRIPTION=$(cat /tmp/jira_description.txt)
 
@@ -158,11 +188,11 @@ jobs:
           }')
 
           HTTP_STATUS=$(curl -s -o /tmp/update_response.json -w "%{http_code}" \
-            -u "${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
-            -X PUT \
+            -H "Authorization: Basic ${AUTH}" \
             -H "Content-Type: application/json" \
+            -X PUT \
             -d "$PAYLOAD" \
-            "${{ secrets.JIRA_BASE_URL }}/rest/api/3/issue/$JIRA_ID")
+            "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ID}")
 
           echo "Jira description update HTTP status: $HTTP_STATUS"
           cat /tmp/update_response.json
@@ -174,7 +204,12 @@ jobs:
           echo "Jira ticket $JIRA_ID description updated successfully"
 
       - name: Add Jira comment
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
         run: |
+          AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64 -w 0)
           JIRA_ID="${{ steps.jira.outputs.jira_id }}"
           COMMENT=$(cat /tmp/jira_comment.txt)
 
@@ -190,11 +225,11 @@ jobs:
           }')
 
           HTTP_STATUS=$(curl -s -o /tmp/comment_response.json -w "%{http_code}" \
-            -u "${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
-            -X POST \
+            -H "Authorization: Basic ${AUTH}" \
             -H "Content-Type: application/json" \
+            -X POST \
             -d "$PAYLOAD" \
-            "${{ secrets.JIRA_BASE_URL }}/rest/api/3/issue/$JIRA_ID/comment")
+            "${JIRA_BASE_URL}/rest/api/3/issue/${JIRA_ID}/comment")
 
           echo "Jira comment HTTP status: $HTTP_STATUS"
           cat /tmp/comment_response.json
