@@ -33,6 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -144,50 +145,73 @@ jobs:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_PAT: ${{ secrets.JIRA_PAT }}
         run: |
+          # Strip trailing slash to avoid double-slash in URLs
+          BASE_URL="${JIRA_BASE_URL%/}"
           JIRA_ID="${{ steps.jira.outputs.jira_id }}"
+          API_URL="${BASE_URL}/rest/api/2/issue/${JIRA_ID}"
+          echo "Testing URL: ${API_URL}"
 
           HTTP_STATUS=$(curl -s -o /tmp/get_response.json -w "%{http_code}" \
             -H "Authorization: Bearer ${JIRA_PAT}" \
             -H "Accept: application/json" \
-            "${JIRA_BASE_URL}/rest/api/2/issue/${JIRA_ID}")
+            "${API_URL}")
 
           echo "Credential check HTTP status: $HTTP_STATUS"
-          if [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "403" ]; then
-            echo "ERROR: Jira authentication failed (HTTP $HTTP_STATUS)"
-            echo "Make sure JIRA_PAT secret is set to a valid Personal Access Token"
-            echo "Generate one at: Jira profile → Personal Access Tokens → Create token"
-            echo "Make sure JIRA_BASE_URL is correct (e.g. https://jira.yourcompany.com)"
-            cat /tmp/get_response.json
+          cat /tmp/get_response.json | head -c 500
+          echo ""
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "ERROR: Expected HTTP 200 but got $HTTP_STATUS"
+            echo "Check: JIRA_PAT is a valid Personal Access Token (Jira profile → Personal Access Tokens)"
+            echo "Check: JIRA_BASE_URL is the correct base URL with no trailing slash (e.g. https://jira.yourcompany.com)"
+            echo "Check: Ticket $JIRA_ID exists and is accessible by your account"
             exit 1
           fi
-          echo "Jira credentials verified OK (HTTP $HTTP_STATUS)"
+          echo "Jira credentials and URL verified OK"
+          # Save the stripped base URL for subsequent steps
+          echo "${BASE_URL}" > /tmp/jira_base_url.txt
 
       - name: Update Jira ticket description
         env:
-          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           JIRA_PAT: ${{ secrets.JIRA_PAT }}
         run: |
+          BASE_URL=$(cat /tmp/jira_base_url.txt)
           JIRA_ID="${{ steps.jira.outputs.jira_id }}"
-          DESCRIPTION=$(cat /tmp/jira_description.txt)
+          API_URL="${BASE_URL}/rest/api/2/issue/${JIRA_ID}"
+          echo "Updating description at: ${API_URL}"
 
+          DESCRIPTION=$(cat /tmp/jira_description.txt)
           PAYLOAD=$(jq -n --arg desc "$DESCRIPTION" '{
             fields: { description: $desc }
           }')
 
-          # Use POST + X-HTTP-Method-Override: PUT to bypass reverse proxies that block PUT
+          # Try PATCH first (allowed by more proxies than PUT)
           HTTP_STATUS=$(curl -s -o /tmp/update_response.json -w "%{http_code}" \
             -H "Authorization: Bearer ${JIRA_PAT}" \
             -H "Content-Type: application/json" \
-            -H "X-HTTP-Method-Override: PUT" \
-            -X POST \
+            -X PATCH \
             -d "$PAYLOAD" \
-            "${JIRA_BASE_URL}/rest/api/2/issue/${JIRA_ID}")
+            "${API_URL}")
 
-          echo "Jira description update HTTP status: $HTTP_STATUS"
+          echo "PATCH HTTP status: $HTTP_STATUS"
+
+          # Fall back to PUT if PATCH is not accepted
+          if [ "$HTTP_STATUS" = "405" ] || [ "$HTTP_STATUS" = "404" ]; then
+            echo "PATCH not accepted, retrying with PUT..."
+            HTTP_STATUS=$(curl -s -o /tmp/update_response.json -w "%{http_code}" \
+              -H "Authorization: Bearer ${JIRA_PAT}" \
+              -H "Content-Type: application/json" \
+              -X PUT \
+              -d "$PAYLOAD" \
+              "${API_URL}")
+            echo "PUT HTTP status: $HTTP_STATUS"
+          fi
+
           cat /tmp/update_response.json
-
           if [ "$HTTP_STATUS" != "204" ]; then
-            echo "Failed to update Jira description (expected 204, got $HTTP_STATUS)"
+            echo "Failed to update Jira description (got $HTTP_STATUS)"
+            echo "If you see 405 for both PATCH and PUT, ask your Jira admin to allow PUT/PATCH"
+            echo "through the reverse proxy for path: /rest/api/2/issue/*"
             exit 1
           fi
           echo "Jira ticket $JIRA_ID description updated successfully"
