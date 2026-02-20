@@ -1,54 +1,110 @@
-name: 🤖 AI Jira Auto-Update                                           
-                                                                           on:                                                                    
-    pull_request:                                                        
-      types: [closed]          # Fires when PR is closed/merged
-      branches:                                                                  - develop              # Only when merging INTO develop                                                                                     jobs:                                                                      update-jira:                                                         
-      # Only run if PR was actually MERGED (not just closed)
-      if: github.event.pull_request.merged == true
+name: AI Jira Auto-Update
 
-      runs-on: ubuntu-latest
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - develop
 
-      permissions:
-        contents: read
-        pull-requests: read
+jobs:
+  update-jira:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
 
-      steps:
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-        # ── Step 1: Checkout code so Claude can read the diff
-  ──────────────
-        - name: 📥 Checkout Code
-          uses: actions/checkout@v4
-          with:
-            fetch-depth: 0
+      - name: Get PR Diff
+        id: diff
+        run: |
+          git diff ${{ github.event.pull_request.base.sha }} \
+                   ${{ github.event.pull_request.merge_commit_sha }} \
+                   --unified=5 > pr_diff.txt
+          echo "Diff captured successfully"
 
-        # ── Step 2: Capture the PR diff into a file
-  ────────────────────────
-        - name: 📦 Get PR Diff
-          id: diff
-          run: |
-            git diff ${{ github.event.pull_request.base.sha }} \
-                     ${{ github.event.pull_request.merge_commit_sha }} \ 
-                     --unified=5 > pr_diff.txt
-            echo "Diff captured successfully"
+      - name: Claude AI - Analyze and Update Jira
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          direct_prompt: |
+            You are a technical writer. Analyze the git diff and update the Jira ticket automatically.
 
-        # ── Step 3: Claude AI reads diff and updates Jira
-  ──────────────────
-        - name: 🤖 Claude AI — Analyze & Update Jira
-          uses: anthropics/claude-code-action@beta
-          with:
-            anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-            direct_prompt: |
-              You are a technical writer. Analyze the git diff and update
-   the Jira ticket automatically.
+            PR Title  : ${{ github.event.pull_request.title }}
+            PR Body   : ${{ github.event.pull_request.body }}
+            PR Number : ${{ github.event.pull_request.number }}
+            Merged By : ${{ github.event.pull_request.merged_by.login }}
+            Repository: ${{ github.repository }}
 
-              PR Title    : ${{ github.event.pull_request.title }}       
-              PR Body     : ${{ github.event.pull_request.body }}        
-              PR Number   : ${{ github.event.pull_request.number }}      
-              Merged By   : ${{ github.event.pull_request.merged_by.login
-   }}
-              Repository  : ${{ github.repository }}
+            STEP 1 - Extract the Jira ticket ID from the PR title using pattern [A-Z]+-\d+
+            Example: "feat(PROJ-123): add login API" means Jira ID is PROJ-123.
+            If no Jira ID is found, print a warning and stop.
 
-              STEP 1 — Extract the Jira ticket ID from PR title using    
-  pattern [A-Z]+-\d+
-              ...
-              STEP 7 — Print a summary of everything that was done.  
+            STEP 2 - Read the file pr_diff.txt to understand what code changed.
+
+            STEP 3 - Call the Jira API to get ticket details:
+              GET ${{ secrets.JIRA_BASE_URL }}/rest/api/3/issue/{JIRA_ID}
+              Authorization: Basic (Base64 of ${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }})
+              Accept: application/json
+
+            STEP 4 - Generate a detailed Jira description based on the diff:
+
+              ## Summary
+              [What was implemented or fixed and why, based on actual code changes]
+
+              ## Changes Made
+              - [Specific files, APIs, functions changed]
+              - [New endpoints or modified logic]
+              - [Config or dependency changes if any]
+
+              ## Acceptance Criteria
+              - [ ] [Testable criteria based on actual diff]
+              - [ ] [Another testable criteria]
+              - [ ] [Edge cases and error handling verified]
+
+              ## Testing Done
+              [Tests added or run - unit, integration, manual]
+
+              ## Impact and Notes
+              [Breaking changes, dependencies updated, deployment steps if needed]
+
+            STEP 5 - Update Jira ticket description:
+              PUT ${{ secrets.JIRA_BASE_URL }}/rest/api/3/issue/{JIRA_ID}
+              Authorization: Basic (Base64 of ${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }})
+              Content-Type: application/json
+              Body:
+              {
+                "fields": {
+                  "description": {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [{
+                      "type": "paragraph",
+                      "content": [{"type": "text", "text": "<YOUR GENERATED DESCRIPTION>"}]
+                    }]
+                  }
+                }
+              }
+
+            STEP 6 - Add a comment to the Jira ticket:
+              POST ${{ secrets.JIRA_BASE_URL }}/rest/api/3/issue/{JIRA_ID}/comment
+              Authorization: Basic (Base64 of ${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }})
+              Content-Type: application/json
+              Body:
+              {
+                "body": {
+                  "type": "doc",
+                  "version": 1,
+                  "content": [{
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "AI Auto-Generated after merge to develop"}]
+                  }]
+                }
+              }
+
+            STEP 7 - Print a summary of everything that was done.
