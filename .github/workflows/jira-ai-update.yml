@@ -27,13 +27,32 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      id-token: write
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Extract Jira ticket ID
+        id: jira
+        run: |
+          PR_TITLE="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_title || github.event.pull_request.title }}"
+          JIRA_ID=$(echo "$PR_TITLE" | grep -oE '[A-Z]+-[0-9]+' | head -1)
+          if [ -z "$JIRA_ID" ]; then
+            echo "No Jira ticket ID found in PR title: $PR_TITLE"
+            exit 1
+          fi
+          echo "Found Jira ticket: $JIRA_ID"
+          echo "jira_id=$JIRA_ID" >> $GITHUB_OUTPUT
 
       - name: Get PR Diff
         run: |
@@ -45,109 +64,143 @@ jobs:
                      ${{ github.event.pull_request.merge_commit_sha }} \
                      --unified=5 > pr_diff.txt
           fi
-          echo "Diff step complete"
 
-      - name: Claude AI - Analyze and Update Jira
-        uses: anthropics/claude-code-action@beta
+      - name: Claude AI - Generate Jira description
         env:
-          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
-          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          mode: agent
-          allowed_tools: "Bash,Read"
-          direct_prompt: |
-            You are a technical writer. Analyze the git diff and update the Jira ticket automatically.
-            Use your Bash tool to run all curl commands. Use your Read tool to read files.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          PR_TITLE="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_title || github.event.pull_request.title }}"
+          PR_BODY="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_body || github.event.pull_request.body }}"
+          PR_NUMBER="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number || github.event.pull_request.number }}"
+          JIRA_ID="${{ steps.jira.outputs.jira_id }}"
+          DIFF_CONTENT=$(cat pr_diff.txt)
 
-            PR Title  : ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_title || github.event.pull_request.title }}
-            PR Body   : ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_body || github.event.pull_request.body }}
-            PR Number : ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number || github.event.pull_request.number }}
-            Merged By : ${{ github.actor }}
-            Repository: ${{ github.repository }}
+          claude -p "You are a technical writer. Generate a Jira ticket description based on this PR merge.
 
-            STEP 1 - Extract the Jira ticket ID from the PR title using the pattern [A-Z]+-\d+
-            Example: "feat(PROJ-123): add login API" means Jira ID is PROJ-123.
-            If no Jira ID is found, print a warning and stop.
+          PR Title  : $PR_TITLE
+          PR Body   : $PR_BODY
+          PR Number : $PR_NUMBER
+          Jira Ticket: $JIRA_ID
+          Merged By : ${{ github.actor }}
+          Repository: ${{ github.repository }}
 
-            STEP 2 - Use your Read tool to read the file pr_diff.txt and understand what code changed.
+          Git Diff:
+          $DIFF_CONTENT
 
-            STEP 3 - Use your Bash tool to run this curl command to get the Jira ticket details:
-              curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-                -H "Accept: application/json" \
-                "$JIRA_BASE_URL/rest/api/3/issue/{JIRA_ID}"
-            Read the response to understand the current ticket state.
+          Write a clear, detailed description with exactly these sections:
 
-            STEP 4 - Generate a detailed Jira description (as plain text) based on the diff.
-            Structure the description with these sections:
+          ## Summary
+          What was implemented or fixed and why, based on actual code changes.
 
-              ## Summary
-              [What was implemented or fixed and why, based on actual code changes]
+          ## Changes Made
+          - Specific files, APIs, functions changed
+          - New endpoints or modified logic
+          - Config or dependency changes if any
 
-              ## Changes Made
-              - [Specific files, APIs, functions changed]
-              - [New endpoints or modified logic]
-              - [Config or dependency changes if any]
+          ## Acceptance Criteria
+          - [ ] Testable criteria based on actual diff
+          - [ ] Another testable criteria
+          - [ ] Edge cases and error handling verified
 
-              ## Acceptance Criteria
-              - [ ] [Testable criteria based on actual diff]
-              - [ ] [Another testable criteria]
-              - [ ] [Edge cases and error handling verified]
+          ## Testing Done
+          Tests added or run - unit, integration, manual.
 
-              ## Testing Done
-              [Tests added or run - unit, integration, manual]
+          ## Impact and Notes
+          Breaking changes, dependencies updated, deployment steps if needed.
 
-              ## Impact and Notes
-              [Breaking changes, dependencies updated, deployment steps if needed]
+          Output ONLY the description text. No preamble, no explanation." \
+          --model sonnet \
+          --dangerously-skip-permissions \
+          --output-format text > /tmp/jira_description.txt
 
-            STEP 5 - Use your Bash tool to update the Jira ticket description. Write the full
-            description text to /tmp/jira_desc.txt first, then use jq to build the JSON payload
-            and run curl to PUT it:
+          echo "Description generated ($(wc -c < /tmp/jira_description.txt) bytes)"
+          cat /tmp/jira_description.txt
 
-              DESCRIPTION=$(cat /tmp/jira_desc.txt)
-              PAYLOAD=$(jq -n --arg desc "$DESCRIPTION" '{
-                fields: {
-                  description: {
-                    type: "doc",
-                    version: 1,
-                    content: [{
-                      type: "paragraph",
-                      content: [{ type: "text", text: $desc }]
-                    }]
-                  }
-                }
-              }')
-              curl -s -o /tmp/update_response.json -w "%{http_code}" \
-                -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-                -X PUT \
-                -H "Content-Type: application/json" \
-                -d "$PAYLOAD" \
-                "$JIRA_BASE_URL/rest/api/3/issue/{JIRA_ID}"
+      - name: Claude AI - Generate Jira comment
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          PR_TITLE="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_title || github.event.pull_request.title }}"
+          PR_NUMBER="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number || github.event.pull_request.number }}"
+          JIRA_ID="${{ steps.jira.outputs.jira_id }}"
+          DIFF_CONTENT=$(cat pr_diff.txt)
 
-            Check the HTTP status code. A 204 means success.
+          claude -p "You are a technical writer. Write a short Jira comment (2-4 sentences) announcing that PR #$PR_NUMBER ('$PR_TITLE') was merged to develop by ${{ github.actor }}.
+          Mention the Jira ticket $JIRA_ID and that the ticket description has been automatically updated with full details by Claude AI.
+          Include a brief one-line summary of what changed based on this diff:
 
-            STEP 6 - Use your Bash tool to add a comment to the Jira ticket:
+          $DIFF_CONTENT
 
-              COMMENT="PR #$PR_NUMBER merged by $GITHUB_ACTOR. This description was auto-generated by Claude AI after merge to develop."
-              COMMENT_PAYLOAD=$(jq -n --arg body "$COMMENT" '{
-                body: {
-                  type: "doc",
-                  version: 1,
-                  content: [{
-                    type: "paragraph",
-                    content: [{ type: "text", text: $body }]
-                  }]
-                }
-              }')
-              curl -s -o /tmp/comment_response.json -w "%{http_code}" \
-                -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-                -X POST \
-                -H "Content-Type: application/json" \
-                -d "$COMMENT_PAYLOAD" \
-                "$JIRA_BASE_URL/rest/api/3/issue/{JIRA_ID}/comment"
+          Output ONLY the comment text. No preamble, no explanation." \
+          --model sonnet \
+          --dangerously-skip-permissions \
+          --output-format text > /tmp/jira_comment.txt
 
-            Check the HTTP status code. A 201 means success.
+          echo "Comment generated:"
+          cat /tmp/jira_comment.txt
 
-            STEP 7 - Print a summary: Jira ticket ID updated, description length, comment status,
-            and any errors encountered.
+      - name: Update Jira ticket description
+        run: |
+          JIRA_ID="${{ steps.jira.outputs.jira_id }}"
+          DESCRIPTION=$(cat /tmp/jira_description.txt)
+
+          PAYLOAD=$(jq -n --arg desc "$DESCRIPTION" '{
+            fields: {
+              description: {
+                type: "doc",
+                version: 1,
+                content: [{
+                  type: "paragraph",
+                  content: [{ type: "text", text: $desc }]
+                }]
+              }
+            }
+          }')
+
+          HTTP_STATUS=$(curl -s -o /tmp/update_response.json -w "%{http_code}" \
+            -u "${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -X PUT \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/3/issue/$JIRA_ID")
+
+          echo "Jira description update HTTP status: $HTTP_STATUS"
+          cat /tmp/update_response.json
+
+          if [ "$HTTP_STATUS" != "204" ]; then
+            echo "Failed to update Jira description (expected 204, got $HTTP_STATUS)"
+            exit 1
+          fi
+          echo "Jira ticket $JIRA_ID description updated successfully"
+
+      - name: Add Jira comment
+        run: |
+          JIRA_ID="${{ steps.jira.outputs.jira_id }}"
+          COMMENT=$(cat /tmp/jira_comment.txt)
+
+          PAYLOAD=$(jq -n --arg body "$COMMENT" '{
+            body: {
+              type: "doc",
+              version: 1,
+              content: [{
+                type: "paragraph",
+                content: [{ type: "text", text: $body }]
+              }]
+            }
+          }')
+
+          HTTP_STATUS=$(curl -s -o /tmp/comment_response.json -w "%{http_code}" \
+            -u "${{ secrets.JIRA_EMAIL }}:${{ secrets.JIRA_API_TOKEN }}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "${{ secrets.JIRA_BASE_URL }}/rest/api/3/issue/$JIRA_ID/comment")
+
+          echo "Jira comment HTTP status: $HTTP_STATUS"
+          cat /tmp/comment_response.json
+
+          if [ "$HTTP_STATUS" != "201" ]; then
+            echo "Failed to add Jira comment (expected 201, got $HTTP_STATUS)"
+            exit 1
+          fi
+          echo "Comment added to Jira ticket $JIRA_ID successfully"
