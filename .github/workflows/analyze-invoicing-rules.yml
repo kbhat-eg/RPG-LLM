@@ -6,6 +6,9 @@ on:
 jobs:
   analyze-rules:
     runs-on: ubuntu-latest
+    # Defines the default `GITHUB_TOKEN` access level for all jobs in this workflow.
+    # Use least-privilege permissions (for example, `contents: read`) and elevate
+    # only where specific jobs require additional scopes (such as `pull-requests: write`).
     permissions:
       contents: write
       pull-requests: write
@@ -24,660 +27,77 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
-      - name: Analyze invoicing business rules
+      - name: Analyze all business rules
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          claude -p "Analyze RPG programs FO616R (invoice engine) and FO615R (invoice line processing).
-          Primary tables: SOHEPF (Invoice Header), SODTPF (Invoice Lines), VMVAPF (VAT Master), RKUNPF (Customer Master), SDEPPFR (Deposit File), AARRF (Accounting Period).
+          set -euo pipefail
+          claude -p "$(cat .github/prompts/business-rules-prompt.txt)" \
+            --model claude-sonnet-4-6 \
+            --dangerously-skip-permissions \
+            --output-format text > /tmp/all-business-rules.md
 
-          Generate a business logic document titled 'Business Logic for Invoicing/Billing Module'.
-
-          DOCUMENT STRUCTURE — follow this exactly:
-
-          1. Title: '# Business Logic for Invoicing/Billing Module'
-
-          2. Introduction paragraph: Briefly explain what the invoicing/billing module does. Reference programs FO616R and FO615R. State clearly that the focus is on conditions that will BLOCK the operation.
-
-          3. Organize all rules into these categories (only include categories that apply):
-             - Prerequisites / Master Data Requirements
-             - Validation Rules
-             - Configuration and Authorization Rules
-             - Financial / Transactional Rules
-             - Status and Lifecycle Rules
-             - Special Conditions (Program-Specific)
-
-          4. For every business rule use this EXACT format:
-             X. **[Rule Name]**
-                * **Logic:** [one sentence explaining what the rule does]
-                * **File:** [database file name] ([English description])
-                * **Field:** [field name(s) involved]
-                * **Condition:** [exact condition that triggers blocking; include RPG indicator names like *in41 if known from the source code]
-
-          5. End with a '## Subprogram Calls Affecting Logic' section. For each external program called, document:
-             * **Trigger:** when it is called
-             * **Logic:** what it does
-             * **Impact:** whether it is blocking or informational
-
-          6. End with reference tables for all relevant codes:
-             - Tax/VAT code values with descriptions
-             - Invoice type codes with descriptions
-             - Any other status or type codes used
-
-          CONTENT TO COVER — include rules for:
-          - Product validation during invoice creation (VVARPF)
-          - Price and quantity validation on invoice lines (SODTPF.SDSAPR, SDANTA)
-          - Tax code validation with VMVAPF (VAMVA, VAPROC)
-          - Tax base amount calculation: Quantity x Price minus Discounts
-          - Tax amount calculation and rounding (Norwegian rules, +-0.05 tolerance)
-          - Customer discount cascade from RKUNPF (RERAB1, RERAB2, RERAB3)
-          - Product group discount handling
-          - Special bruksrett discount validation (SODTPF.SDBRRB)
-          - Deposit amount validation from SDEPPFR (SKDEPO, SKDEPB)
-          - Deposit deduction from final invoice (SOHEPF.SOFORS)
-          - Deposit invoice vs. final invoice type handling (SOHEPF.SOTYPE)
-          - Line totals summation and invoice header total (SOHEPF.SOFSUM)
-          - Zero-value invoice handling
-          - Payment terms validation and due date calculation (SOHEPF.SOFKDA, SOFRDA)
-          - KID number generation via RN012R (MOD10/MOD11)
-          - Accounting period validation (AARRF.ARSTRT)
-          - System lock checks via FA730R
-          - Invoice number sequence generation (SOHEPF.SOBINR)
-
-          NOTE: Do NOT include order-level validation rules (customer existence check, order status, order locks, user authorization) — those belong in sales-order-business-rules.md.
-
-          OUTPUT RULES:
-          - Write the markdown document directly. Start immediately with the # title heading.
-          - Do NOT include SQL queries (SELECT, INSERT, UPDATE, DELETE).
-          - Use plain English: 'What is checked', 'Why this is required', 'What happens when' language.
-          - Use DB2 TABLE.COLUMN notation (e.g., SOHEPF.SOFSUM) wherever identifiable.
-          - Format as markdown." \
-          --model sonnet \
-          --dangerously-skip-permissions \
-          --output-format text > /tmp/invoicing-rules-new.md
-
-      - name: Analyze sales order business rules
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Split output into individual rule files
         run: |
-          claude -p "Analyze RPG programs FO100R, FO500R, FO614R, and FO730R to document the complete sales order business rules for the NexStep ERP system.
+          set -euo pipefail
+          mkdir -p docs
+          python3 << 'PYEOF'
+          import re, os, sys
 
-          Primary tables:
-          - SOHEPF: Sales Order/Invoice Header (key fields: SOFIRM, SOAARR, SOBINR, SONUMM, SOSUFF, SOOTYP, SOKUND, SOLKUN, SOKPRO, SOBDAT, SOLDAT, SOFKDA, SOSELG, SOAVDE, SOLAGE, SOLETY, SOLMAT, SOBETB, SORABP, SOFSUM)
-          - SODTPF: Sales Order/Invoice Line Items (key fields: SDFIRM, SDAARR, SDBINR, SDNUMM, SDSUFF, SDLINE, SDVARE, SDANTA, SDSAPR, SDKOPR, SDRAB1, SDRAB2, SDSALG, SDLTYP, SDLAGE, SDAVDE)
+          with open('/tmp/all-business-rules.md', 'r', encoding='utf-8') as f:
+              content = f.read()
 
-          Lookup/reference tables: RKUNPF (customer master), VOTYPF (order types), VLTPPF (delivery types), FKPRPF (customer projects), VVARPF (item master), RKMEPF (customer memo balance), RA07PF (warehouses), RA09PF (salespersons), RA17PF (shipping methods)
+          # Split on ===FILE:docs/filename=== delimiter
+          parts = re.split(r'={3}FILE:(docs/[^\s=]+)={3}', content)
 
-          Generate a business logic document titled 'Business Logic for Sales Order Management'.
+          if len(parts) < 3:
+              print("ERROR: No ===FILE:=== delimiters found in Claude output.")
+              print("First 500 chars:", content[:500])
+              sys.exit(1)
 
-          DOCUMENT STRUCTURE — follow this exactly:
+          expected_files = [
+              'docs/invoice-business-rules.md',
+              'docs/sales-order-business-rules.md',
+              'docs/customer-ar-business-rules.md',
+              'docs/item-product-business-rules.md',
+              'docs/item-product-maintenance-rules.md',
+          ]
+          written = []
 
-          1. Title: '# Business Logic for Sales Order Management'
+          for i in range(1, len(parts), 2):
+              filename = parts[i].strip()
+              doc = parts[i + 1].strip() if i + 1 < len(parts) else ''
+              os.makedirs(os.path.dirname(filename), exist_ok=True)
+              with open(filename, 'w', encoding='utf-8') as f:
+                  f.write(doc + '\n')
+              written.append(filename)
+              print(f'Written: {filename} ({len(doc):,} chars)')
 
-          2. Introduction paragraph: Briefly explain what the sales order module covers. Reference programs FO100R, FO500R, FO614R, FO730R. State clearly that the focus is on conditions that will BLOCK the operation. Note the field prefix convention: SO = header fields, SD = line fields.
+          missing = [f for f in expected_files if f not in written]
+          if missing:
+              print(f'ERROR: Missing documents: {missing}')
+              sys.exit(1)
 
-          3. Organize all rules into these categories (only include categories that apply):
-             - Prerequisites / Master Data Requirements
-             - Validation Rules
-             - Configuration and Authorization Rules
-             - Financial / Transactional Rules
-             - Status and Lifecycle Rules
-             - Special Conditions (Program-Specific)
-
-          4. For every business rule use this EXACT format:
-             X. **[Rule Name]**
-                * **Logic:** [one sentence explaining what the rule does]
-                * **File:** [database file name] ([English description])
-                * **Field:** [field name(s) involved]
-                * **Condition:** [exact condition that triggers blocking; include RPG indicator names like *in41 if known from the source code]
-
-          5. End with a '## Subprogram Calls Affecting Logic' section. For each external program called, document:
-             * **Trigger:** when it is called
-             * **Logic:** what it does
-             * **Impact:** whether it is blocking or informational
-
-          6. End with reference tables for all relevant codes:
-             - Order status values and transitions
-             - Order type codes (VOTYPF) with descriptions
-             - Delivery type codes with descriptions
-             - Any other status or type codes used
-
-          CONTENT TO COVER — include rules for:
-          Customer Validation:
-          - Customer existence (SOKUND/SOLKUN in RKUNPF.RKKUND)
-          - Customer status (RKUNPF.RKSPER: 0=active, 1=blocked)
-          - Cash customer restrictions (quotes only, not orders)
-          - Invoice customer vs goods customer (RKUNPF.RKFAKU must match SOKUND)
-          - Customer project requirements (RKKATG, project in FKPRPF) [CONFIGURABLE]
-          - Internal customer validation (RKAVGF/RKFABI require internal order types)
-          Credit Limit Rules:
-          - Credit limit check: Available Credit = RKUNPF.RKGREN minus RKMEPF.RKMEMS
-          - Credit block status (RKUNPF.RKKRSP) — orders blocked, quotes allowed, F18 override
-          - Quote exception: order types with accumulator type=0 bypass credit block
-          - Credit override permissions and audit logging
-          - Extended memo balance [CONFIGURABLE]: includes future uninvoiced orders with VAT
-          - Public discount limit (RKUNPF.RKGRAL)
-          Order Header Validation:
-          - Order type (SOOTYP): must exist in VOTYPF with VASYST=0, cannot change when lines exist
-          - Order number (SONUMM): system-assigned from order type number series, suffix rules for backorders
-          - Salesperson (SOSELG): must exist in RA09PF, inherits from user or RKUNPF.RKSLGR
-          - Warehouse (SOLAGE): must exist in RA07PF, user restrictions apply
-          - Department (SOAVDE) [CONFIGURABLE]: must exist in department register, consistent with warehouse
-          - Warehouse-department consistency cross-reference
-          - Delivery type (SOLETY): must exist in VLTPPF; affects purchase order creation and pricing
-          - Shipping method (SOLMAT): must exist in RA17PF
-          - Payment terms (SOBETB): must exist in payment terms register, inherits from customer master
-          - Customer references (SOVREF, SODREF, SOREKV): configurable required fields
-          - Delivery address: from customer project or goods customer; LAOK confirmation may be required
-          Order Line Validation:
-          - Line type (SDLTYP): Normal (full validation), Text (no pricing), D-Type (manual pricing)
-          - Item number (SDVARE): must exist in VVARPF, item status must allow sales
-          - Quantity (SDANTA): sign rules (positive=sales, negative=returns via VALKRE='-'), 3 decimal places
-          - Unit of measure (SDENH1): must be valid for the item
-          - Line-level warehouse (SDLAGE): defaults from header, can be overridden, must be valid
-          - Line-level department (SDAVDE): must be consistent with warehouse
-          Price and Discount Rules:
-          - Price determination via VP900R: hierarchy = customer-specific to customer price group to standard to manual
-          - Discount hierarchy: Order Discount (SORABP) to Line Disc 1 (SDRAB1) to Line Disc 2 (SDRAB2) to Bracket Disc 1 (SDBRR1) to Bracket Disc 2 (SDBRR2)
-          - Discount category override: FL710R customer project discount override
-          - Price group (SDPRGR): 2-char code determined by VL712R
-          - Return fee [CONFIGURABLE]: CO402R configuration, added as extra line in FOD2PF
-          - Manual pricing (type D items): VVARPF.VVVTYP='D', skip automatic lookup
-          Date Validation Rules:
-          - Order date (SOBDAT): valid date, not more than 1 year past/future, not in closed accounting period
-          - Delivery date (SOLDAT): valid date, must be >= SOBDAT, [CONFIGURABLE] required
-          - Follow-up date (FODDAT) for quotes: >= order date, auto-calculated from FAAOPF days
-          - Expiry date (FOTDAT) for quotes: > order date, auto-calculated from FAAUTG days
-          Status and Workflow Rules:
-          - Order states: New (no lines) to Open (has lines) to On Hold (info code) to Picking (FOAKKT) to Picked to Invoiced (SOBINR>0) to Partial
-          - Order lock: system locks during processing
-          - Picking status: FOAKKT set locks the order; limited modifications may be allowed
-          - Info code hold: SOINF1/SOINF2 can block processing; must be cleared before fulfillment
-          - Backorder (Resting) processing: original suffix incremented, new suffix for backordered items
-          Integration Rules:
-          - Customer project integration: delivery address, contact info, discount category, payment terms, invoice type overridden
-          - EDI requirements: SOEDIH indicates EDI order, SONREF required
-          - Transport integration: certain SOLMAT values trigger transport API calls
-          - Deposit/prepayment: SODEPO indicator, SODEPB billing ref; cannot delete orders with unsettled deposits
-
-          OUTPUT RULES:
-          - Write the markdown document directly. Start immediately with the # title heading.
-          - Do NOT include SQL queries (SELECT, INSERT, UPDATE, DELETE).
-          - Use plain English: 'What is checked', 'Why this is required', 'What happens when' language with real-world examples.
-          - Use DB2 TABLE.COLUMN notation (e.g., RKUNPF.RKKUND) wherever identifiable.
-          - Format as markdown." \
-          --model sonnet \
-          --dangerously-skip-permissions \
-          --output-format text > /tmp/sales-order-rules-new.md
-
-      - name: Analyze customer and AR business rules
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          claude -p "Analyze RPG programs RK100R, RK108R, RK110R, RK400R, RK500R, RK620R, RE110R, RE120R, RE600R, RE601R, RE602R, RE603R, RE609R, RE613R, RE615R, RE621R, RE623R, RE630R, RE632R, RE633R, AR100R, AR700R to document the complete Customer and Accounts Receivable business rules for the NexStep ERP system.
-
-          FIELD CORRECTIONS (verified from DDS source):
-          - RKTRPF field prefix is RN (RNFIRM, RNKUND, RNBILK, RNBELØ, RNREST, RNSTAT, RNKID, RNFDAT) — not RT
-          - RE01PF/RE02PF/RE03PF are GL reporting tables (Trioplan balance matrix, income register, trial balance) — NOT AR transaction tables
-          - Key RKUNPF field names: RKGRNS=credit limit, RKKRES=credit block, RKSPRK=block status, RKSALD=sales YTD, RKEMAL=email, RKFTNR=org number, RKRABK=discount, RKLAGR=warehouse, RKPASS=passive flag, RKMEPF.RKMEMA=memo amount
-
-          Primary tables:
-          - RKUNPF: Customer Master
-          - RKMEPF: Customer Memo Balance (real-time credit exposure, amount field RKMEMA)
-          - RKTRPF: Customer Postings (field prefix RN, not RT)
-          - REKUPF: Customer AR Ledger Summary
-          - REMSPF: GL/AR Posting Registration (field prefix RT)
-
-          Lookup tables: AKIDPF (KID references), RA1HKT/RA1HRS (customer number range config), ARAFPF (company), RA09PF (salespersons), SOHEPF (sales orders for deletion check)
-
-          Generate a business logic document titled 'Business Logic for Customer and Accounts Receivable'.
-
-          DOCUMENT STRUCTURE — follow this exactly:
-
-          1. Title: '# Business Logic for Customer and Accounts Receivable'
-
-          2. Introduction paragraph: Briefly explain what the Customer and AR module covers. Reference programs RK100R, RK108R, RK400R, RE600R, RE630R, AR100R, and others. State clearly that the focus is on conditions that will BLOCK the operation. Note field prefix conventions: RK=customer master, RN=postings in RKTRPF, RT=GL registration in REMSPF.
-
-          3. Organize all rules into these categories (only include categories that apply):
-             - Prerequisites / Master Data Requirements
-             - Validation Rules
-             - Configuration and Authorization Rules
-             - Financial / Transactional Rules
-             - Status and Lifecycle Rules
-             - Special Conditions (Program-Specific)
-
-          4. For every business rule use this EXACT format:
-             X. **[Rule Name]**
-                * **Logic:** [one sentence explaining what the rule does]
-                * **File:** [database file name] ([English description])
-                * **Field:** [field name(s) involved]
-                * **Condition:** [exact condition that triggers blocking; include RPG indicator names like *in41 if known from the source code]
-
-          5. End with a '## Subprogram Calls Affecting Logic' section. For each external program called, document:
-             * **Trigger:** when it is called
-             * **Logic:** what it does
-             * **Impact:** whether it is blocking or informational
-
-          6. End with reference tables for all relevant codes:
-             - Document type codes in RKTRPF (RNBILK): FA=Invoice, BE=Payment, KR=Credit note, and others
-             - Customer status values
-             - Credit block level codes
-             - AR posting status codes (RNSTAT)
-             - Any other status or type codes used
-
-          CONTENT TO COVER — include rules for:
-          Customer Master Prerequisites:
-          - Required master data (company, payment terms, salesperson in RA09PF, department, category)
-          - User permission model (maintenance rights, department restriction ABBAVD)
-          - Customer number range rules (RA1HKT to RA1HRS)
-          Customer Master Validation:
-          - Name (RKNAVN) required
-          - Alpha key (RKALFA) auto-populated via RK750R
-          - Org number (RKFTNR) format
-          - Block status (RKSPRK)
-          - Invoice customer (RKFAKU)
-          - Duplicate detection via RK108R
-          - Deletion checklist via RK400R (no open RKTRPF/SOHEPF records)
-          - Merge/move rules via RK108R with TESTSPERRE check
-          Credit and Financial Limit Rules:
-          - Credit limit (RKGRNS) vs memo balance (RKMEPF.RKMEMA)
-          - Why RKMEPF is used over RKSALD for real-time checks
-          - Four-level credit block (RKKRES)
-          - Payment terms inheritance (RKBETB)
-          - Almenning purchase limit (RKKJAL/RKGRAL)
-          Customer Transaction Rules:
-          - Document types in RKTRPF (RNBILK): FA=Invoice, BE=Payment, KR=Credit note
-          - Period/date validation (1–13, open period check)
-          - Amount sign rules
-          - KID generation via RN012R (MOD10/MOD11)
-          - Accounting period assignment with two-digit year handling
-          AR Ledger Rules:
-          - Document creation rules
-          - RNSTAT status lifecycle (O=Open, L=Settled, D=Deleted)
-          - Payment allocation
-          - Three-way balance reconciliation (RKTRPF/RKMEPF/RKSALD)
-          - Interest calculation using RA6 configuration
-          Payment Processing Rules:
-          - Manual payment entry via REMSPF
-          - Remittance/OCR KID matching 4-step process via RE630R–RE633R
-          - Overpayment credit posting
-          - Write-off rules
-          - Credit note lifecycle
-          AR Aging and Collections Rules:
-          - Aging bucket boundaries by due date
-          - Dunning configuration (level increments, charges, dispute flag)
-          - What updates when a dunning notice is sent
-          - Collections escalation via RKINKK
-          - Statement generation parameters via RK620R
-          Customer Account Status and Workflow:
-          - Five lifecycle states (Active/Order Blocked/Credit Locked/Fully Blocked/Passive)
-          - Passive customer rules (RKPASS)
-          - Modification restrictions on key fields (RKFAKU, RKKUND, RKBETB, RKGRNS)
-          - Year-end processing (RKSALD/RKSAIF sequence reset)
-          Integration Rules:
-          - External import via RE110R/RK110R (non-zero-overwrite logic, number range check)
-          - Sales order credit check flow (reads RKGRNS and RKMEMA)
-          - GL posting split (dann_resk vs dann_trans)
-          - KID/bank file matching via RE630R–RE633R
-          - Email/PDF delivery via RKEMAL
-
-          OUTPUT RULES:
-          - Write the markdown document directly. Start immediately with the # title heading.
-          - Do NOT include SQL queries (SELECT, INSERT, UPDATE, DELETE).
-          - Use plain English: 'What is checked', 'Why this is required', 'What happens when' language with real-world examples.
-          - Use DB2 TABLE.COLUMN notation (e.g., RKUNPF.RKGRNS) wherever identifiable.
-          - Format as markdown." \
-          --model sonnet \
-          --dangerously-skip-permissions \
-          --output-format text > /tmp/customer-ar-rules-new.md
-
-      - name: Analyze item and product management business rules
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          claude -p "Analyze RPG programs VV100R, VV101R, VV102R, VV105R, VV106R, VV110R, VV120R, VV400R, VV500R, VV550R, VV555R, VV580R, VV590R, VV600R, VV603R, VV620R, VV680R, VV700R, VV710R, VV740R, VV750R, VP110R, VP410R, VP505R, VP510R, VP600R, VP700R, VP800R, VP900R to document Item and Product Management business rules for the NexStep ERP system.
-
-          FIELD PREFIX CORRECTIONS (verified from DDS source):
-          - VVARPF: prefix VV | VVPRPF: prefix VP | VLAGPF: prefix VL | VPGRPF: prefix VPG | VPDTPF: prefix VJ | VVTYPF: prefix VAV | VVLEPF: prefix VVL | VVAAPF: prefix VVA
-
-          Primary tables:
-          - VVARPF: Item Master (prefix VV, key fields: VVVARE, VVTEK1, VVVTYP, VVENHE, VVKMVA, VVKPRI, VVLDOR, VVNOBB, VVMINI, VVMAKS, VVBPUN, VVLTID, VVUDAT)
-          - VVPRPF: Item Pricing (prefix VP, extends item master)
-          - VLAGPF: Warehouse Item Register (prefix VL, per-warehouse stock data)
-          - VPGRPF: Price Group Register (prefix VPG)
-          - VPDTPF: Markup Line Register (prefix VJ)
-          - VVLEPF: Item-Supplier Register (prefix VVL)
-
-          Lookup tables: VVTYPF (item types, prefix VAV), RKUNPF (customer for price group), RA07PF (warehouses), VVGKPF (item group keys)
-
-          Generate a business logic document titled 'Business Logic for Item and Product Management'.
-
-          DOCUMENT STRUCTURE — follow this exactly:
-
-          1. Title: '# Business Logic for Item and Product Management'
-
-          2. Introduction paragraph: Briefly explain what the Item and Product Management module covers. Reference programs VV100R, VV110R, VV400R, VP900R, and others. State clearly that the focus is on conditions that will BLOCK the operation. Note the field prefix conventions: VV=VVARPF, VP=VVPRPF, VL=VLAGPF, VPG=VPGRPF.
-
-          3. Organize all rules into these categories (only include categories that apply):
-             - Prerequisites / Master Data Requirements
-             - Validation Rules
-             - Configuration and Authorization Rules
-             - Financial / Transactional Rules
-             - Status and Lifecycle Rules
-             - Special Conditions (Program-Specific)
-
-          4. For every business rule use this EXACT format:
-             X. **[Rule Name]**
-                * **Logic:** [one sentence explaining what the rule does]
-                * **File:** [database file name] ([English description])
-                * **Field:** [field name(s) involved]
-                * **Condition:** [exact condition that triggers blocking; include RPG indicator names like *in41 if known from the source code]
-
-          5. End with a '## Subprogram Calls Affecting Logic' section. For each external program called, document:
-             * **Trigger:** when it is called
-             * **Logic:** what it does
-             * **Impact:** whether it is blocking or informational
-
-          6. End with reference tables for all relevant codes:
-             - Item type codes (VVTYPF/VVVTYP) with descriptions
-             - VAT code values with descriptions
-             - Price code values with descriptions
-             - Stock management flag values
-             - Any other status or type codes used
-
-          CONTENT TO COVER — include rules for:
-          Item Master Prerequisites:
-          - Required master data (item groups in VVGKPF, item types in VVTYPF, VAT codes, units)
-          - User permissions
-          - Item number range rules via VV100R
-          Item Master Validation:
-          - Item number (VVVARE) uniqueness
-          - Description (VVTEK1/VVTEK2) required
-          - Item type (VVVTYP) controls field activation and sales/purchase/stock rules
-          - VAT code (VVKMVA)
-          - Base unit (VVENHE)
-          - Alternative item (VVAVAR)
-          - Item number change via VV110R transfers all references
-          Item Classification and Grouping:
-          - Three-level hierarchy: overgroup (VVOGRP) to main group (VVHGRP) to subgroup (VVUGRP)
-          - ABC code (VVKABC, VVLABC=lock)
-          - Bonus code (VVKBON)
-          - Discount code (VVKORD)
-          - Group maintenance via VV400R
-          Item Pricing Rules:
-          - Price code (VVKPRI)
-          - Price list via VP410R/VP510R
-          - Price groups via VPGRPF
-          - Markup via VPDTPF (VJ)
-          - Price adjustment via VV105R/VV106R using conversion factor (VVOMRN)
-          - Supplier prices via VP600R/VPRLPF
-          - Lookup hierarchy via VP700R/VP900R
-          Item Unit and Conversion Rules:
-          - Base unit (VVENHE), storage unit (VVENHL), statistics unit (VVENHS), price comparison unit (VVENPS)
-          - Conversions via VV555R
-          - Decimal precision (VVDESI)
-          - Unit maintenance via VV550R
-          Item Inventory Control Rules:
-          - Min/max stock (VVMINI/VVMAKS)
-          - Safety stock (VVSIKL)
-          - Order point (VVBPUN)
-          - Order quantity (VVBMEN)
-          - Break-bulk (VVANBR)
-          - Lead time (VVLTID)
-          - Location (VVPLAS)
-          - Per-warehouse data in VLAGPF managed by LI-series programs
-          Item Supplier Rules:
-          - Primary supplier (VVLDOR) and supplier item number (VVLVAR)
-          - NOBB: number (VVNOBB), price provider (VVNLEV), price (VVNOPR)
-          - Multiple suppliers via VVLEPF
-          - Supplier pricing via VV600R/VP600R
-          - Approved purchase flag (VVGODT)
-          Item Status and Lifecycle Rules:
-          - Discontinuation date (VVUDAT) blocks new orders
-          - Item type changes affecting operations
-          - Deletion rules (no open orders, no stock, no open POs)
-          - Alternative item (VVAVAR) redirect
-          - Item number change via VV110R
-          Integration Rules:
-          - Sales order: VVARPF lookup via VV680R, VVVTYP controls line type
-          - Price lookup via VP900R using customer price group from RKUNPF
-          - Stock check via VLAGPF
-          - Purchase order: VVLDOR/VVLVAR and VVLTID for delivery date
-          - NOBB sync via VVNOBB/VVNLEV
-          - Catalog via VV620R
-
-          OUTPUT RULES:
-          - Write the markdown document directly. Start immediately with the # title heading.
-          - Do NOT include SQL queries (SELECT, INSERT, UPDATE, DELETE).
-          - Use plain English: 'What is checked', 'Why this is required', 'What happens when' language with real-world examples.
-          - Use DB2 TABLE.COLUMN notation (e.g., VVARPF.VVVARE) wherever identifiable.
-          - Format as markdown." \
-          --model sonnet \
-          --dangerously-skip-permissions \
-          --output-format text > /tmp/item-product-rules-new.md
-
-      - name: Analyze JV item and product maintenance business rules
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          claude -p "Analyze RPG programs JV100R, JV101R, JV113R, JV114R, JV115R, JV116R, JV117R, JV118R, JV119R, JV120R, JV125R, JV130R, JV140R, JV145R, JV150R, JV151R, JV155R, JV160R, JV165R, JV170R, JV171R, JV180R, JV185R, JV190R to document the JV Item and Product Maintenance business rules for the NexStep ERP system.
-
-          FIELD PREFIX CORRECTIONS (all field definitions are in JFRF.MBR reference file):
-          - JVARPF: prefix JV | JVDTPF: prefix JVD | JLEVPF: prefix JLEV | JW (packaging): prefix JW | JX (pricing): prefix JX | JVL (item-supplier): prefix JVL | JVB (alt numbers): prefix JVB | JVN (NRF data): prefix JVN
-
-          Primary tables (read JFRF.MBR for all field names):
-          - JVARPF: Item Master (prefix JV, key fields: JVVARE, JVTEK1, JVTEK2, JVNOBB, JVTYPE, JVSTAT, JVADAT, JVUDAT, JVLDOR, JVLVAR, JVOGRP, JVHGRP, JVUGRP, JVPENH, JVEAN1, JVTONO, JVTOEU)
-          - JVDTPF: Item Detail per Company (prefix JVD, fields: JVDFIR, JVDVAR, JVDPKO, JVDSKO, JVDHKO)
-          - JLEVPF: Supplier Master (prefix JLEV)
-          - JW packaging table (prefix JW, fields: JWVARE, JWPAKN, JWENHE, JWGTIN, JWBRED, JWLENG, JWHOYD, JWVEKT, JWVOLU, JWBEST, JWANTP)
-          - JX pricing table (prefix JX, fields: JXVARE, JXLDOR, JXPRIS, JXGDAT, JXTDAT, JXVALU, JXFBEL)
-          - JVL item-supplier links (prefix JVL, fields: JVLVNR, JVLLDO, JVLVEI, JVLLVA, JVLUDA)
-
-          Lookup tables: VUGRPF (product groups), VENHPF (units), JKATPF (categories), JPROPF (producers), JSOKPF (search text), ANOTPF (notes)
-
-          Generate a business logic document titled 'Business Logic for JV Item and Product Maintenance'.
-
-          DOCUMENT STRUCTURE — follow this exactly:
-
-          1. Title: '# Business Logic for JV Item and Product Maintenance'
-
-          2. Introduction paragraph: Briefly explain what the JV Item and Product Maintenance module covers, including its NOBB integration role. Reference programs JV100R, JV113R, JV140R, JV155R, JV190R, and others. State clearly that the focus is on conditions that will BLOCK the operation. Note field prefix conventions: JV=JVARPF item master, JVD=JVDTPF detail, JW=packaging, JX=pricing, JLEV=supplier.
-
-          3. Organize all rules into these categories (only include categories that apply):
-             - Prerequisites / Master Data Requirements
-             - Validation Rules
-             - Configuration and Authorization Rules
-             - Financial / Transactional Rules
-             - Status and Lifecycle Rules
-             - Special Conditions (Program-Specific)
-
-          4. For every business rule use this EXACT format:
-             X. **[Rule Name]**
-                * **Logic:** [one sentence explaining what the rule does]
-                * **File:** [database file name] ([English description])
-                * **Field:** [field name(s) involved]
-                * **Condition:** [exact condition that triggers blocking; include RPG indicator names like *in41 if known from the source code]
-
-          5. End with a '## Subprogram Calls Affecting Logic' section. For each external program called, document:
-             * **Trigger:** when it is called
-             * **Logic:** what it does
-             * **Impact:** whether it is blocking or informational
-
-          6. End with reference tables for all relevant codes:
-             - NOBB type codes (JVTYPE: ST, SS, SP, DS) with descriptions
-             - Item status codes (JVSTAT: 0, 1, 2, 4) with descriptions
-             - Delivery type codes (JVLEVE) with descriptions
-             - Packaging class codes with descriptions
-             - Any other status or type codes used
-
-          CONTENT TO COVER — include rules for:
-          Item Master Prerequisites:
-          - Required master data (product groups in VUGRPF, units in VENHPF, categories in JKATPF, supplier in JLEVPF)
-          - NOBB registration requirements (JVNOBB must be valid)
-          - User permissions
-          - Item number format rules via JV100R
-          Item Master Validation:
-          - Item number (JVVARE) uniqueness and format
-          - Description (JVTEK1/JVTEK2) required
-          - NOBB type (JVTYPE: ST=Standard, SS=Assembled, SP=Special, DS=Display)
-          - Status (JVSTAT: 0=manual, 1=machine, 2=new, 4=deleted)
-          - Active date (JVADAT)
-          - Discontinuation date (JVUDAT)
-          - Under-construction flag (JVUARB)
-          - Alternative item numbers via JV113R and JVB table
-          Item Classification and Grouping:
-          - Three-level hierarchy: overgroup (JVOGRP) to main group (JVHGRP) to subgroup (JVUGRP)
-          - Own-group overrides (JVEOGR/JVEHGR/JVEUGR) for company-specific classification
-          - Assortment code (JVSORT) and assortment supplier (JVSLDO)
-          - Delivery type (JVLEVE: 0=Normal, 1=On Order)
-          - Category responsible (JVKATE)
-          - Documentation indicator (JVDOKI) with 8 document types
-          NOBB and External Database Integration:
-          - NOBB number (JVNOBB) as primary external key
-          - NOBB dates: created (JVNODA), changed (JVNBED), deleted (JVNSDA)
-          - Replacement NOBB (JVENOB)
-          - NRF data in JVN table (JVNNOB, JVNNRF, JVNSTS)
-          - Alternative product numbers in JVB table (TUN and FINFO types)
-          - EAN/GTIN (JVEAN1)
-          - Producer number (JVPROD) linked to JPROPF
-          - Module number (JVMODN)
-          Item Pricing Rules:
-          - JX pricing table: supplier price (JXPRIS), valid from/to dates (JXGDAT/JXTDAT), currency (JXVALU), freight amount (JXFBEL), cross-docking flag (JXCRDO)
-          - Price unit (JVPENH) on item master
-          - Price code per company in JVDTPF (JVDPKO)
-          - Procurement code (JVDSKO) and hold code (JVDHKO)
-          - Supplier pricing maintenance via JV155R/JV160R
-          Item Packaging Rules:
-          - JW packaging table: unit code (JWPAKN), GTIN (JWGTIN), dimensions in mm (JWBRED/JWLENG/JWHOYD), weight in grams (JWVEKT), volume in m3 (JWVOLU)
-          - Quantity per package (JWANTP), orderable flag (JWBEST), packaging class (JWPKLA), pallet layers (JWPAPP)
-          - Net dimensions (JWNBRE/JWNLEN/JWNHOY/JWNVEK/JWNVOL)
-          - PSE flag (JWPSEN)
-          - Outer packaging via JZ table
-          - Packaging maintenance via JV140R/JV145R
-          Item Supplier Rules:
-          - JVL item-supplier link table: supplier number (JVLLDO), product owner flag (JVLVEI), supplier product number (JVLLVA), discontinued date (JVLUDA)
-          - Supplier markings (JVLMR1/JVLMR2/JVLMR3)
-          - Primary supplier (JVLDOR) and supplier item number (JVLVAR) on item master
-          - Maintenance via JV155R/JV165R
-          Environmental and Compliance Rules:
-          - Environmental marks (JVMMK1/JVMMK2) with country codes (JVMLK1/JVMLK2)
-          - Hazardous goods: UN number (JVUNNR), hazard number (JVFANR), hazard description (JVFABS)
-          - Packaging marking (JVEMBM) and packaging group (JVEMGR)
-          - PSE marking flag (JVHPSE)
-          - Frost tolerance (JVTFRO) and expiry date tracking (JVHDAT)
-          - Norwegian tariff code (JVTONO) and EU tariff code (JVTOEU)
-          - Approval status (JVGSTS) and brand name (JVBRAN)
-          Item Status and Lifecycle Rules:
-          - Status lifecycle (JVSTAT: 0=manual, 1=machine-processed, 2=new, 4=deleted)
-          - Active date (JVADAT) — item not visible before this date
-          - Discontinuation date (JVUDAT) — blocks new orders
-          - Under-construction flag (JVUARB) restricts editing
-          - In-stock flag (JVLFOR)
-          - Product release per file group in JVFFPF (JVFFGR, JVFVAR, JVFOVF)
-          - Product linkage (JVK/JVQ tables) for composed products
-          - Cross-sell and up-sell links in JVO table
-
-          OUTPUT RULES:
-          - Write the markdown document directly. Start immediately with the # title heading.
-          - Do NOT include SQL queries (SELECT, INSERT, UPDATE, DELETE).
-          - Use plain English: 'What is checked', 'Why this is required', 'What happens when' language with real-world examples.
-          - Use DB2 TABLE.COLUMN notation (e.g., JVARPF.JVVARE) wherever identifiable.
-          - Format as markdown." \
-          --model sonnet \
-          --dangerously-skip-permissions \
-          --output-format text > /tmp/jv-item-product-rules-new.md
+          print(f'All {len(written)} documents written successfully.')
+          PYEOF
 
       - name: Cleanup extra files
         run: |
-          # Remove ALL .md files Claude may have created in the root directory.
-          # Protects only known legitimate root-level files (README.md, CLAUDE.md).
-          find . -maxdepth 1 -name "*.md" \
-            ! -name "README.md" \
-            ! -name "CLAUDE.md" \
-            -delete 2>/dev/null || true
-          echo "Cleaned up extra markdown files from root directory"
+          rm -f invoice*.md sales*.md purchase*.md customer*.md
+          echo "Cleaned up extra files"
 
       - name: Check for changes
         id: check-changes
         run: |
-          mkdir -p docs
-          CHANGES_DETECTED=false
-
-          # Check invoicing rules
-          INVOICING_FILE="docs/invoice-business-rules.md"
-          if [ -f "$INVOICING_FILE" ]; then
-            if ! diff -q "$INVOICING_FILE" /tmp/invoicing-rules-new.md > /dev/null 2>&1; then
-              CHANGES_DETECTED=true
-              echo "Changes detected in invoice business rules"
-              cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
-            fi
-          else
-            CHANGES_DETECTED=true
-            echo "Creating new invoice business rules file"
-            cp /tmp/invoicing-rules-new.md "$INVOICING_FILE"
-          fi
-
-          # Check sales order rules
-          SALES_FILE="docs/sales-order-business-rules.md"
-          if [ -f "$SALES_FILE" ]; then
-            if ! diff -q "$SALES_FILE" /tmp/sales-order-rules-new.md > /dev/null 2>&1; then
-              CHANGES_DETECTED=true
-              echo "Changes detected in sales order business rules"
-              cp /tmp/sales-order-rules-new.md "$SALES_FILE"
-            fi
-          else
-            CHANGES_DETECTED=true
-            echo "Creating new sales order business rules file"
-            cp /tmp/sales-order-rules-new.md "$SALES_FILE"
-          fi
-
-          # Check customer/AR rules
-          CUSTOMER_AR_FILE="docs/customer-ar-business-rules.md"
-          if [ -f "$CUSTOMER_AR_FILE" ]; then
-            if ! diff -q "$CUSTOMER_AR_FILE" /tmp/customer-ar-rules-new.md > /dev/null 2>&1; then
-              CHANGES_DETECTED=true
-              echo "Changes detected in customer/AR business rules"
-              cp /tmp/customer-ar-rules-new.md "$CUSTOMER_AR_FILE"
-            fi
-          else
-            CHANGES_DETECTED=true
-            echo "Creating new customer/AR business rules file"
-            cp /tmp/customer-ar-rules-new.md "$CUSTOMER_AR_FILE"
-          fi
-
-          # Check item/product rules (VV module)
-          ITEM_FILE="docs/item-product-business-rules.md"
-          if [ -f "$ITEM_FILE" ]; then
-            if ! diff -q "$ITEM_FILE" /tmp/item-product-rules-new.md > /dev/null 2>&1; then
-              CHANGES_DETECTED=true
-              echo "Changes detected in item/product business rules"
-              cp /tmp/item-product-rules-new.md "$ITEM_FILE"
-            fi
-          else
-            CHANGES_DETECTED=true
-            echo "Creating new item/product business rules file"
-            cp /tmp/item-product-rules-new.md "$ITEM_FILE"
-          fi
-
-          # Check JV item/product maintenance rules
-          JV_ITEM_FILE="docs/jv-item-product-business-rules.md"
-          if [ -f "$JV_ITEM_FILE" ]; then
-            if ! diff -q "$JV_ITEM_FILE" /tmp/jv-item-product-rules-new.md > /dev/null 2>&1; then
-              CHANGES_DETECTED=true
-              echo "Changes detected in JV item/product business rules"
-              cp /tmp/jv-item-product-rules-new.md "$JV_ITEM_FILE"
-            fi
-          else
-            CHANGES_DETECTED=true
-            echo "Creating new JV item/product business rules file"
-            cp /tmp/jv-item-product-rules-new.md "$JV_ITEM_FILE"
-          fi
-
-          if [ "$CHANGES_DETECTED" = true ]; then
-            echo "changes=true" >> $GITHUB_OUTPUT
-          else
+          MODIFIED=$(git diff --name-only -- docs/)
+          UNTRACKED=$(git ls-files --others --exclude-standard docs/)
+          if [ -z "$MODIFIED" ] && [ -z "$UNTRACKED" ]; then
             echo "changes=false" >> $GITHUB_OUTPUT
             echo "No changes detected in any business rules files"
+          else
+            echo "changes=true" >> $GITHUB_OUTPUT
+            [ -n "$MODIFIED"  ] && echo "Modified:  $MODIFIED"
+            [ -n "$UNTRACKED" ] && echo "New files: $UNTRACKED"
           fi
 
       - name: Create Pull Request
@@ -695,25 +115,27 @@ jobs:
             This PR was automatically generated by Claude Code analysis of the RPG codebase.
 
             ### Files Updated
-            - `docs/invoice-business-rules.md` — Invoice/billing validation rules (FO616R, FO615R)
-            - `docs/sales-order-business-rules.md` — Sales order validation and processing rules (FO100R, FO500R, FO614R, FO730R)
-            - `docs/customer-ar-business-rules.md` — Customer master and accounts receivable rules (RK*, RE*, AR* programs)
-            - `docs/item-product-business-rules.md` — Item master, pricing, and inventory control rules (VV*/VP* module)
-            - `docs/jv-item-product-business-rules.md` — JV item/product maintenance rules with NOBB integration (JV* programs)
+            | File | Module | Programs |
+            |------|--------|----------|
+            | `docs/invoice-business-rules.md` | Invoice Processing | FO616R, FO615R |
+            | `docs/sales-order-business-rules.md` | Sales Order Management | FO100R, FO500R, FO614R, FO730R |
+            | `docs/customer-ar-business-rules.md` | Customer and Accounts Receivable | RK*, RE*, AR* programs |
+            | `docs/item-product-business-rules.md` | Item and Product Maintenance (VV) | VV*, VP* programs |
+            | `docs/item-product-maintenance-rules.md` | JV Item and Product Maintenance | JV* programs |
 
-            ### Document Format
-            Each file follows the standard business logic format:
-            - **Title** — "Business Logic for [Module Name]"
-            - **Introduction** — Module overview with referenced programs; focus on blocking conditions
-            - **Categorized rules** — Prerequisites, Validation, Configuration/Authorization, Financial, Status/Lifecycle, Special Conditions
-            - **Per-rule detail** — Logic / File / Field / Condition (with RPG indicator names where known)
-            - **Subprogram Calls** — Trigger, Logic, Impact (blocking vs. informational)
-            - **Reference tables** — Status codes, type codes, and other lookup values
+            ### Document Structure (consistent across all files)
+            - **Prerequisites / Master Data Requirements**
+            - **Validation Rules**
+            - **Configuration and Authorization Rules**
+            - **Financial / Transactional Rules**
+            - **Status and Lifecycle Rules**
+            - **Special Conditions (Program-Specific)**
+            - **Subprogram Calls Affecting Logic**
+            - **Reference Tables**
 
             ### Review Checklist
             - [ ] Review extracted business rules for accuracy
-            - [ ] Verify DB2 TABLE.COLUMN references are correct
-            - [ ] Confirm RPG indicator names are accurate where cited
+            - [ ] Verify DB2 table/column references are correct
             - [ ] Check for any sensitive information that should be redacted
           labels: |
             documentation
