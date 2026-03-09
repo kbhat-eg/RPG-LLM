@@ -1,14 +1,15 @@
 name: Analyze Business Rules
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:  # Manual trigger — runs full analysis across all modules
+  push:
+    paths:
+      - 'NXCLOUD/rpgsrc/**/*.MBR'
+      - 'NXKORR/rpgsrc/**/*.MBR'
 
 jobs:
   analyze-rules:
     runs-on: ubuntu-latest
-    # Defines the default `GITHUB_TOKEN` access level for all jobs in this workflow.
-    # Use least-privilege permissions (for example, `contents: read`) and elevate
-    # only where specific jobs require additional scopes (such as `pull-requests: write`).
     permissions:
       contents: write
       pull-requests: write
@@ -17,7 +18,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -27,7 +28,57 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
-      - name: Analyze all business rules
+      # On push: detect which .MBR files changed for targeted analysis
+      - name: Detect changed RPG files (push only)
+        if: github.event_name == 'push'
+        id: detect
+        run: |
+          set -euo pipefail
+          FILES=$(git diff --name-only HEAD~1 HEAD -- '*.MBR' | tr '\n' ' ' | xargs)
+          if [ -z "$FILES" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "No .MBR files changed — skipping."
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "files=$FILES" >> $GITHUB_OUTPUT
+            echo "Changed RPG files: $FILES"
+          fi
+
+      # Targeted analysis: Claude reads the changed files, identifies the module,
+      # and updates only the relevant business rules doc(s) in docs/.
+      - name: Analyze changed files and update relevant docs (push)
+        if: github.event_name == 'push' && steps.detect.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          CHANGED_FILES="${{ steps.detect.outputs.files }}"
+
+          claude -p "
+          The following RPG source files have been modified:
+          $CHANGED_FILES
+
+          Your task:
+          1. Read and analyze each changed file to understand what business process it implements.
+          2. Identify which business module it belongs to by examining:
+             - The database files (PF/LF) it reads and writes
+             - The subprograms it calls and any programs that call it
+             - Other programs in the same directory with the same prefix
+             - Existing documentation in docs/ that already covers related programs
+          3. Find the correct business rules document in docs/ to update.
+             - If no relevant doc exists yet, create one as docs/<module-name>-business-rules.md
+          4. Update ONLY the docs for the affected module(s). Do not touch docs for unrelated modules.
+          5. Follow the document format defined in .github/prompts/business-rules-prompt.txt exactly.
+             Focus on conditions that BLOCK or PREVENT the business operation.
+             Use DB2 TABLE.COLUMN notation for all field references.
+          " \
+            --model claude-sonnet-4-6 \
+            --dangerously-skip-permissions \
+            --output-format text
+
+      # Full analysis: runs all modules using the existing prompt (workflow_dispatch only)
+      - name: Analyze all business rules (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
@@ -37,7 +88,8 @@ jobs:
             --dangerously-skip-permissions \
             --output-format text > /tmp/all-business-rules.md
 
-      - name: Split output into individual rule files
+      - name: Split output into individual rule files (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
           mkdir -p docs
@@ -91,14 +143,45 @@ jobs:
         run: |
           MODIFIED=$(git diff --name-only -- docs/)
           UNTRACKED=$(git ls-files --others --exclude-standard docs/)
-          if [ -z "$MODIFIED" ] && [ -z "$UNTRACKED" ]; then
+          ALL_CHANGED=$(echo -e "$MODIFIED\n$UNTRACKED" | grep -v '^$' || true)
+          if [ -z "$ALL_CHANGED" ]; then
             echo "changes=false" >> $GITHUB_OUTPUT
-            echo "No changes detected in any business rules files"
+            echo "No changes detected in docs/"
           else
             echo "changes=true" >> $GITHUB_OUTPUT
-            [ -n "$MODIFIED"  ] && echo "Modified:  $MODIFIED"
-            [ -n "$UNTRACKED" ] && echo "New files: $UNTRACKED"
+            echo "changed_docs<<EOF" >> $GITHUB_OUTPUT
+            echo "$ALL_CHANGED" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "Changed docs: $ALL_CHANGED"
           fi
+
+      # Build a markdown table of changed docs for the PR body
+      - name: Build changed files table
+        if: steps.check-changes.outputs.changes == 'true'
+        id: build-table
+        run: |
+          python3 << 'PYEOF'
+          import os
+
+          changed = """${{ steps.check-changes.outputs.changed_docs }}""".strip().splitlines()
+
+          rows = []
+          for f in changed:
+              f = f.strip()
+              if not f:
+                  continue
+              # Derive a readable module name from the filename
+              # e.g. docs/invoice-business-rules.md -> Invoice Business Rules
+              basename = os.path.basename(f).replace('.md', '').replace('-', ' ').title()
+              rows.append(f'| `{f}` | {basename} |')
+
+          table = "| File | Module |\n|------|--------|\n" + "\n".join(rows)
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write("table<<EOF\n")
+              out.write(table + "\n")
+              out.write("EOF\n")
+          PYEOF
 
       - name: Create Pull Request
         if: steps.check-changes.outputs.changes == 'true'
@@ -114,14 +197,11 @@ jobs:
 
             This PR was automatically generated by Claude Code analysis of the RPG codebase.
 
+            **Trigger:** `${{ github.event_name }}`
+            ${{ github.event_name == 'push' && format('**Changed RPG files:** `{0}`', steps.detect.outputs.files) || '**Scope:** Full analysis across all modules' }}
+
             ### Files Updated
-            | File | Module | Programs |
-            |------|--------|----------|
-            | `docs/invoice-business-rules.md` | Invoice Processing | FO616R, FO615R |
-            | `docs/sales-order-business-rules.md` | Sales Order Management | FO100R, FO500R, FO614R, FO730R |
-            | `docs/customer-ar-business-rules.md` | Customer and Accounts Receivable | RK*, RE*, AR* programs |
-            | `docs/item-product-business-rules.md` | Item and Product Maintenance (VV) | VV*, VP* programs |
-            | `docs/item-product-maintenance-rules.md` | JV Item and Product Maintenance | JV* programs |
+            ${{ steps.build-table.outputs.table }}
 
             ### Document Structure (consistent across all files)
             - **Prerequisites / Master Data Requirements**
