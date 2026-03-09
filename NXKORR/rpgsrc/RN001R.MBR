@@ -22,11 +22,13 @@
 7.01  *       250221 ask  Lagt inn betalingsbetingelse
 8.01  *       290921 ask  Dropper overføring av poster med bilagssum = 0
 8.02  *       071221 ask  Sjekker om depositumsbetaling, flagger det
-8.03  *       240122 ask  Lagt inn bokføringsdato med logikk fra RN003R (inng.fakt.)
+8.03  *       240122 ask  Lagt inn bokføringsdato med logikk fra RN003R (inng.fa
 8.04  *       050522 ask  Lagt inn switchstyring på funksjon i 8.03
-8.05  *       170622 sst  Ikke kort kidd dersom lang kidd benyttes. Styres av rutine 'FFAKT'
+8.05  *       170622 sst  Ikke kort kidd dersom lang kidd benyttes. Styres av ru
 8.06  *       140922 sst  Styre 8.05 med switch: IKKE_KORT_KIDD_NÅR_LANG'
-8.07  *       041125 ask  Switchstyrt innlegging av kredittreferanse på internfaktura.
+8.07  *       041125 ask  Switchstyrt innlegging av kredittreferanse på internfa
+8.08  *       050226 ask  Styrer utlegg av kid basert på valg i rutineregister.
+8.08  *                   Bare felt for lang kid - IOKIDI brukes, IOKIDR er blan
       *
       * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
      ffovfl1    if   e           k disk    rename(fovfpfr:fovfl1r)
@@ -35,6 +37,7 @@
 6.33 fikonir    if   e           k disk    rename(ikonst:ikonstr)
 6.35 ffstsl1    if   e           k disk    rename(fstspfr:fstsl1r)
 8.05 faforl1    if   e           k disk    rename(aforpfr:aforl1r)
+8.08 fakidl1    if   e           k disk    rename(akidpfr:akidl1r)
       *
       * Definering av Local data area
       *
@@ -49,6 +52,7 @@
 6.31 d sohel1_aarr     s                   like(soaarr)
 6.31 d sohel1_binr     s                   like(sobinr)
 6.33 d ikonir_bfra     s                   like(ikbfra)
+8.08 d akidl1_kidr     s                   like(akkidr)
       *
       * Definering av variable
       *
@@ -60,6 +64,8 @@
 6.31 d w_aarr          s              4  0
 6.31 d w_kidd          s                   like(sokidd)
 6.32 d w_kida          s              9
+8.08 d w_kid8          s              8
+6.32 d w_kidn          s              9  0
 6.31 d w_obil          s                   like(faabil)
 8.07 d w_skon          s                   like(ffdkto)
 8.07 d w_sbil          s                   like(ffbiln)
@@ -127,9 +133,16 @@
 6.33 c                   eval      ffbilk = ikbtil
 6.33 c                   endif
 6.33 c                   endif
-6.31  *
+8.08  *
+8.08  * Legger inn kid bare på reskonto posteringer
+8.08  *
+8.08 c                   if        ffdkto > 9999 or
+8.08 c                             ffckto > 9999
 6.31 c                   exsr      finn_kid
-6.32 c                   eval      w_kida = %EditC(w_kidr :'X')
+8.08 c                   else
+8.08 c                   eval      w_kidd = *blank
+8.08 c                   endif
+8.08 c*                  eval      w_kida = %EditC(w_kidr :'X')
 7.00  *
 7.00 c                   exsr      finn_type
 8.03  *
@@ -168,15 +181,16 @@
      c                   eval      iokund = ffkund
      c                   eval      iokref = ffkref
 6.34 c                   eval      iokidi = w_kidd
+8.08 c                   eval      iokidr = *blank
       *
-6.32 c                   eval      w_kida = %EditC(w_kidr :'X')
-6.32 c*                  movel     ffkidr        w_kidr
-6.32 c*                  move      ffksif        w_kidr
-6.32 c                   eval      iokidr = w_kida
-8.05 c                   if        w_langk = 'J'
-8.06 c                             and u_ikknl = *on
-8.05 c                   eval      iokidr = *blank
-8.05 c                   endif
+8.08 c*                  eval      w_kida = %EditC(w_kidr :'X')
+8.08 c*                  movel     ffkidr        w_kidr
+8.08 c*                  move      ffksif        w_kidr
+8.08 c*                  eval      iokidr = w_kida
+8.08 c*                  if        w_langk = 'J'
+8.08 c*                            and u_ikknl = *on
+8.08 c*                  eval      iokidr = *blank
+8.08 c*                  endif
       *
 8.03 c                   eval      ioboda = w_bdat
       *
@@ -223,12 +237,30 @@
 6.31 c                   dow       not %eof
 8.02 c                   eval      w_depo = sodepo
 8.02 c                   eval      w_depb = sodepb
-6.31 c                   if        sokidd <> *blanks or
-6.31 c                             sokidr <> 0
-6.31 c                   eval      w_kidd = sokidd
-6.31 c                   eval      w_kidr = sokidr
-6.31 c                   goto      end_kid
-6.31 c                   endif
+8.08  *
+8.08  * Finner key til kidreferanseregister og velger ønsket kid
+8.08  *
+8.08 c                   if        sokidr > 0
+8.08 c                   eval      w_kida = %editw(sokidr : '        0')
+8.08 c                   eval      w_kid8 = %subst(w_kida:1:8)
+8.08 c                   eval      w_kidn = %dec(w_kid8:8:0)
+8.08 c                   eval      akidl1_kidr = w_kidn
+8.08 c     akidl1_key    chain     akidl1r
+8.08 c                   if        %found
+8.08 c                   if        afkidk = 0
+8.08.c                   eval      w_kidd = ' '
+8.08 c                   endif
+8.08 c                   if        afkidk = 1
+8.08.c                   eval      w_kidd = %char(akkidd)
+8.08 c                   endif
+8.08 c                   if        afkidk = 2
+8.08.c                   eval      w_kidd = %char(sokidr)
+8.08 c                   endif
+8.08 c                   if        afkidk = 3
+8.08.c                   eval      w_kidd = %triml(%char(akkid2) : ' ')
+8.08 c                   endif
+8.08 c                   endif
+8.08 c                   endif
 6.31 c     sohel1_key    reade     sohel1
 6.31 c                   enddo
 6.31  *
@@ -292,7 +324,7 @@
 8.03  *
 8.03 c     end_bdat      endsr
 8.07  *
-8.07  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -          S
+8.07  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 8.07  * Subrutine for å finne reskontro referanse på fakturakunde
 8.07  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 8.07  *
@@ -308,7 +340,7 @@
 8.07 c                   endif
 8.07 c                   endif
 8.07  *
-8.07 c                   if        ffckto > 9999                                       S
+8.07 c                   if        ffckto > 9999
 8.07 c                   if        w_skon > 0 and
 8.07 c                             ffckto = w_skon
 8.07 c                   eval      ffkref = ffbiln
@@ -349,6 +381,12 @@
 6.35  *
 6.35 c     fstsl1_key    klist
 6.35 c                   kfld                    w_firm
+8.08  *
+8.08  * Key for file : KID-REGISTER
+8.08  *
+8.08 c     akidl1_key    klist
+8.08 c                   kfld                    w_firm
+8.08 c                   kfld                    akidl1_kidr
 6.33  *
 6.35  * Klargjør for øreavrundings konvertering
      c                   eval      w_firm = l_firm
@@ -357,15 +395,12 @@
 6.35 c     fstsl1_key    chain     fstsl1
 6.35 c                   eval      w_obil = faabil
 8.05  *
-8.05  *   Benyttes lang eller kort kidd?
+8.08  *   Henter kid kode fra rutineregister
 8.05  *
 8.05 c     'FFAKT     '  chain     aforl1
-8.05 c                   if        %found(aforl1)
-8.05 c                             and afkidk = 1
-8.05 c                   eval      w_langk = 'J'
-8.05 c                   else
-8.05 c                   eval      w_langk = 'N'
-8.05 c                   endif
+8.08 c                   if        not %found(aforl1)
+8.08 c                   eval      afkidk = 0
+8.08 c                   endif
 8.04  *
 8.04  * Skal bokføringsdato overstyres ved periodeavvik
 8.04  *
@@ -375,14 +410,14 @@
 8.04         u_bokd = *on;
 8.04     endif;
 
-8.06  *
-8.06  * Skal Kort kidd fjernes når lang kidd benyttes
-8.06  *
-8.06   CallP CO402R(l_filg:w_firm:0:'IKKE_KORT_KIDD_NÅR_LANG':
-8.06                   co402_verdi1:co402_verdi2);
-8.06     if co402_verdi1 = '1';
-8.06         u_ikknl = *on;
-8.06     endif;
+8.08  *
+8.08  * Skal Kort kidd fjernes når lang kidd benyttes
+8.08  *
+8.08  *CallP CO402R(l_filg:w_firm:0:'IKKE_KORT_KIDD_NÅR_LANG':
+8.08  *                co402_verdi1:co402_verdi2);
+8.08  *  if co402_verdi1 = '1';
+8.08  *      u_ikknl = *on;
+8.08  *  endif;
 8.07  *
 8.07  * Skal kreditt referanse legges på
 8.07  *
