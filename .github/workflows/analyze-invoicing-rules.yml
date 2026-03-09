@@ -87,72 +87,33 @@ jobs:
             --dangerously-skip-permissions \
             --output-format text
 
-      # Full analysis: runs all modules using the existing prompt (workflow_dispatch only)
+      # Full analysis: Claude agent reads the prompt and writes all module docs directly to docs/
       - name: Analyze all business rules (workflow_dispatch)
         if: github.event_name == 'workflow_dispatch'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail
-          claude -p "$(cat .github/prompts/business-rules-prompt.txt)" \
+          claude -p "
+          Read .github/prompts/business-rules-prompt.txt for the full list of modules,
+          programs, primary tables, and document format.
+
+          For each module listed in the prompt:
+          1. Read and analyze the listed RPG source files from the codebase
+          2. Write the complete business rules document DIRECTLY to the output file
+             specified in the prompt (e.g. docs/invoice-business-rules.md)
+          3. Follow the STANDARD DOCUMENT FORMAT exactly as defined in the prompt
+          4. Write the FULL content for every section — never use placeholders like
+             '*(content as written above)*' or references to other sections
+          5. STRICT NAMING RULE: filenames must follow docs/<module>-business-rules.md
+             e.g. docs/invoice-business-rules.md NOT docs/business-rules-invoice.md
+
+          Do NOT print document content to stdout.
+          Write each document directly to its file in docs/.
+          " \
             --model claude-sonnet-4-6 \
             --dangerously-skip-permissions \
-            --output-format text > /tmp/all-business-rules.md
-
-      - name: Split output into individual rule files (workflow_dispatch)
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          set -euo pipefail
-          mkdir -p docs
-          python3 << 'PYEOF'
-          import re, os, sys
-
-          with open('/tmp/all-business-rules.md', 'r', encoding='utf-8') as f:
-              content = f.read()
-
-          # Split on ===FILE:docs/filename=== delimiter
-          parts = re.split(r'={3}FILE:(docs/[^\s=]+)={3}', content)
-
-          if len(parts) < 3:
-              print("ERROR: No ===FILE:=== delimiters found in Claude output.")
-              print("First 500 chars:", content[:500])
-              sys.exit(1)
-
-          expected_files = [
-              'docs/invoice-business-rules.md',
-              'docs/sales-order-business-rules.md',
-              'docs/customer-ar-business-rules.md',
-              'docs/item-product-business-rules.md',
-              'docs/item-product-maintenance-rules.md',
-              'docs/warehouse-inventory-business-rules.md',
-              'docs/warehouse-batch-business-rules.md',
-              'docs/special-pricing-business-rules.md',
-              'docs/item-price-business-rules.md',
-              'docs/item-grouping-cost-price-business-rules.md',
-          ]
-          written = []
-
-          for i in range(1, len(parts), 2):
-              filename = parts[i].strip()
-              doc = parts[i + 1].strip() if i + 1 < len(parts) else ''
-              os.makedirs(os.path.dirname(filename), exist_ok=True)
-              with open(filename, 'w', encoding='utf-8') as f:
-                  f.write(doc + '\n')
-              written.append(filename)
-              print(f'Written: {filename} ({len(doc):,} chars)')
-
-          missing = [f for f in expected_files if f not in written]
-          if missing:
-              print(f'ERROR: Missing documents: {missing}')
-              sys.exit(1)
-
-          print(f'All {len(written)} documents written successfully.')
-          PYEOF
-
-      - name: Cleanup extra files
-        run: |
-          rm -f invoice*.md sales*.md purchase*.md customer*.md
-          echo "Cleaned up extra files"
+            --output-format text
 
       - name: Check for changes
         id: check-changes
