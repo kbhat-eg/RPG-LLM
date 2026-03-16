@@ -1,4 +1,4 @@
-Generate business rules documentation for the following 37 modules of the NexStep ERP system (IBM i / AS/400 RPG IV).
+Generate business rules documentation for the following 68 modules of the NexStep ERP system (IBM i / AS/400 RPG IV).
 
 For each module, write one complete markdown document. Separate each document with the output delimiter described below.
 
@@ -1782,13 +1782,1475 @@ MM735R converts those sales fields into a procurement prognosis.
 MM5xx programs are read-only inquiry screens. MM4xx programs delete forecast
 work data and should be used with care as deletions are immediate and permanent.
 
+MODULE 38 — Customer Bonus/Loyalty (EK)
+Output file: docs/customer-bonus-business-rules.md
+Programs:
+  EK100R (bonus parameter list), EK101R, EK104R, EK110R, EK120R, EK130R, EK135R,
+  EK141R, EK142R, EK143R, EK144R (bonus maintenance screens),
+  EK501R, EK510R (bonus inquiry),
+  EK600R, EK601R, EK602R, EK603R, EK605R (bonus basis print/output),
+  EK711R (bonus calculation engine — called per customer),
+  EK715R, EK720R (batch: calculate/update bonus for all customers),
+  EK721R, EK722R, EK723R, EK725R (bonus update variants),
+  EK750R, EK760R (customer bonus letters)
+Primary tables:
+- EKBOPF (alias EKBOST): Bonus parameters (EKFIRM=company, EKBKUN=customer#, EKBGR=bonus group, EKPAAR=year)
+- EKBEPF (alias EKBEST): Bonus elements — accrued bonus per customer/item-group combination
+- EKBTPF (alias EKBTST): Bonus type register — defines calculation method (totals vs. per-element)
+- EKBSPF (alias EKBSST): Bonus structure — links bonus groups to item groupings
+- RKUNPF: Customer master (REKUND=cust#, REKKAT=customer category for bonus eligibility)
+- VBOTPF: Bonus transaction register — stores computed bonus amounts per period
+- SSTAPF: Sales statistics — source read by EK711R to determine bonus basis amounts
+- VVARPF: Item master — used by EK711R to verify item groupings against bonus structure
+Focus: Conditions that BLOCK or PREVENT bonus calculation, accrual, and payment. Key areas:
+- Customer not found in RKUNPF or has no bonus agreement in EKBOPF — EK720R skips the customer;
+  no bonus parameters means no bonus will be computed or stored
+- Customer category (RKUNPF.REKKAT) not eligible for bonus (only category 310/314 qualify) —
+  EK100R filters to show only eligible customers; non-eligible customers are excluded from batch runs
+- Bonus type missing in EKBTPF for the bonus group — EK711R cannot determine calculation method;
+  the customer's bonus elements will not be updated
+- No sales statistics in SSTAPF for the customer/period — EK711R finds zero basis;
+  bonus is calculated as zero and written to EKBEPF; no blocking but bonus will be zero
+- Bonus element record (EKBEPF) missing for item group — EK711R cannot update the accrued amount;
+  the bonus element must exist before calculation runs
+- Year parameter (EKPAAR) or period range (p_peri/p_fper) mismatch — EK711R reads statistics
+  only within the given year/period window; records outside the range are not included in the basis
+- EKBOPF record locked by concurrent calculation (EK720R batch) — EK711R waits for lock;
+  running multiple batch instances for the same customer will serialise
+NOTE: EK711R is the core calculation engine — it is called by EK720R (batch, all customers)
+and by interactive screens. It reads SSTAPF sales history, applies bonus structure from EKBTPF,
+and writes results back to EKBEPF and VBOTPF. EK6xx programs produce print output from
+the computed bonus data. Customer eligibility is gated by RKUNPF.REKKAT (310/314 only).
+
+MODULE 39 — Condition/Terms Setup (JP)
+Output file: docs/conditions-terms-business-rules.md
+Programs:
+  JP100R (supplier conditions list), JP101R, JP102R, JP110R, JP120R (conditions maintenance),
+  JP500R (show/activate condition for condition level), JP505R, JP506R, JP510R, JP511R,
+  JP600R, JP601R (conditions inquiry/print),
+  JP700R (update conditions from NOBB contract — file import),
+  JP701R, JP702R, JP703R, JP705R, JP710R, JP711R, JP720R, JP730R, JP742R
+    (conditions calculation and activation variants),
+  JP785R (copy conditions from staging JBEUPF/JRAUPF/JPFUPF/JLEUPF to live tables),
+  JP785R_G01, JP785R_MXL (GL/XML variants of JP785R),
+  JP991R (conditions purge/year-end)
+Primary tables:
+- JBETPF (alias JBETPFR): Conditions/pricing terms (JPLDOR=supplier, JPNABB=item#, JPKAMP=campaign,
+  JPPRGR=price group, JPEDAT=valid-to date, JPSTA=status)
+- JLEVPF: Supplier condition levels (JLLDOR=supplier, JLNAVN=name, JLLDOR=EDI supplier)
+- JFBEPF: Freight condition terms (JPFLDO=supplier)
+- JRAEPF: Discount elements per item/supplier (JRLDOR=supplier, JRNABB=item, JRABE=discount%)
+- JPFAPF: Pricing function parameters
+- JVARPF: Supplier item register (used for cross-reference during condition activation)
+- JVDTPF: Supplier item detail lines
+- JBEUPF / JRAUPF / JPFUPF / JLEUPF: Staging/upload tables — MGB contract import writes here;
+  JP785R copies to live JBETPF/JRAEPF/JPFAPF/JLEVPF
+- JKAHPF / JKAVPF: Chain condition header/value tables (populated by JP785R from MGK staging)
+- JVKHPF / JVKLPF: Item condition header/line tables
+- ACPHPF: Archive/copy header — JP700R reads this to locate NOBB contract import files
+Focus: Conditions that BLOCK or PREVENT condition activation, pricing-term updates, and
+NOBB/MGB contract imports. Key areas:
+- Supplier not found in JLEVPF — JP100R/JP500R cannot display or activate conditions for
+  an unregistered supplier; supplier must exist in the level register before terms can be set
+- Condition record in JBETPF has JPSTA=inactive or expired (JPEDAT < current date) —
+  JP500R will not activate the condition; programs check valid-to date before pricing is applied
+- Staging tables (JBEUPF/JRAUPF) empty or missing for the supplier/campaign — JP785R finds
+  no records to copy; live condition tables remain unchanged after a failed MGB import
+- NOBB contract file not found under expected folder (ACPHPF.ACHFGR file group path) —
+  JP700R aborts the import; no conditions are updated
+- CO402R switch NOBB_KONTR_XML set — JP700R reroutes to XML-based import (JP785R_MXL);
+  if the XML variant is missing or fails, the import is blocked
+- Price group (JPPRGR) used in condition but not defined in item/supplier master — JP500R
+  cannot match condition to order line; item falls back to list price
+- Freight condition (JFBEPF) missing for supplier — JP100R marks freight as undefined;
+  freight charges cannot be calculated on purchase orders for that supplier
+NOTE: JP785R is the central conditions-copy engine — it transfers staged MGB/chain conditions
+from upload tables to live tables in a single batch run. JP700R handles NOBB file import
+(flat-file and XML modes). JP5xx programs are interactive activation screens. JP991R purges
+expired conditions at year-end. Pricing group was extended from 1 to 2 positions in v8.01.
+
+MODULE 40 — FTP/File Transfer (AF)
+Output file: docs/ftp-transfer-business-rules.md
+Programs:
+  AF010R (postal code register maintenance),
+  AF110R (FTP log header inquiry), AF111R (FTP log detail),
+  AF120R (FTP job inquiry),
+  AF500R (FTP jobs inquiry — read-only list of AFTPPF),
+  AF700R/BYGGFTPR (build FTP parameters — core engine that assembles and executes transfers),
+  AF703R, AF704R, AF705R, AF706R, AF708R, AF709R, AF710R, AF711R, AF712R
+    (FTP transfer variants for specific file types/destinations),
+  AF720R (write FTP log — called after each transfer to record result in AFTHPF/AFTLPF),
+  AF725R, AF726R, AF727R, AF728R, AF729R, AF730R, AF732R (FTP job execution programs),
+  AF775R (FTP schedule/parameter setup),
+  AF820R (FTP archive maintenance)
+Primary tables:
+- AFTPPF: FTP job parameter register (AFNAVN=job name, AFHOST=remote host, AFKONI=inbound
+  conversion, AFKOIL=inbound conv. length, AFKONO=outbound conversion, AFKOOL=outbound conv. length)
+- AFTHPF: FTP header log (ADHNAV=job name, ADHUID=unique timestamp, ADHSTA=status,
+  ADHKOM=command executed, ADHUSR=user)
+- AFTLPF: FTP line log — detail lines written per file transferred within a job
+- AFPAPF: FTP parameter archive — assembled by AF700R before execution; holds resolved
+  host/user/password and file path for the current run
+- AFLOPF: FTP system log — source records read by AF720R to populate AFTHPF/AFTLPF
+- APOSPF: Postal code register — maintained by AF010R independently of FTP
+Focus: Conditions that BLOCK or PREVENT FTP job execution and transfer logging. Key areas:
+- AFTPPF record not found for job name (AFNAVN) — AF700R/BYGGFTPR cannot resolve host,
+  credentials, or conversion parameters; the FTP job is aborted before any transfer occurs
+- Remote host (AFTPPF.AFHOST) blank or unreachable — AF700R builds the FTP command but
+  the OS-level FTP call fails; status written to AFTHPF.ADHSTA as error; no files transferred
+- Inbound/outbound conversion program (AFKONI/AFKONO) not found in the library list —
+  AF700R attempts to call the conversion program before/after transfer; missing program causes
+  job failure and an error status is logged
+- Source file does not exist on the IFS/stream file path at transfer time — AF7xx programs
+  detect file-not-found; the transfer step is skipped and the line log records a failure
+- AFTHPF unique-key collision (ADHUID timestamp already exists) — AF720R write fails;
+  duplicate timestamps can occur when two jobs run within the same millisecond
+- FTP parameter file (AFPAPF) not yet built for the current run (AF700R not called first) —
+  AF7xx execution programs cannot find job parameters; transfer is blocked
+- User/password fields blank in AFTPPF — AF700R builds a credential string with empty values;
+  the remote FTP server rejects the connection
+NOTE: AF700R (compiled name BYGGFTPR) is the central FTP engine — it reads AFTPPF, assembles
+credentials and file paths into AFPAPF, then invokes the OS FTP command. AF720R is called
+after each transfer attempt to write the result to AFTHPF/AFTLPF. AF010R (postal code
+register) shares the AF prefix but is independent of FTP processing.
+
+MODULE 41 — Statistics Data Maintenance (SX)
+Output file: docs/statistics-maintenance-business-rules.md
+Programs:
+  SX500R (delete statistics records — parameter screen), SX510R, SX520R, SX530R
+    (deletion variants by selection criteria),
+  SX802R (reset invoice line numbers in SSTAPF),
+  SX810R (update SSTAPF with product manager responsibility),
+  SX820R (FIX: update SSTAPF cost price from new POS registers),
+  SX821R, SX822R, SX823R, SX824R (cost-price and price-group fix variants),
+  SX831R, SX832R, SX833R, SX834R, SX835R, SX836R (statistics field correction programs),
+  SX840R (statistics recalculation),
+  SX850R (update shadow/temp statistics table SSTXPF from FOHEPF/FODTPF),
+  SX851R, SX855R, SX857R (SSTXPF shadow-table variants),
+  SX903R (export items to Cobuilder — reads JVPKPF, writes SCOBPF/SCOVPF),
+  SX905R (Cobuilder variant),
+  SX981R (statistics year-end/purge)
+Primary tables:
+- SSTAPF: Sales statistics master (SFPAAR=year, SFBINR=invoice#, SFLINE=line#, SFKUND=customer,
+  SFVARE=item, SFANTA=qty, SFSAPR=sales price, SFKPRI=cost price, SFPRAN=product manager)
+- SSTXPF: Sales statistics shadow/temp table — populated by SX850R from open order lines
+  (FOHEPF/FODTPF) to provide a near-real-time statistics view
+- SCOBPF: Cobuilder status register — SX903R tracks last-sent date per supplier/item
+  to avoid re-sending unchanged items to the Cobuilder product content portal
+- SCOVPF: Cobuilder item version history
+- FOHEPF / FODTPF: Order header/line — source read by SX850R to rebuild SSTXPF
+- VVARPF / VUGRL1: Item master and item groupings — used by SX810R for product manager lookup
+Focus: Conditions that BLOCK or PREVENT statistics corrections, shadow-table updates, and
+Cobuilder exports. Key areas:
+- SSTAPF record locked by a running statistics job — SX8xx update programs wait for the lock;
+  running SX500R deletion while SX850R is updating causes serialisation or timeout
+- Year/company filter mismatch in SX500R — deletion programs check LDA fields (l_firm, d_raar);
+  if year is not set correctly, the wrong year's data may be deleted (irreversible)
+- FOHEPF/FODTPF order not found for the invoice/line key — SX850R skips the line in SSTXPF;
+  gaps in the shadow table mean some open-order statistics are missing
+- Item (SFVARE) not found in VVARPF — SX810R cannot update the product manager field;
+  the SSTAPF record retains the old SFPRAN value
+- SFKPRI (cost price) zero in SSTAPF — SX820R/SX821R are designed to fix exactly this;
+  if the fix programs are not run after POS import, margin reports will show incorrect margins
+- Cobuilder record (SCOBPF) already up-to-date (last-sent date = today) — SX903R skips the
+  item to reduce transfer volume; items changed today but already sent will not be re-sent
+- AFPSPF (print/email setup) missing for the Cobuilder job — SX903R cannot resolve the
+  destination email address; the export runs but no notification is sent
+NOTE: SX programs are corrective/maintenance batch jobs for the ASSTAT statistics system.
+SX850R is the most critical — it continuously rebuilds SSTXPF from live order data.
+SX500R/SX510R deletions are irreversible; incorrect year/company parameters will permanently
+remove statistics records. SX903R is the Cobuilder integration — it runs periodically
+and uses SCOBPF to suppress duplicate exports.
+
+MODULE 42 — Statistics Parameter Setup (SP)
+Output file: docs/statistics-parameters-business-rules.md
+Programs:
+  SP100R (statistics parameter file maintenance — main screen),
+  SP111R (selection: alternative main group), SP112R, SP114R, SP115R, SP116R
+    (parameter selection screens for different grouping levels),
+  SP121R, SP122R, SP123R, SP124R, SP125R, SP126R
+    (parameter sub-type maintenance screens),
+  SP131R, SP132R, SP133R (report parameter screens),
+  SP141R, SP142R, SP143R, SP144R (period/date parameter screens),
+  SP151R, SP152R, SP153R, SP154R, SP155R, SP156R
+    (selection criteria and filter parameter screens)
+Primary tables:
+- SKPMPF: Statistics parameter file (SPTYPE=parameter type, SPKODE=code,
+  SPVALG=selection value, SPTEXT=description, SPPMND=period month)
+- AUSRPF: User register (AUUSER=user profile) — SP100R checks user authorisation before
+  allowing parameter changes
+- VAHGPF: Alternative main group register (VFHHGR=main group code) — used by SP111R
+  to validate selected main groups against defined groupings
+Focus: Conditions that BLOCK or PREVENT statistics parameter changes and report selections.
+Key areas:
+- User not found in AUSRPF or lacks authorisation — SP100R verifies the user profile
+  before displaying the parameter maintenance screen; unauthorised users are rejected
+- SKPMPF record for the requested type/code combination not found — SP1xx screens
+  cannot display or update a parameter that has no existing record; a new record must
+  be added before updates are possible
+- Alternative main group code (VAHGPF.VFHHGR) not defined — SP111R rejects the selection;
+  reports that group by alternative main group will not run if the grouping is undefined
+- Parameter type (SPTYPE) unknown to the program — SP100R uses inline table (rpt array,
+  60 entries) to map type codes to report names; an unrecognised type code results in
+  a blank description and the parameter cannot be saved with a valid reference
+- Period month (SPPMND) out of range (not 1–12) — SP1xx period screens validate month
+  before storing; invalid months block the save and display an error indicator
+- SKPMPF record locked by another user editing the same parameter — SP100R waits for
+  the lock; concurrent edits to shared statistics parameters are serialised
+NOTE: SP programs configure the statistics reporting module (ASSTAT). SKPMPF is the
+central parameter table — all SP1xx programs read and write to it using SPTYPE as the
+discriminator. SP100R is the main entry point and enforces user-level authorisation via
+AUSRPF. The rpt array in SP100R maps 60 parameter type codes to report names;
+this array is compile-time data and cannot be changed without recompiling the program.
+
+MODULE 43 — Campaign/Promotion (JM)
+Output file: docs/campaign-promotion-business-rules.md
+Programs:
+  JM100R (campaign header maintenance), JM110R, JM111R, JM112R, JM113R, JM114R,
+  JM115R, JM116R, JM119R (campaign header/line maintenance variants),
+  JM500R (campaign header inquiry), JM510R, JM550R, JM551R (campaign inquiry screens),
+  JM591R, JM592R (campaign activation/copy utilities),
+  JM600R, JM601R, JM621R (campaign print/output),
+  JM700R (calculate and update campaign prices from supplier prices),
+  JM705R, JM720R, JM730R, JM740R, JM741R, JM742R (campaign price update variants)
+Primary tables:
+- JKAHPF: Campaign header (JMFIRM=company, JMKAMP=campaign code, JMBESK=description,
+  JMPRGR=price group, JMFDAT=valid-from date, JMTDAT=valid-to date,
+  JMFODA=first-transferred date, JMODA=created date)
+- JKAVPF: Campaign item values/lines (JMVFIR=company, JMVKAM=campaign#, JMVVAR=item#,
+  JMVPRG=price group, JMVKAI=campaign purchase price, JMVKPR=campaign sales price,
+  JMVKAA=year, JMVLDO=supplier)
+- JVPRPF: Supplier price register (JXLDOR=supplier, JXVARE=item, JXTDAT=valid-to date,
+  JXKJOP=purchase price) — read by JM700R to compute campaign price from base supplier price
+- RA30PF: Price group register — JM100R (v8.02) validates price group against this register
+Focus: Conditions that BLOCK or PREVENT campaign creation, price calculation, and activation.
+Key areas:
+- Campaign code (JKAHPF.JMKAMP) already exists — JM100R prevents duplicate campaign headers;
+  attempt to add with an existing code is rejected
+- Valid-to date (JKAHPF.JMTDAT) earlier than valid-from date — JM100R validates date range;
+  invalid date ranges block the header save
+- Item (JKAVPF.JMVVAR) not found in supplier price register (JVPRPF) for the campaign supplier —
+  JM700R cannot calculate a campaign price; the item's campaign price line is skipped or zeroed
+- Supplier price (JVPRPF) expired (JXTDAT < current date) at time of calculation —
+  JM700R detects the expired price and skips the item; campaign price is not updated
+- Price group (JMVPRG) not found in RA30PF — JM100R rejects the price group selection;
+  campaign cannot be saved without a valid price group reference
+- JKAVPF record locked during a running campaign price update (JM700R batch) —
+  concurrent updates for the same campaign/item are serialised
+- Campaign not yet activated (JMSTA=inactive) — JM5xx inquiry programs show the campaign
+  but order entry will not apply prices from inactive campaigns
+NOTE: JM100R is the main campaign header maintenance program (system ASVADM).
+JM700R is the price calculation engine — it reads JVPRPF supplier prices, applies
+discount/markup parameters passed as arguments, and writes the resulting prices back
+to JKAVPF. JM5xx programs are read-only inquiry (system ASPMAL). Price group was
+extended from 1 to 2 positions in v8.02.
+
+MODULE 44 — Item Unit Management (VE)
+Output file: docs/item-unit-business-rules.md
+Programs:
+  VE110R (item unit maintenance per item — main screen),
+  VE115R, VE120R (unit maintenance variants),
+  VE510R, VE515R, VE520R, VE540R, VE550R (unit inquiry and selection screens),
+  VE710R (resolve item# + unit from EAN/GTIN number — subprogram),
+  VE711R, VE712R, VE713R, VE714R, VE715R, VE716R, VE717R, VE718R, VE719R
+    (unit calculation and cross-reference sub-programs),
+  VE720R, VE721R, VE722R, VE723R, VE725R (unit update/recalculation batch programs)
+Primary tables:
+- VVENPF: Item unit register (VEPFIR=company, VEPVARE=item#, VEPENHE=unit code,
+  VEPSAPR=sales price per unit, VEPKJF=purchase factor, VEPSAL=sales unit flag,
+  VEPINN=purchase unit flag, VEPLAN=warehouse unit flag)
+- VVARPF: Item master (VVVARE=item#, VVFIRM=company, VVSTOP=discontinued,
+  VATYPE=item type) — VE110R validates item existence before showing units
+- VVPRPF: Item price per unit — used by VE110R to show existing prices per unit
+- VVEPPF: Item EAN/GTIN per unit (VEPGTI=GTIN#, VEPFIR, VEPVARE, VEPENHE) —
+  VE710R first looks here to resolve item+unit from a scanned GTIN
+- VEANPF: EAN register (VXFIRM, VXEANN=EAN code, VXVARE=item#, VXENHE=unit) —
+  VE710R fallback if GTIN not found in VVEPPF
+- VVLEPF: Timber/lumber sort register — VE110R extended (v6.30) to show lumber assortment unit
+Focus: Conditions that BLOCK or PREVENT item unit registration, price assignment, and EAN/GTIN lookup.
+Key areas:
+- Item (VVARPF.VVVARE) not found for the given company — VE110R cannot open the unit
+  maintenance screen; the item must exist in the item master before units can be defined
+- Unit without a price (VVENPF.VEPSAPR = 0) selected as sales unit for stock or
+  special-order items — VE110R blocks: a sales unit must have a price for stock (lager)
+  and procured (skaffevarer) item types; the save is rejected with an error indicator
+- GTIN/EAN passed to VE710R is zero — VE710R immediately returns with no output (status≠1);
+  calling programs must treat status=0 as "not found" and handle the fallback
+- EAN code not found in either VVEPPF or VEANPF for the given company — VE710R returns
+  status=0; order entry or EDI programs that rely on EAN scanning cannot resolve the item
+- Unit code not defined in the unit register — VE110R rejects a unit code that has no
+  matching master record; units must be pre-defined before assignment to items
+- Duplicate unit sequence (sort order) — VE110R validates that each unit has a unique
+  sequence number for sales, purchase, and price-book ordering; duplicates are rejected
+NOTE: VE110R is the main interactive maintenance program (system ASOFAK). VE710R is a
+critical service subprogram — called by order entry, EDI, and POS programs to translate
+scanned EAN/GTIN barcodes into item+unit. If GTIN=0, VE710R returns immediately with
+no result. Item type (VVARPF.VATYPE) controls which unit-price checks apply.
+
+MODULE 45 — Job/Batch Register and System Defaults (FA)
+Output file: docs/job-register-business-rules.md
+Programs:
+  FA120R (job status register maintenance — interactive),
+  FA720R (update job status codes — called by batch jobs to mark start/end),
+  FA721R (job status update variant),
+  FA730R, FA731R (job schedule/status inquiry),
+  FA900R (create system default values — seeds AFORPF, ANUMPF, FSTSPF, VLTYPF, VOTYPF),
+  FA901R (system defaults variant),
+  FA909R (system defaults cleanup),
+  FA910R (rounding subprogram — codes 1=purchase price, 2=cost, 3=sales ex-VAT, 4=sales inc-VAT),
+  FA911R, FA912R, FA913R, FA914R (rounding/calculation sub-program variants),
+  FA920R, FA922R, FA924R (system initialisation programs),
+  FA930R (create customer inline — called via F6 from order entry),
+  FA931R, FA932R, FA933R (customer creation variants),
+  FA935R, FA936R (auxiliary creation/setup helpers)
+Primary tables:
+- FJOBPF: Job status register (FAJFIR=company, FAJB01–FAJB99=job lock codes,
+  FAJODA=last-started date, FAJOTI=start time, FAJOUS=started-by user,
+  FAJEDA=last-ended date, FAJETI=end time, FAJEUS=ended-by user)
+- AFORPF: System routine/form parameters — seeded by FA900R; read by most modules
+  to determine form codes, output queues, print options, and system behaviour flags
+- ANUMPF: Number series register — seeded by FA900R; controls next invoice#, order#, etc.
+- FSTSPF: Order status codes — seeded by FA900R, read by FA910R for rounding rules
+- VLTYPF: Order line types — seeded by FA900R
+- VOTYPF: Order types — seeded by FA900R
+- AUSRPF: User register — FA120R reads to verify user name display
+- RKUNPF: Customer master — FA930R writes new customer records
+Focus: Conditions that BLOCK or PREVENT job locking, status updates, system defaults,
+and rounding operations. Key areas:
+- FJOBPF record not found for the company — FA720R creates a new record before updating;
+  if creation fails (duplicate key), the status update is blocked
+- Job lock code (FAJBxx) already set to active (=1) when a new batch run starts —
+  FA120R / FA720R detect the active lock; dependent batch programs check this flag
+  before proceeding and abort if another instance is already running
+- EDI inbound lock (FAJB07 via FA120R v6.30) set — EDI import programs check this bit;
+  if locked, the inbound EDI processing is blocked until the lock is cleared
+- Compello/NAV transfer lock (FA120R v6.31) set — Compello/Navision transfer programs
+  check this bit; transfer is blocked while lock is active
+- AFORPF record missing for the company — FA900R must be run first to seed defaults;
+  programs that read AFORPF for form/output-queue parameters will fail if the record
+  is absent (no output queue = no print; no form code = no invoice layout)
+- ANUMPF number series not initialised — order/invoice creation programs read ANUMPF
+  for the next number; missing series causes number-generation failure
+- FA910R called with unknown rounding code (not 1–4) — the program falls through with
+  no rounding applied; calling programs receive the original amount unchanged
+- FSTSPF rounding rule record missing for item group — FA910R reads FSTSPF for the
+  item's sub-group rounding rule; missing record means no group-specific rounding is applied
+NOTE: FJOBPF is the system-wide job serialisation mechanism — FA720R is called by every
+major batch program at start and end to set/clear FAJBxx lock bits. FA900R is a one-time
+setup program run during system installation or when default records are lost. FA910R is
+a shared rounding subprogram called with a numeric code (1–4) to apply the correct
+rounding method for purchase price, cost price, or sales price. FA930R is an inline
+customer creation routine invoked via F6 from order entry screens.
+
+MODULE 46 — Purchase Statistics Parameter Setup (SR)
+Output file: docs/purchase-statistics-parameters-business-rules.md
+Programs:
+  SR100R (purchase statistics parameter file maintenance — main screen),
+  SR111R (selection: alternative main group for purchase stats),
+  SR112R, SR114R, SR115R, SR116R (parameter selection screens — grouping levels),
+  SR121R, SR122R, SR123R, SR124R, SR125R (parameter sub-type maintenance screens),
+  SR131R, SR132R (report parameter screens),
+  SR141R, SR142R, SR143R, SR144R (period/date parameter screens),
+  SR151R, SR152R, SR153R, SR154R (selection criteria and filter parameter screens)
+Primary tables:
+- SLPMPF: Purchase statistics parameter file (SPTYPE=parameter type, SPKODE=code,
+  SPVALG=selection value, SPTEXT=description, SPPMND=period month, SPPAAR=year)
+  — the purchase-statistics counterpart to SKPMPF (sales statistics, module SP)
+- AUSRPF: User register (AUUSER=user profile) — SR100R checks user authorisation before
+  allowing parameter changes
+Focus: Conditions that BLOCK or PREVENT purchase statistics parameter changes and
+report selections. Key areas:
+- User not found in AUSRPF or lacks authorisation — SR100R verifies the user profile
+  before displaying the parameter maintenance screen; unauthorised users are rejected
+- SLPMPF record for the requested type/code combination not found — SR1xx screens cannot
+  display or update a parameter that has no existing record; new record must be added first
+- Parameter type (SPTYPE) not in the internal rpt array (60 compile-time entries) —
+  SR100R cannot map the type to a report name; the entry shows blank and cannot be saved
+  with a valid report reference
+- Period month (SPPMND) out of range (not 1–12) — SR1xx period screens validate month
+  before storing; invalid months block the save with an error indicator
+- SLPMPF record locked by another user — SR100R waits for the lock; concurrent edits
+  to shared purchase parameter records are serialised
+NOTE: SR programs are the purchase (innkjøp) counterpart to SP programs (sales statistics
+parameters). Both modules are in the ASSTAT system and share the same screen/parameter
+structure, but SR operates on SLPMPF while SP operates on SKPMPF. SR100R uses the
+same compile-time rpt array (60 entries) as SP100R to map type codes to report names.
+Changes to report mappings require recompiling the program.
+
+MODULE 47 — Result Report Setup (RR)
+Output file: docs/result-report-business-rules.md
+Programs:
+  RR100R (result report header maintenance), RR105R, RR108R, RR109R
+    (report header/structure maintenance variants),
+  RR500R (result report inquiry — parameter), RR510R (inquiry screen),
+  RR611R, RR612R (result report line inquiry/print),
+  RR621R (result report print — parameter screen), RR622R, RR623R, RR624R,
+  RR625R, RR626R, RR627R, RR628R (result report print variants by selection),
+  RR630R, RR631R, RR634R, RR635R (result report batch/output programs)
+Primary tables:
+- RRF0PF: Result report header (report code, description, company, period definition,
+  sorting and summary flags) — maintained by RR100R
+- RRF5PF: Result report structure lines (row definitions: account ranges, sign, level,
+  grouping codes) — maintained by RR100R as sub-lines of the header
+- RRF8PF: Result report filter/selection extensions — maintained alongside RRF0PF
+- RRF9PF: Result report column/comparison definitions — RR100R reads/writes per header
+- AUSRPF: User register — RR621R reads user record to verify access before running
+Focus: Conditions that BLOCK or PREVENT result report definition, print, and output.
+Key areas:
+- Result report header (RRF0PF) not found for the selected report code — RR5xx/RR6xx
+  programs cannot display or print a report that has no header definition
+- RRF5PF structure lines missing for the header — the report engine finds no rows to
+  print; the output is blank even if the header exists
+- User not found in AUSRPF or has no report authorisation — RR621R rejects the print
+  request; the parameter screen is not displayed
+- Period from/to out of range or from > to — RR621R/RR622R validate the period window;
+  invalid periods block the print request with an error indicator
+- Accounting year closed or period not opened in AARRF — RR6xx programs read the
+  accounting period register to determine valid data ranges; if the period is not open,
+  the report may produce zero-value output
+- RRF0PF record locked by another user editing the same report — RR100R waits for the
+  lock; concurrent edits to the same report header are serialised
+NOTE: RR100R is the central report-definition maintenance program (system ASOKON).
+RRF0PF/RRF5PF together define the report structure; RRF8PF and RRF9PF extend it with
+filter and column comparison data. RR621R–RR628R are print-parameter screens that
+launch the actual batch output programs (RR630R–RR635R). All programs belong to ASOKON.
+
+MODULE 48 — Discount Matrix Setup (FR)
+Output file: docs/discount-matrix-business-rules.md
+Programs:
+  FR100R (discount matrix maintenance — main screen),
+  FR160R, FR190R, FR192R, FR194R, FR196R (matrix maintenance variants by level/type),
+  FR410R (delete discount matrix records),
+  FR510R (discount matrix inquiry),
+  FR600R, FR601R, FR602R, FR603R, FR604R (discount matrix print/output — parameter screens),
+  FR610R, FR611R, FR612R (discount matrix report variants),
+  FR700R (recalculate/update discount matrix from supplier prices),
+  FR800R, FR801R (discount matrix import — update from Excel or external source)
+Primary tables:
+- FRABPF: Discount matrix (many logical files FRABL1R–FRABLXR keyed by various combinations
+  of: FRLDOR=supplier, FRKUND=customer, FRKKAT=customer category, FRVGR=item group,
+  FRMODR=module#, FRVARE=item, FRPRGR=price group, FRRABA=discount%, FRBUPR=floor price,
+  FRGRAB=general discount flag)
+Focus: Conditions that BLOCK or PREVENT discount matrix entries, calculation, and application.
+Key areas:
+- Duplicate key combination in FRABPF (same supplier/customer/item group/price group) —
+  FR100R rejects duplicate matrix entries; each combination must be unique
+- Price group (FRPRGR) not defined in the price group register — FR100R blocks save;
+  a valid price group must exist before the matrix row can be stored
+- Customer category (FRKKAT) not found in the customer category register — FR100R
+  rejects the entry; the category must be pre-defined
+- Item group/module combination (FRVGR/FRMODR) not found in item grouping master —
+  FR100R cannot validate the combination; the matrix row is rejected
+- User lacks access (FR100R v8.05 via access control) — FR100R checks user authorisation
+  via the access control register before displaying the edit screen; unauthorised users
+  are rejected
+- Discount % (FRRABA) set to a negative value when not specifically allowed — FR100R
+  validates that discount is ≥ 0 unless zero-discount mode is explicitly enabled
+- FR700R called for supplier with no price records in JVPRPF — the recalculation finds
+  no base prices; existing matrix rows retain their previous discount values
+- FR800R Excel import: rows with unresolvable item group or price group codes are skipped;
+  the remainder of the import continues
+NOTE: FR100R is the main interactive maintenance program (system ASOFAK). FRABPF is
+the central discount matrix table with many logical files to support different lookup
+paths used during order-line pricing. FR700R recalculates matrix discounts from live
+supplier prices. FR800R/FR801R provide bulk import from Excel for mass updates.
+Access control check was added in v8.05.
+
+MODULE 49 — Radio Terminal/Handheld Operations (HR)
+Output file: docs/radio-terminal-business-rules.md
+Programs:
+  HR100R (radio terminal dispatch — select customer/project),
+  HR101R (credit check and special agreement display for selected customer),
+  HR110R, HR111R, HR112R (item lookup and dispatch screens),
+  HR120R, HR121R, HR122R (order line entry via radio terminal),
+  HR130R, HR131R (dispatch/pick confirmation screens),
+  HR140R, HR141R, HR142R (goods receipt screens via radio terminal),
+  HR150R, HR151R (inventory/stock inquiry via terminal),
+  HR200R (radio terminal main menu),
+  HR701R, HR721R, HR731R (terminal-side batch update programs)
+Primary tables:
+- RKUNPF: Customer master (RKKUND=customer#, RESPER=blocked flag, REKRSP=credit stop,
+  REKRLI=credit limit) — HR100R checks credit status before allowing dispatch selection
+- RKMEPF: Customer credit memo register (RKMEL1R) — HR100R/HR101R reads memo saldo
+  to check outstanding balance (separate from RKUNPF since v6.21)
+- FKPRPF: Customer project register (FLKUND=customer, FLKPRO=project) — HR100R offers
+  project selection; project must exist before order lines can be assigned to it
+- RKSAPF: Customer special agreement register — HR100R reads special agreement instead
+  of standard agreement info when a special agreement exists
+- FSTSPF: Order status codes — HR100R reads for status validation on dispatch
+Focus: Conditions that BLOCK or PREVENT radio terminal dispatch, order entry, and receipt.
+Key areas:
+- Customer (RKUNPF.RKKUND) not found or RESPER=blocked — HR100R displays a warning and
+  blocks dispatch selection; blocked customers cannot be served via the terminal
+- Customer on credit stop (RKUNPF.REKRSP=1) — HR100R/HR101R warns the operator;
+  depending on configuration, dispatch may be blocked or require override authorisation
+- Credit limit exceeded (outstanding balance > RKUNPF.REKRLI) — HR101R shows the
+  credit exposure; without override, the operator cannot proceed with new dispatch
+- Customer project (FKPRPF) not found for the selected project code — HR100R rejects
+  the project selection; orders cannot be assigned to an unregistered project
+- Almenningsrabatt threshold (common-goods discount limit, v5.60) — HR100R checks
+  whether the customer has reached the common-goods discount threshold; if exceeded,
+  the discount cannot be applied on the terminal
+- Special agreement (RKSAPF) found — HR100R loads the special agreement data instead
+  of the standard agreement; if the special agreement is expired, terminal pricing may
+  not reflect current terms
+NOTE: HR100R is the entry point for radio terminal dispatch (system ASLAGR). It performs
+customer validation and credit checks before any order activity is allowed. HR101R provides
+extended credit information. The HR module is tightly coupled to the warehouse system
+(ASLAGR) and relies on RKUNPF credit fields. Memo saldo was moved to RKMEPF in v6.21.
+
+MODULE 50 — Count List / Physical Inventory (LE)
+Output file: docs/count-list-business-rules.md
+Programs:
+  LE100R (count list maintenance — main screen),
+  LE600R, LE602R, LE603R, LE605R (count list print — parameter screens),
+  LE610R, LE611R, LE612R (count list print variants),
+  LE620R, LE622R, LE623R (count list update/apply programs),
+  LE692R (count list utility — cyclic counting support),
+  LE700R (count list batch creation), LE702R, LE703R (creation variants),
+  LE710R, LE711R, LE712R (count result import and update programs)
+Primary tables:
+- LTELPF: Count list lines (LTELLRR, LTELL1R, LTELL2R, LTELLUR — LE100R reads/updates;
+  LTELITEM=item, LTELVARE=item#, LTELENHE=unit, LTELQTY=counted qty, LTELTS=timestamp)
+- LBCHPF: Count batch header (LBCHL1R — LE100R reads batch control;
+  LBCHBID=batch ID, LBCHSTAT=status)
+- VVARPF: Item master — LE100R validates item exists before showing count line
+- VVENPF: Item unit register — LE100R reads unit information per item
+Focus: Conditions that BLOCK or PREVENT count list creation, entry, and application.
+Key areas:
+- Count batch (LBCHPF) not found for the batch ID — LE100R cannot display or update
+  lines belonging to an unregistered batch; the batch header must exist first
+- Item (VVARPF.VVVARE) not found — LE100R rejects a count entry for an unknown item
+- Unit (VVENPF) not defined for the item — LE100R cannot resolve the counting unit;
+  count entry is blocked for items with no unit setup
+- Count line unit cannot be changed (v6.11 restriction removed) — LE100R no longer
+  allows unit editing after the count line is created; unit is locked at creation time
+- Cyclic counting flag on count line (v7.01 switch xxx.xxx.xxx) — LE100R blocks
+  update of cyclic-count lines; they must be processed through a separate cyclic flow
+- Count list already applied/closed (LBCHPF.LBCHSTAT = applied) — LE620R/LE622R
+  refuse to re-apply a closed batch; the stock adjustment has already been posted
+- Timestamp (LTELTS) collision: two operators enter a count for the same item
+  simultaneously — the later update wins; no merge; first count is silently overwritten
+NOTE: LE100R is the main count list maintenance program (system ASLAGR). LTELPF holds
+individual count lines keyed by batch/item/unit. LBCHPF provides batch-level control.
+LE700R creates count lists in batch from warehouse stock data. LE710R–LE712R import
+external count results. Cyclic counting support was added in v7.01 (switch-controlled).
+
+MODULE 51 — General / Common Maintenance (RM)
+Output file: docs/common-maintenance-business-rules.md
+Programs:
+  RM001R, RM002R, RM003R, RM004R, RM009R (general utility/fix programs — ASOKON),
+  RM100R (almenning/commons register maintenance),
+  RM103R, RM105R (almenning variants),
+  RM110R, RM120R (almenning inquiry/print),
+  RM503R, RM510R (general inquiry screens),
+  RM720R (general update/recalculation utility),
+  RMP001R (insert MalProff autostart into IPL subsystem startup — ASPGPLK),
+  RMP010R, RMP020R, RMP030R (MalProff/print system setup programs),
+  RMP97R (MalProff parameter setup)
+Primary tables:
+- RALMPF: Almenning (commons/common goods) register (RALML1R, RALML2R, RALMLRR, RALMLUR —
+  RALMKUND=customer#, RALMGRP=commons group, RALMGRS=threshold amount, RALMRAB=discount%)
+  — RM100R maintains this register
+- APOSPF: Postal code register — RM100R reads postal codes for address validation
+- ASBSPF: Subsystem startup register (AYSUBS=subsystem name, AYLINJ=line position) —
+  RMP001R reads/writes to insert MalProff into the IPL autostart queue
+Focus: Conditions that BLOCK or PREVENT commons register updates and system startup setup.
+Key areas:
+- Almenning record (RALMPF) not found for customer/group combination — RM100R cannot
+  update a commons entry that does not exist; record must be added before editing
+- Duplicate customer/group key in RALMPF — RM100R prevents duplicate entries for the
+  same customer and commons group combination
+- Threshold amount (RALMPF.RALMGRS) not set — RM103R/RM105R cannot enforce the
+  commons discount limit; customers without a threshold receive no limit check
+- Postal code (APOSPF) not found for the entered post number — RM100R cannot resolve
+  the location; address fields remain blank and must be entered manually
+- MalProff subsystem (ASBSPF.AYSUBS = 'MALPROFF') already exists in the IPL startup
+  queue — RMP001R detects the entry and skips the insert; no duplicate is added
+- ASBSPF record missing or empty — RMP001R cannot find the position to insert MalProff;
+  the autostart setup fails silently if the subsystem table has no existing entries
+NOTE: RM001R–RM009R are general maintenance utilities. RM100R is the main almenning
+register maintenance program (system ASOKON) — almenning refers to common-goods
+discount agreements used in building/lumber trade. RMP001R–RMP97R manage the MalProff
+print/form system (system ASPGPLK) and its inclusion in the IBM i IPL startup sequence.
+
+MODULE 52 — Debt Collection / Hardship (RC)
+Output file: docs/debt-collection-business-rules.md
+Programs:
+  RC100R (debt collection parameter setup — maintenance of fixed data per company),
+  RC110R (debt collection parameter variant),
+  RC400R (hardship/instalment arrangement setup), RC401R (hardship variant),
+  RC600R (debt collection run — parameter screen), RC601R (run variant),
+  RC650R (print debt collection notice — parameter screen),
+  RC651R, RC653R, RC654R, RC655R, RC656R, RC659R (notice print variants
+    by customer category, amount threshold, number of reminders),
+  RC662R, RC664R (debt collection file export programs),
+  RC701R (debt collection status inquiry), RC720R (status update),
+  RC762R (debt collection history/result inquiry)
+Primary tables:
+- RCA0PF: Debt collection setup per company (RCA0L1R, RCA0LRR, RCA0LUR —
+  RCFIRM=company, RCANAVN=agency name, RCABIKOD=voucher codes, RCABYRÅ=collection agency)
+  — RC100R/RC110R maintain these fixed parameters
+- RKUNPF: Customer master (RKKUND=customer#, REKRSP=credit stop, RESPER=blocked) —
+  RC650R reads for customer selection filter
+- RKWAPF: Debt collection working area — RC650R writes here as a parameter staging
+  table before the notice print batch runs
+Focus: Conditions that BLOCK or PREVENT debt collection runs and notice printing.
+Key areas:
+- RCA0PF not set up for the company — RC600R/RC650R cannot run; collection parameters
+  (agency name, voucher codes, thresholds) must be configured before any collection run
+- Collection agency (RCA0PF.RCABYRÅ) blank — RC662R/RC664R cannot generate the export
+  file to the external collection agency; the agency field must be populated
+- Customer (RKUNPF.RKKUND) not found or already on credit stop — RC650R may exclude
+  already-stopped customers depending on the run mode; customers in the selection
+  range but already at REKRSP=1 are skipped in some variants
+- Purrent-number greater-than filter (RC650R) — RC650R allows filtering by reminder
+  number; if the filter is set too high, no customers qualify and the print run produces
+  no output
+- Running day count (løpedager) greater than 50 (v9.02 limit) — RC650R validates that
+  the overdue days parameter does not exceed 50; values above 50 are rejected
+- RKWAPF parameter staging record not written (RC650R not run before print batch) —
+  RC651R–RC659R batch programs read RKWAPF for the run parameters; if the staging record
+  is missing, the batch produces no output
+- Voucher codes (RCA0PF.RCABIKOD) not defined — RC600R/RC601R cannot post the
+  collection fee vouchers to the GL; missing voucher codes cause posting failures
+NOTE: RC100R/RC110R set up the fixed debt collection parameters per company (system ASOKON).
+RCA0PF was extended in v7.00 to include collection agency and to support credit note
+voucher codes. RC650R is the main print-parameter screen — it stages selection criteria
+into RKWAPF before the actual print batch runs. RC662R/RC664R generate electronic
+export files for external collection agencies.
+
+MODULE 53 — Night Routine / Batch Scheduler (AN)
+Output file: docs/night-routine-business-rules.md
+Programs:
+  AN010R (night routine parameter entry — interactive setup screen),
+  AN012R, AN014R, AN015R, AN016R, AN018R (night routine option screens),
+  AN020R (night routine launch/submit batch),
+  AN022R, AN025R, AN026R (batch submission variants),
+  AN030R (night routine status/progress screen),
+  AN040R (check if call program exists in QSTRUP — utility),
+  AN042R (QSTRUP program check variant), AN045R (call-program verification),
+  AN050R (night routine completion handler),
+  AN060R (history inquiry for night jobs — shows AHSTPF with manual OK option),
+  AN070R (night routine cleanup/purge)
+Primary tables:
+- AVERPF: Night routine version/parameter register (AVERL1R, AVERLUR — key AVVKEY —
+  stores the scheduled options: time, density/device, reorg flag, backup flag,
+  subsystem restart flag, process codes 1&2, general print flag, save file flag,
+  statistics map flag, start/stop flags and program/library/system pairs)
+- AHSTPF: Night routine history (AHSTL1R, AHSTLUR — records each night job execution;
+  AN060R reads this and allows manual status override to 'OK')
+- ASBSPF: Subsystem startup register — AN010R (v6.20) uses a separate subsystem table
+  to manage which subsystems are started/stopped during the night routine
+Focus: Conditions that BLOCK or PREVENT the night routine from starting, completing,
+or being rescheduled. Key areas:
+- AVERPF record not found for the expected version key (AVVKEY) — AN010R finds no
+  existing parameters; the routine cannot be submitted without valid parameters stored
+- Scheduled time (d_time) not set or set to 000000 — AN020R/AN022R check that a valid
+  submission time is present; zero time may cause the job to submit immediately or fail
+- Process program pair (d_pro1/d_pro2 + d_bib1/d_bib2) specifies a program that does
+  not exist in the named library — AN040R checks QSTRUP/QCLLESRC for the call program;
+  if not found, p_valg is returned blank and the submission step skips or errors
+- Backup device (d_dens) not available or offline — the backup step in the night routine
+  fails; AN050R records the failure in AHSTPF but does not retry automatically
+- Night history record (AHSTPF) status not 'OK' after completion — AN060R shows the
+  history as failed; operators must manually set status to 'OK' to acknowledge the failure
+- Night routine already running (AVERPF locked or status active) — AN020R detects the
+  active run and blocks a duplicate submission; only one night routine runs at a time
+- Subsystem not in ASBSPF — AN010R (v6.20) cannot add the subsystem to the start/stop
+  sequence; subsystems must be registered in the table before the night routine manages them
+NOTE: AN010R is the interactive parameter screen (system ASPGPL). AVERPF stores all
+night routine options in a single keyed record per version. AN040R is a utility that
+scans QCLLESRC to verify that the call program exists before submission. AN060R provides
+history review and manual acknowledgement. The night routine covers database reorg,
+backup, subsystem restart, print spooling, and statistics map generation.
+
+MODULE 54 — External Order Interface (NO)
+Output file: docs/external-order-business-rules.md
+Programs:
+  NO100R (external order header maintenance — main list/edit screen),
+  NO101R (external order header variant),
+  NO105R (external order automatic transfer utility),
+  NO110R (external order line inquiry),
+  NO120R (external order line maintenance),
+  NO121R, NO122R, NO124R, NO125R (line maintenance and validation variants),
+  NO150R (external order status and approval screen),
+  NO180R (external order filter/selection setup),
+  NO750R (transfer external order to internal order — main engine),
+  NO751R, NO752R (transfer variants),
+  NO880R (external order EDI inbound processing),
+  NO881R (EDI variant)
+Primary tables:
+- NOHEPF: External order header (NOHEL1R–NOHEL6R, NOHELRR, NOHELUR —
+  NOFIRM=company, NOKUND=customer, NOTYPE=message type, NOSTAT=transfer status,
+  NOLEVD=delivery date, NOLEVB=delivery condition, NOPRGR=price group)
+- NODTPF: External order detail lines (NODTLRR, NODTLUR, NODTL1R —
+  NDVARE=item#, NDANTA=qty, NDSAPR=price, NDGTIN=GTIN, NDSTAT=line status)
+- NKEOPF: External order key register (NKEOLRR — unique key for EDI-sourced orders;
+  NO100R reads to detect duplicate inbound orders)
+- RKUNPF: Customer master (FKUNL1R — NO100R reads to validate customer)
+- FUSRPF: Function user register — NO100R reads function-level authorisation
+- FKPRPF: Customer project register — NO100R reads project on order header
+- VLTPPF: Line type with text (VLTPL1R — NO100R reads line type descriptions)
+- AUSRPF: User register — NO100R reads for user validation
+Focus: Conditions that BLOCK or PREVENT external order import, validation, and transfer
+to internal orders. Key areas:
+- Customer (RKUNPF) not found for NOHEPF.NOKUND — NO100R displays an error; the
+  external order cannot be transferred without a valid customer
+- External order already transferred (NOHEPF.NOSTAT = transferred) — NO100R (v7.12)
+  hides transferred orders from the list; NO750R refuses to re-transfer an already-
+  processed order header
+- Order partially transferred — NO100R (v7.23) checks that all lines are transferred
+  before marking the header as complete; headers with any untransferred line remain visible
+- NKEOPF key collision (duplicate EDI order key) — NO100R (v6.21) detects the lock
+  with *hival and blocks the import; the duplicate is rejected to prevent double-processing
+- Unknown item (NDVARE) on order line — NO750R checks the item against VVARPF; items
+  not in the master are blocked by default (v7.27 adds a switch to allow unknown items
+  if NX authorises them)
+- GTIN (NDGTIN) on EDI line not found via VE710R — NO100R (v7.04) falls back to
+  VVARPF lookup; if neither resolves, the line is flagged as unresolvable
+- Delivery date not set on header when lines have different dates — NO100R (v8.01)
+  propagates the header delivery date to lines; if lines have different dates, the order
+  is split (v8.02); a split order requires all lines to have a delivery date or it is blocked
+- EDI switch (CO402R NOBB_KONTR_XML or similar) controlling EDI source fetch —
+  NO880R/NO881R check configuration switches; wrong switch state causes EDI lines to be
+  fetched from the wrong source or skipped
+NOTE: NO100R is the main external order maintenance program (system ASOFAK). NOHEPF/NODTPF
+are the staging tables for externally-sourced orders (EDI, portal, SmartKalk). NO750R is
+the transfer engine that promotes approved external orders to FOHEPF/FODTPF internal orders.
+NO880R/NO881R handle EDI inbound. NKEOPF prevents duplicate EDI order imports.
+Transfer status flow: received → validated → approved → transferred.
+
+
+MODULE 55 — Item Price Management (JX)
+Output file: docs/item-price-management-business-rules.md
+Programs:
+  Interactive Price Maintenance:
+    JX100R (item price list/edit — main screen, system ASVADM),
+    JX420R, JX421R (price entry and edit variants),
+    JX430R, JX431R (price copy and transfer)
+  Price Inquiry / Statistics:
+    JX480R, JX481R, JX482R (inquiry screens)
+  Batch Price Update:
+    JX500R, JX510R, JX520R (batch price calculation and update)
+  Print:
+    JX600R, JX601R (price list print)
+  Import / Transfer:
+    JX720R (supplier price import),
+    JX800R (price export/transfer),
+    JX981R (conversion utility)
+Primary tables:
+- JVPRPF (alias JVPRLRR/JVPRL1R/JVPRLUR): Supplier Item Price Register — the core
+  price table for all JX operations.
+  (JVFIRM=company, JVLEVR=supplier#/prisgiver, JVVARE=supplier item#,
+   JVPRIS=price, JVPREE=price unit, JVGDAT=valid from-date, JVTDAT=valid to-date,
+   JVSTAT=status — active/inactive/expired)
+- JVARPF (alias JVARL1R): NOBB Item Master — JX100R chains here to display the
+  item description corresponding to the supplier item# in JVPRPF
+  (JVVARE=item#, JVNOBB=NOBB#, JVBESKR=item description)
+- JLEVPF (alias JLEVL1R): Supplier Master — JX100R validates that the prisgiver
+  (price-giver) exists before allowing price entry
+  (RLLEVR=supplier#, RLNAVN=supplier name, RLEDIK=EDI code)
+- AVALPF (alias AVALL1R): Field Value Authorization — JX100R (v6.20) uses this to
+  determine which price fields are write-protected for the current user
+  (AVFIRM=company, AVUSER=user, AVFELT=field name, AVBESKR=protection flag)
+- JVLEPF (alias JVLELRR/JVLELUR): Supplier-Item Link Register — JX100R (v6.32)
+  checks whether a JVLEPF link exists before allowing a new price record to be
+  created; missing link blocks price creation
+  (JLFIRM=company, JLLEVR=supplier#, JLVARE=item#, JLSTAT=link status)
+Focus: Conditions that BLOCK or PREVENT item price creation, update, and import.
+Key areas:
+- Supplier (JLEVPF) not found for JVPRPF.JVLEVR — JX100R displays an error and
+  blocks entry; a price cannot be saved without a valid supplier/prisgiver master
+- Valid from-date (JVGDAT) is blank — JX100R (v5.61) rejects the price record;
+  every price entry must have a from-date to be stored
+- AVALPF write-protection (v6.20) — if a user's authorisation record in AVALPF
+  marks a field as protected, JX100R prevents editing that price field on screen
+- JVLEPF link missing (v6.32) — JX100R checks that a supplier-item link exists in
+  JVLEPF before allowing a new price to be created; if absent, price creation blocked
+- Item already discontinued on prisgiver — JX100R (v7.01) shows a warning in a
+  separate field; price maintenance is allowed but the prisgiver status is flagged
+- Price validity expired (JVTDAT past today) — JX500R/JX520R batch update skips
+  price lines outside the valid date range; expired prices do not update VVPRPF
+- Duplicate price record (same JVLEVR+JVVARE+JVGDAT) — JX100R rejects duplicate
+  keys; the user must update the existing record instead of creating a new one
+NOTE: JX programs belong to system ASVADM (supplier administration). JVPRPF is
+the supplier item price register populated from supplier EDI feeds and maintained
+interactively via JX100R. JX720R imports external supplier price files.
+JX500R/JX510R/JX520R run as batch jobs to push approved prices to VVPRPF.
+
+MODULE 56 — Offer/Tender Price Management (VT)
+Output file: docs/offer-price-management-business-rules.md
+Programs:
+  Interactive Offer Price Maintenance:
+    VT100R (offer price list/edit — main screen, system ASOFAK),
+    VT101R, VT102R (header and detail variants),
+    VT110R (inquiry screen),
+    VT120R (copy offer price)
+  Batch Transfer:
+    VT510R (offer-to-standard price transfer),
+    VT592R (offer price expiry cleanup)
+  Print:
+    VT600R, VT601R (offer price list print)
+  Import / Calculation:
+    VT701R, VT702R (import/calculate from supplier data),
+    VT711R, VT712R (item group price calculation)
+  Export / Integration:
+    VT734R, VT735R (export to external systems),
+    VT741R (transfer engine)
+Primary tables:
+- VTILPF (alias VTILL1R/VTILLU): Offer Price Header — stores campaign or tender
+  price agreements per customer or customer group.
+  (VTFIRM=company, VTKUND=customer# or group, VTKAMP=campaign/offer code,
+   VTFDAT=valid from-date, VTTDAT=valid to-date, VTSTAT=status,
+   VTNAVN=offer name, VTTYPE=offer type)
+- VTI2PF (alias VTI2L1R/VTI2LU): Offer Price Detail — item-level prices within
+  an offer header; VT100R reads and updates this for each offer line.
+  (VT2FIRM=company, VT2KAMP=campaign code, VT2VARE=item#, VT2ENHE=unit,
+   VT2PRIS=offer price, VT2RABT=discount %, VT2GDAT=from-date, VT2TDAT=to-date)
+- VVENPF (alias VVENL1R): Item Unit Register — VT100R reads this to validate
+  the price unit (VVENHE=unit, VVENFIRM=company, VVENVARE=item#) before saving
+  an offer price line
+Focus: Conditions that BLOCK or PREVENT offer price creation, activation, and transfer.
+Key areas:
+- Offer validity dates invalid (VTFDAT > VTTDAT) — VT100R rejects headers where
+  from-date is later than to-date; the offer cannot be saved with an inverted range
+- Customer (VTILPF.VTKUND) not found in RKUNPF — VT100R validates the customer
+  before saving a new offer header; unknown customer blocks creation
+- Item unit (VTI2PF.VT2ENHE) not found in VVENPF — VT100R checks the unit against
+  VVENPF; an unregistered unit blocks saving the detail line
+- Offer already transferred (VTSTAT=transferred) — VT510R skips headers already
+  promoted to standard prices; re-transfer of an active offer is blocked
+- Offer expired (VTTDAT past today) — VT592R marks expired offers as closed;
+  VT510R and VT700R/VT702R exclude expired offers from batch processing
+- Duplicate offer line (same campaign+item#+unit+from-date) — VT100R rejects
+  duplicate VTI2PF keys; the user must edit the existing line
+NOTE: VT programs belong to system ASOFAK. VTILPF/VTI2PF hold customer-specific
+tender or campaign prices that override standard VVPRPF prices during order entry.
+VT510R transfers approved offer prices to VVPRPF for permanent pricing.
+
+MODULE 57 — Purchase Statistics (SI)
+Output file: docs/purchase-statistics-business-rules.md
+Programs:
+  Parameters and Setup:
+    SI500R (purchase statistics parameters — main setup, system ASSTAT),
+    SI501R, SI502R (parameter variants)
+  Statistics Inquiry:
+    SI510R (summary inquiry), SI520R (detail inquiry),
+    SI521R (item-level drill-down)
+  Batch Calculation:
+    SI527R, SI528R, SI529R (statistics aggregation engines)
+  Print:
+    SI600R (statistics summary print),
+    SI610R, SI611R (detail print)
+  Report / Export:
+    SI621R (export to flat file),
+    SI690R (statistics cleanup),
+    SI699R (period rollover),
+    SI750R (transfer to GL/cost module)
+Primary tables:
+- SISTPF (alias SISTL1R/SISTLU): Purchase Statistics Register — central table
+  storing aggregated purchase data per supplier, item, and period.
+  (SIFIRM=company, SILEVR=supplier#, SIVARE=item#, SIPERR=period,
+   SIANTA=purchase qty, SIPRIS=purchase amount, SIGDAT=last update date)
+- RLEVPF (alias RLEVL1R): Supplier Master — SI500R validates supplier# against
+  this before saving parameters; unknown supplier blocks parameter setup
+  (RLLEVR=supplier#, RLNAVN=name, RLSPER=blocked flag)
+- VVARPF (alias VVARL1R): Item Master — SI527R/SI528R chain here to get item
+  group codes for grouping statistics; items not in VVARPF are excluded from
+  grouped statistics reports
+  (VAVARE=item#, VAOGR=overgroup, VAHGR=maingroup, VAUGR=subgroup)
+Focus: Conditions that BLOCK or PREVENT purchase statistics calculation and reporting.
+Key areas:
+- Supplier not found in RLEVPF — SI500R blocks parameter creation for an
+  unknown supplier; statistics cannot be accumulated without a valid supplier master
+- Supplier blocked (RLEVPF.RLSPER=blocked) — SI500R may warn the user; batch
+  programs SI527R/SI528R skip blocked suppliers during statistics accumulation
+- No purchase transactions for the selected period — SI527R completes with zero
+  records; the report is empty but no error is raised
+- Period not yet closed — SI699R (period rollover) cannot be run for an open
+  period; attempting to roll over an open period is blocked by a status check
+- Item not found in VVARPF — SI527R/SI528R cannot assign a group to the
+  statistics record; item-level records are written but group-level rollups are
+  skipped for unregistered items
+NOTE: SI programs belong to system ASSTAT (statistics). SISTPF is the central
+statistics table populated by batch runs SI527R–SI529R. SI500R is the parameter
+setup screen. SI750R transfers summarised purchase data to the GL/cost module.
+
+MODULE 58 — System Values / Transfer Setup (RX)
+Output file: docs/system-values-transfer-setup-business-rules.md
+Programs:
+  System Code and Parameter Setup:
+    RX000R (system values main screen, system ASOKON),
+    RX001R, RX002R (system code variants)
+  GL and VAT Transfer:
+    RX732R (GL posted entry VAT update),
+    RX733R, RX734R, RX735R, RX736R, RX737R (GL account update variants),
+    RX738R, RX739R, RX740R (period and balance corrections)
+  Special Corrections:
+    RX743R (rounding correction utility)
+  Receivables / Customer Balance:
+    RX902R (customer receivable and currency update),
+    RX903R, RX904R (balance correction variants)
+Primary tables:
+- RSCDPF (alias RSCDL1R/RSCDLU): System Code Register — RX000R reads and updates
+  this as the central parameter table for all RX-controlled system values.
+  (RSFIRM=company, RSKODE=code type, RSVERDI=code value, RSBESKR=description,
+   RSSTAT=status)
+- AFTPPF (alias AFTPL1R): FTP Parameter Register — RX000R reads FTP settings
+  for file transfer destinations (ATFIRM=company, ATTYPE=transfer type,
+   ATHOST=host, ATUSER=FTP user, ATPATH=remote path)
+- RHTRPF (alias RHTRL1R/RHTRLU): GL Posted Ledger Entries — RX732R/RX733R update
+  VAT codes on posted GL transactions; only unprocessed entries are eligible
+  (RHFIRM=company, RHKONT=GL account, RHMVA=VAT code, RHBELOP=amount,
+   RHPERR=period, RHSTAT=posting status)
+- RUKRPF / LWEXPF: Customer Receivable Register / Outstanding Items —
+  RX902R reads and corrects customer balance records; balance mismatches
+  between RUKRPF and posted transactions are the primary trigger for this program
+  (RKFIRM=company, RKKUND=customer#, RKBELOP=outstanding balance,
+   RKVALUTA=currency, RKCURR=currency rate)
+Focus: Conditions that BLOCK or PREVENT system value changes, GL corrections,
+and receivable balance updates. Key areas:
+- RSCDPF record not found for a required system code — RX000R cannot display or
+  edit a code that does not exist; new codes must be initialised first
+- GL entry already processed (RHTRPF.RHSTAT=posted/closed) — RX732R skips entries
+  that have already been fully processed; a re-correction attempt on a closed entry
+  is blocked and the entry is left unchanged
+- Period already closed (AARRF.ARSTRT=closed) — RX738R/RX739R check that the GL
+  period is open before making balance corrections; closed periods block updates
+- Customer not found in RKUNPF — RX902R cannot correct a balance for a customer
+  that does not exist in the master; the record is skipped
+- Currency mismatch (RUKRPF currency ≠ RHTRPF currency) — RX902R flags a mismatch
+  and skips the balance update; the operator must resolve the discrepancy manually
+- FTP parameter (AFTPPF) missing — if RX000R cannot find the FTP setup for a
+  required transfer type, the export/transfer cannot be configured
+NOTE: RX programs span two systems: ASOKON (accounting inquiry) and FIX (data
+correction utilities). RX000R is the interactive system-code maintenance screen.
+RX732R–RX743R are batch correction programs run by system operators to fix VAT
+codes and period balances on posted GL entries. RX902R–RX904R correct customer
+receivable totals when sub-ledger and general ledger fall out of sync.
+
+MODULE 59 — Webshop / E-Commerce Export (NN)
+Output file: docs/webshop-ecommerce-export-business-rules.md
+Programs:
+  Customer Export:
+    NN700R (customer information export — main engine, system ASOFAK),
+    NN710R, NN720R (customer export variants)
+  Customer Transfer:
+    NN750R, NN751R (transfer and staging)
+  Article Export:
+    NN800R (article/product group export — main engine),
+    NN801R (article export variant),
+    NN810R (item assortment export),
+    NN820R, NN821R (item price export)
+  Category and Image Export:
+    NN830R, NN831R (category tree export),
+    NN850R (product image export)
+  Order / Status:
+    NN860R (webshop order status update),
+    NN899R (export cleanup/reset)
+Primary tables:
+- ANBLPF (alias ANBLL1R): Webshop Article Register — NN800R/NN810R reads this
+  to identify which items are published to the webshop; only active articles
+  with a publish flag are exported.
+  (ABFIRM=company, ABVARE=item#, ABSTAT=publish status, ABKAMP=campaign code,
+   ABGDAT=publish from-date, ABTDAT=publish to-date)
+- ANBHPF (alias ANBHL1R): Webshop Article Group Register — NN830R/NN831R reads
+  this to build the category tree for export.
+  (AHFIRM=company, AHGRUPP=group code, AHNAVN=group name, AHSTAT=status)
+- RKUNPF (alias RKUNL1R): Customer Master — NN700R reads this to select customers
+  eligible for webshop export; customers with RESPER (blocked) flag are excluded.
+  (REKUND=customer#, RENAVN=name, RESPER=blocked, RESTAT=status)
+- FKPRPF (alias FKPRL1R): Customer Project Register — NN700R reads this to export
+  project-linked delivery addresses; missing project records cause delivery
+  address export to be skipped for that customer.
+  (FKFIRM=company, FKPRNR=project#, FKKUND=customer#, FKSTAT=status)
+- NETKUND / NETKRAPP: Webshop target export files (IFS flat files) — NN700R
+  writes customer data here; if the IFS path is not accessible or the file
+  cannot be opened, the entire export run is aborted
+Focus: Conditions that BLOCK or PREVENT webshop customer and article data export.
+Key areas:
+- Article not published (ANBLPF.ABSTAT ≠ active) — NN800R/NN810R skip articles
+  where the publish status is inactive or zero; unpublished items are not exported
+- Article publish dates invalid (ABGDAT > ABTDAT or ABTDAT past today) — NN800R
+  excludes articles outside the valid publish window
+- Customer blocked (RKUNPF.RESPER=blocked) — NN700R skips blocked customers;
+  their data is not included in the webshop customer export
+- IFS export file not accessible (NETKUND/NETKRAPP path missing) — NN700R aborts
+  the run if the output file cannot be opened; no partial export is written
+- Category group not found in ANBHPF — NN830R cannot build the category tree if
+  group records are missing; the export produces an empty or incomplete tree
+- Article already exported in the same run — NN899R tracks exported articles;
+  re-running without reset causes duplicates to be skipped automatically
+NOTE: NN programs belong to system ASOFAK. The module exports customer master,
+article catalog, pricing, and category data to the NexStep webshop platform via
+IFS flat files. NN860R updates webshop order status after internal order processing.
+
+MODULE 60 — Item Assortment (VD)
+Output file: docs/item-assortment-business-rules.md
+Programs:
+  Interactive Assortment Maintenance:
+    VD100R (item assortment line maintenance — main screen, system ASOFAK),
+    VD110R (assortment header variant)
+  Print:
+    VD600R, VD601R (assortment list print)
+  Batch Update:
+    VD700R (assortment level update)
+  Transfer / Copy:
+    VD750R, VD751R (assortment transfer engines),
+    VD755R, VD756R, VD757R (copy and merge variants)
+  Export:
+    VD760R, VD761R (export to external systems),
+    VD771R, VD772R (import/update from external file)
+Primary tables:
+- VSDTPF (alias VSDTLRR/VSDTLUR/VSDTL1R–VSDTL6R): Item Assortment Line —
+  the central table for all VD operations; each row maps an item to an assortment
+  level (customer, chain, or supplier).
+  (VDFIRM=company, VDNIVA=assortment level, VDKODE=level code,
+   VDVARE=item#, VDLEVR=supplier#, VDSTAT=status, VDGDAT=from-date, VDTDAT=to-date)
+- VOGRPF (alias VOGRL1R): Item Overgroup — VD100R reads this to validate the item
+  group hierarchy when creating an assortment line
+- VHGRPF (alias VHGRL1R): Item Main Group — same validation purpose as VOGRPF
+- VUGRPF (alias VUGRL1R): Item Subgroup — same validation purpose as VOGRPF
+- RLEVPF (alias RLEVL1R): Supplier Master — VD100R (v6.21) requires a supplier#
+  when assortment type is P (supplier assortment); the supplier must exist in RLEVPF
+- VVARPF (alias VVARL1R): Item Master — VD100R (v6.21) requires an item# when
+  type is C (customer assortment); the item must exist in VVARPF
+- VSHEPF (alias VSHEL1R): Item Sortiment Header — VD100R (v6.20) checks whether
+  a sortiment header exists for the item before creating an assortment line;
+  missing header may block line creation depending on configuration
+Focus: Conditions that BLOCK or PREVENT item assortment line creation and update.
+Key areas:
+- Type C (customer assortment): item# missing or not found in VVARPF — VD100R
+  (v6.21) requires a valid item# for customer-type assortment lines
+- Type P (supplier assortment): supplier# missing or not found in RLEVPF — VD100R
+  (v6.21) requires a valid supplier# for supplier-type assortment lines
+- Assortment validity dates inverted (VDGDAT > VDTDAT) — VD100R rejects lines
+  where from-date exceeds to-date
+- Duplicate assortment line (same company+level+code+item#+unit) — VD100R rejects
+  duplicate VSDTPF keys; the user must update the existing line
+- Item group (VOGRPF/VHGRPF/VUGRPF) not found — VD100R cannot validate the
+  group hierarchy; if required by configuration, a missing group blocks line save
+NOTE: VD programs belong to system ASOFAK. VSDTPF stores item-to-assortment
+mappings used during order entry to filter eligible items per customer or
+supplier contract. VD750R/VD751R are the batch transfer engines that propagate
+assortment changes across companies or periods.
+
+MODULE 61 — Purchase Proposal Processing (LH)
+Output file: docs/purchase-proposal-business-rules.md
+Programs:
+  Interactive Proposal Maintenance:
+    LH100R (purchase proposal list/edit — main screen, system ASLAGR),
+    LH102R (proposal detail variant)
+  Proposal Generation:
+    LH400R (generate purchase proposals from reorder points)
+  Approval / Transfer:
+    LH500R, LH502R (approve and transfer proposals to orders)
+  Print:
+    LH601R (purchase proposal print)
+  Batch Transfer Engines:
+    LH700R (transfer proposal to purchase order — main engine),
+    LH702R, LH705R, LH708R, LH709R (transfer variants),
+    LH712R, LH714R, LH715R (merge and consolidation)
+Primary tables:
+- LFHEPF (alias LFHEL1R–LFHEL5R/LFHELRR/LFHELUR): Purchase Proposal Header —
+  all LH interactive programs read and update this.
+  (LFHEFIRM=company, LFHELEVR=supplier#, LFHELAGER=warehouse,
+   LFHESTAT=proposal status, LFHEBDAT=expected order date,
+   LFHELEVD=expected delivery date, LFHETYPE=order type)
+- LFDTPF (alias LFDTL1R/LFDTL4R/LFDTLUR/LFDTPFR): Purchase Proposal Detail —
+  item lines within a proposal; LH100R/LH500R read and update this.
+  (LFDTFIRM=company, LFDTLEVR=supplier#, LFDTVARE=item#, LFDTANTA=order qty,
+   LFDTPRIS=price, LFDTSTAT=line status, LFDTLEVD=line delivery date)
+- RLEVPF (alias RLEVL1R): Supplier Master — LH100R/LH700R validate the supplier
+  on the proposal; blocked or passive suppliers block transfer to order
+  (RLLEVR=supplier#, RLSPER=blocked, RLPASS=passive flag)
+- LSTSPF (alias LSTSL1R): Order Status Register — LH100R reads valid status codes
+  for proposals; invalid status blocks filtering and transfer
+- VOTYPF (alias VOTYL1R): Order Type Register — LH100R reads order types for
+  proposal classification; missing type blocks header creation
+- LUSRPF (alias LUSRL1R/LUSRLUR): Logistics User Register — LH100R reads the
+  user's warehouse assignment; missing user entry blocks warehouse-level filtering
+- MPPAPF (alias MPPALRR): Purchase Parameter Register — LH100R reads purchase
+  parameters (minimum order qty, delivery lead times) when building proposals
+- FOHEPF (alias FOHEL1R): Order Header — LH100R (v6.20) reads existing orders
+  to link or prevent duplication when consolidating proposals
+Focus: Conditions that BLOCK or PREVENT purchase proposal approval and transfer to order.
+Key areas:
+- Supplier blocked (RLEVPF.RLSPER=blocked) — LH100R (v6.31) marks the proposal
+  line red; LH700R aborts the transfer to order for blocked suppliers
+- Supplier passive (RLEVPF.RLPASS=passive) — same blocking behaviour as blocked
+- Delivery date blank on proposal line (LFDTLEVD blank) — LH100R (v6.28) displays
+  an error; LH700R requires a delivery date on each line before transfer
+- Deposit requirement not met (MPPAPF deposit flag set) — LH100R (v7.fb) marks
+  the line red when a deposit is required but has not been paid; transfer is blocked
+- Order type (VOTYPF) requires mandatory delivery method (LLDIPF) — LH100R (v6.2d)
+  checks delivery method requirements; if mandatory delivery method is absent on
+  the proposal, the user must create the order first before merging the proposal
+- Proposal already transferred (LFHESTAT=transferred) — LH100R hides transferred
+  proposals; LH700R refuses to re-transfer an already-processed header
+- Warehouse not assigned to user (LUSRPF) — LH100R (v8.01) checks the user's
+  warehouse; if the switch is set, proposals for unassigned warehouses are filtered out
+NOTE: LH programs belong to system ASLAGR (warehouse). LFHEPF/LFDTPF are the
+staging tables for purchase proposals generated from reorder-point calculations or
+manually entered. LH700R–LH715R are the transfer engines that convert approved
+proposals into formal purchase orders in FOHEPF/FODTPF.
+
+MODULE 62 — E-Commerce / Mestergruppen Export (NM)
+Output file: docs/ecommerce-mestergruppen-export-business-rules.md
+Programs:
+  Customer Export:
+    NM700R (customer information export for Mestergruppen portal, system ASOFAK),
+    NM704R, NM705R, NM707R, NM708R (customer export variants)
+  Article Export:
+    NM710R, NM711R (article/product export)
+  Price Export:
+    NM720R, NM722R, NM723R (price and discount export)
+  Category and Contract:
+    NM725R, NM726R (category and chain contract export),
+    NM729R (cleanup and reset)
+Primary tables:
+- RKUNPF (alias RKUNL1R): Customer Master — NM700R reads to select customers
+  eligible for Mestergruppen portal export; blocked customers are excluded
+  (REKUND=customer#, RENAVN=name, RESPER=blocked, RESTAT=status)
+- RKBPPF (alias RKBPL1R): Customer Contract / Chain Membership — NM700R reads
+  chain membership to identify which customers belong to the Mestergruppen chain;
+  customers not in RKBPPF are excluded from the portal export
+  (RKBFIRM=company, RKBKUND=customer#, RKBKJED=chain code, RKBSTAT=status)
+- FKPRPF (alias FKPRL1R): Customer Project — NM700R reads project delivery
+  addresses for multi-site customers; missing project blocks address export
+  (FKFIRM=company, FKPRNR=project#, FKKUND=customer#, FKSTAT=status)
+- ANBLPF / ANBHPF (alias ANBLL1R / ANBHL1R): Webshop Article / Article Group —
+  NM710R/NM711R read published articles for the Mestergruppen portal; only
+  active published items (ABSTAT=active) are exported
+- EKBTST: Bonus Test Register — NM700R reads bonus eligibility data to include
+  loyalty/bonus information in the customer export file
+- CKGRPF / CKKLPF: Cobuilder Group / Classification — NM725R reads these to
+  export product category hierarchy to the Mestergruppen portal; missing group
+  records result in items being exported without category classification
+Focus: Conditions that BLOCK or PREVENT Mestergruppen portal export.
+Key areas:
+- Customer not in RKBPPF chain membership — NM700R skips customers that are not
+  registered as Mestergruppen members; non-members are excluded from the portal
+- Customer blocked (RKUNPF.RESPER=blocked) — NM700R excludes blocked customers;
+  blocked status overrides chain membership for export eligibility
+- Article not published (ANBLPF.ABSTAT ≠ active) — NM710R/NM711R skip inactive
+  articles; only currently published items appear in the Mestergruppen catalog
+- IFS output path not accessible — NM700R aborts if the export target file cannot
+  be opened; no partial export is written
+- Chain code (RKBPKJED) not mapped to Mestergruppen — if the customer's chain
+  code does not correspond to the Mestergruppen portal chain, the customer is
+  excluded from the export even if RKBPPF has a record
+NOTE: NM programs belong to system ASOFAK. The module is a Mestergruppen-specific
+variant of the NN (webshop) module. RKUNPF/RKBPPF selection criteria restrict the
+export to Mestergruppen chain members. NM729R performs cleanup and reset between runs.
+
+MODULE 63 — Number Series Calculation (AS)
+Output file: docs/number-series-business-rules.md
+Programs:
+  Interactive Number Series Maintenance:
+    AS100R (number series calculation and update — main engine, system ASPGPL),
+    AS110R, AS115R (inquiry and setup variants)
+  Batch Update:
+    AS700R, AS701R, AS702R (batch number series update engines)
+  Module-Specific Number Allocation:
+    AS710R, AS711R (module number allocation variants)
+  Cleanup:
+    AS750R (number series cleanup)
+  Service Programs:
+    ASMD10, ASMD11, ASMD11A (number series service modules — called by all
+    programs in the system that need to allocate or return a sequence number)
+Primary tables:
+- ANUMPF (alias ANUML1R/ANUMLUR): Number Series Register — the single central
+  table used by all number-allocating programs across the system.
+  (ANFIRM=company, ANFELL=field/series type, ANTYPE=sub-type,
+   ANFAST=prefix (fixed part), ANNUMM=current highest allocated number,
+   ANSTAT=status — active/inactive/locked)
+Focus: Conditions that BLOCK or PREVENT number series allocation.
+Key areas:
+- ANUMPF record not found for the requested field+type+prefix combination —
+  AS100R/ASMD10 cannot allocate a number for an unregistered series; the calling
+  program receives a blank/zero number and must handle the error
+- Number series locked (ANUMPF.ANSTAT=locked) — ASMD10 returns an error status
+  to the caller; the calling program cannot proceed until the lock is released;
+  locking prevents concurrent duplicate number allocation
+- p_kode=2 (manual number check): manually entered number exceeds the current
+  series maximum — AS100R rejects numbers that are out of range; the system
+  enforces sequential allocation to prevent gaps and duplicates
+- p_kode=1 (return number): the returned number is outside the valid range —
+  AS100R validates before accepting a returned number back into the pool
+- Number series exhausted (ANNUMM at maximum for the field length) — ASMD10
+  cannot increment beyond the field capacity; the calling program receives
+  an overflow indicator and the operation is blocked
+NOTE: AS programs belong to system ASPGPL (common/utility). ANUMPF is the
+sequence counter table used throughout the entire system for order numbers,
+invoice numbers, customer numbers, and all other auto-incremented identifiers.
+ASMD10/ASMD11 are the service programs that provide number allocation as a
+callable function to all other modules. AS100R is the maintenance screen for
+manually setting or resetting number series ranges.
+
+MODULE 64 — Visma Flat File Interface (RV)
+Output file: docs/visma-flat-file-interface-business-rules.md
+Programs:
+  Flat File Extract:
+    RV001R (read invoice/order lines from FOVF — main extract engine, system ASOFAK),
+    RV002R, RV003R (extract variants)
+  Transformation:
+    RV004R, RV005R (field mapping and format conversion)
+  Special Cases:
+    RV008R (short KID handling),
+    RV009R (EDI-specific variant)
+  Transfer / Upload:
+    RV011R, RV012R (transfer to Visma/accounting system),
+    RV012R_ORG (original transfer variant preserved for reference)
+  Reconciliation:
+    RV015R (reconciliation and status update),
+    RV021R, RV022R (balance check and correction)
+Primary tables:
+- FOVFL1 / FOVF (primary file): Invoice/Order Flat File — RV001R reads this as
+  its primary input file (ip); the file contains posted invoice and order
+  transaction lines to be exported to Visma
+- SOHEPF (alias SOHEL1R): Invoice Header — RV001R chains here to retrieve KID,
+  due date, and amount for each invoice line; missing invoice header causes the
+  line to be skipped in the Visma export
+  (SOFIRM=company, SONR=invoice#, SOKIDN=KID, SOFRDA=due date, SOFSUM=total amount)
+- RV01PF: Visma Output File — RV001R writes to this as its target; if RV01PF
+  cannot be opened or written, the export run aborts
+- AFORPF (alias AFORL1R): Form/Billing Parameter Register — RV001R (v6.21) reads
+  this to map billing codes; missing billing code entries cause mapping gaps
+  (AFFIRM=company, AFKODE=billing code, AFBILK=Visma billing code)
+- RB10PF (alias RB10L1R): Payment Method Register — RV001R (v7.00) reads payment
+  method to map to Visma payment codes; unknown payment method causes default to blank
+  (RBKODE=payment method, RBBESKR=description)
+- RB00PF (alias RB00L1R): Payment Terms Register — RV001R reads payment terms
+  for each invoice; missing terms record causes term code to export as blank
+- RKUNPF (alias RKUNL1R): Customer Master — RV001R reads the customer master to
+  include customer reference data in the export file
+Focus: Conditions that BLOCK or PREVENT the Visma flat file export.
+Key areas:
+- Invoice header (SOHEPF) not found for an FOVF transaction line — RV001R skips
+  the line; the corresponding transaction is excluded from the Visma export
+- RV01PF output file cannot be opened — the entire export run is aborted; no
+  partial file is written to Visma
+- KID number blank or invalid (SOHEPF.SOKIDN) — RV001R (v6.21) checks for short
+  KID format; if KID is blank, the export line has no payment reference and Visma
+  may reject the incoming voucher
+- Company mismatch (RV001R v6.23/v7.04) — RV001R checks that the firm code on
+  each FOVF line matches the expected company; mismatched lines are skipped
+- Billing code (AFORPF.AFKODE) not mapped to a Visma billing code — RV001R exports
+  a blank billing code; Visma may reject vouchers with unmapped billing codes
+- VAT code (VOTYPF/VOMVA) not mapped to Visma equivalent — RV001R (v6.30/v7.03)
+  checks for a Visma-specific VAT code override; unmapped codes use the default
+NOTE: RV programs belong to system ASOFAK. The module extracts posted invoice and
+order data from FOVF/SOHEPF and writes a Visma-format flat file to RV01PF for
+import into Visma accounting. RV015R reconciles the exported data. RV021R/RV022R
+perform balance checks between the Visma import and the internal ledger.
+
+MODULE 65 — Customer Project (FL)
+Output file: docs/customer-project-business-rules.md
+Programs:
+  Interactive Project Maintenance:
+    FL100R (customer project list/edit — main screen, system ASOFAK),
+    FL104R, FL105R (project header variants)
+  Project Inquiry:
+    FL400R (project inquiry and selection)
+  Order and Delivery Integration:
+    FL500R, FL501R, FL505R (project-to-order integration screens),
+    FL510R (delivery address maintenance per project)
+  Special Conditions:
+    FL581R (project condition screen)
+  Print:
+    FL710R (project list print)
+  Transfer:
+    FL750R, FL751R (project transfer and copy engines),
+    FL891R (project cleanup)
+Primary tables:
+- FKPRPF (alias FKPRL1R/FKPRLU): Customer Project Register — all FL programs
+  read and update this as the central project table.
+  (FKFIRM=company, FKPRNR=project#, FKKUND=customer#, FKSTAT=project status,
+   FKLEVD=expected delivery date, FKANSV=responsible user, FKNAVN=project name,
+   FKLEVB=delivery condition, FKFRAK=freight code)
+- RKUNPF (alias RKUNL1R): Customer Master — FL100R validates that the customer
+  exists before saving a new project; unknown customer blocks project creation
+  (REKUND=customer#, RENAVN=name, RESPER=blocked, REKRSP=credit stop)
+Focus: Conditions that BLOCK or PREVENT customer project creation and order integration.
+Key areas:
+- Customer (RKUNPF) not found for FKPRPF.FKKUND — FL100R blocks saving a new
+  project for an unknown customer; the customer must be registered in RKUNPF first
+- Customer blocked (RKUNPF.RESPER=blocked) — FL100R warns the user; creating
+  a project for a blocked customer requires supervisor override in some configurations
+- Customer on credit stop (RKUNPF.REKRSP=credit stop) — FL100R may warn or block
+  new project creation depending on the credit control configuration
+- Project status already closed (FKPRPF.FKSTAT=closed) — FL100R protects closed
+  projects from modification; changes require reopening the project first
+- Duplicate project number (same company+project#) — FL100R rejects duplicate
+  FKPRPF keys; the user must use a new number or update the existing project
+- Delivery address not set on project — FL510R requires a delivery address before
+  the project can be used on order lines; orders referencing a project without an
+  address will default to the customer's main address
+NOTE: FL programs belong to system ASOFAK. FKPRPF is the customer project register
+used to group order lines under a single project reference. FL100R is the main
+maintenance screen. FL500R/FL501R link project records to order headers in FOHEPF.
+FL750R/FL751R are used to copy or transfer projects between periods or customers.
+
+MODULE 66 — Budget Level Register (SB)
+Output file: docs/budget-level-register-business-rules.md
+Programs:
+  Interactive Budget Level Maintenance:
+    SB100R (budget level register maintenance — main screen, system ASSTAT),
+    SB110R (budget level detail variant)
+  Budget Period Management:
+    SB200R, SB210R (budget period setup and copy)
+  Print:
+    SB611R (budget level list print)
+  Batch Budget Operations:
+    SBADER (add/update budget records),
+    SBANYR (new year initialisation),
+    SBCOLR (budget consolidation/rollup),
+    SBDELR (delete budget records),
+    SBFILR (budget file maintenance),
+    SBGENR (budget generation engine),
+    SBOVFR (budget overflow/correction)
+Primary tables:
+- SKNIPF (alias SKNIL1R/SKNILUR): Budget Level Register — all SB programs read
+  and update this as the central budget definition table.
+  (SKFIRM=company, SKHHAA=year, SKVERS=budget version, SKAKOD=A-code (budget axis),
+   SKAABB=A-dimension, SKKODE=budget code combination (up to 4 codes),
+   SKFILE=source file identifier, SKBKOD=budget code type,
+   SKBEL01–SKBEL12=monthly budget amounts for periods 1–12)
+Focus: Conditions that BLOCK or PREVENT budget level creation and period operations.
+Key areas:
+- Budget year (SKHHAA) not initialised — SB100R/SBANYR check that the year exists
+  in SKNIPF before allowing budget entry; an uninitialised year blocks all budget
+  entry for that period
+- Budget version (SKVERS) not found — SB100R requires a valid version code; using
+  an undefined version blocks record creation
+- A-code (SKAKOD) not defined — SB100R validates the A-code against a reference
+  table; an unknown A-code blocks creation of a budget level record
+- Budget record already exists (same firm+year+version+A-code+dimension+codes) —
+  SB100R rejects duplicate SKNIPF keys; the user must update the existing record
+- SBDELR attempting to delete a budget that has been transferred to accounting —
+  SBDELR checks whether the budget has been posted to the GL; posted budgets cannot
+  be deleted without reversing the GL posting first
+- SBCOLR consolidation: source level records missing — SBCOLR cannot roll up budget
+  amounts if the lower-level SKNIPF records do not exist; consolidation produces
+  zero totals for missing levels
+NOTE: SB programs belong to system ASSTAT (statistics). SKNIPF is the budget level
+register where annual budget amounts are defined per accounting dimension. SBGENR
+generates budget proposals based on prior-year actuals. SBANYR initialises SKNIPF
+for a new budget year. SBOVFR corrects budget overflows and rounding errors.
+
+MODULE 67 — Purchase Budget Accumulation (SC)
+Output file: docs/purchase-budget-accumulation-business-rules.md
+Programs:
+  Interactive Budget Accumulation Maintenance:
+    SC100R (purchase budget accumulation register — main screen, system ASSTAT),
+    SC110R (detail variant)
+  Period Management:
+    SC200R, SC210R (period setup and copy)
+  Batch Budget Operations:
+    SCADER (add/update accumulation records),
+    SCANYR (new year initialisation),
+    SCCOLR (accumulation consolidation/rollup),
+    SCDELR (delete accumulation records),
+    SCFILR (file maintenance),
+    SCGENR (accumulation generation engine),
+    SCOVFR (overflow/correction)
+Primary tables:
+- SLNIPF (alias SLNIL1R/SLNILUR): Purchase Budget Accumulation Register — all SC
+  programs read and update this; structurally similar to SKNIPF but for purchase
+  budget (supplier-side) rather than sales budget.
+  (SLFIRM=company, SLHHAA=year, SLVERS=budget version, SLAKOD=A-code,
+   SLAABB=A-dimension, SLKODE=budget code combination,
+   SLFILE=source file, SLBKOD=budget code type,
+   SLBEL01–SLBEL12=monthly purchase budget amounts for periods 1–12)
+Focus: Conditions that BLOCK or PREVENT purchase budget accumulation and consolidation.
+Key areas:
+- Budget year (SLHHAA) not initialised — SC100R/SCANYR check that the year exists;
+  an uninitialised year blocks purchase budget entry for that period
+- Budget version (SLVERS) not found — SC100R requires a valid version; missing
+  version blocks record creation
+- A-code (SLAKOD) not defined — SC100R validates against a reference table;
+  unknown A-code blocks creation of an accumulation record
+- Duplicate accumulation record (same firm+year+version+A-code+dimension+codes) —
+  SC100R rejects duplicate SLNIPF keys; the user must update the existing record
+- SCDELR: record transferred to accounting — SCDELR checks for posted status;
+  posted purchase budget records cannot be deleted without reversing the GL posting
+- SCCOLR: source accumulation records missing — SCCOLR cannot roll up purchase
+  budget totals if lower-level SLNIPF records are absent; missing records produce
+  zero consolidated totals
+NOTE: SC programs belong to system ASSTAT. SLNIPF mirrors the structure of
+SKNIPF (sales budget) but stores purchase budget accumulation data per supplier
+dimension. SCGENR generates purchase budget proposals based on prior-year purchase
+actuals. SCANYR initialises SLNIPF for a new budget year.
+
+MODULE 68 — ABC Analysis (MB)
+Output file: docs/abc-analysis-business-rules.md
+Programs:
+  Interactive ABC Parameter Maintenance:
+    MB100R (ABC parameter maintenance — main screen, system ASLOGI),
+    MB101R (parameter variant)
+  ABC Code Management:
+    MB104R, MB105R, MB106R (ABC code edit and display variants)
+  ABC Calculation Engine:
+    MB401R (ABC calculation — assigns ABC classes to items based on parameters)
+  Print:
+    MB600R, MB601R (ABC analysis report print)
+  Export / Batch:
+    MB700R (batch ABC update to item master),
+    MB701R (ABC export)
+Primary tables:
+- MABCPF (alias MABCL1R/MABCL2R/MABCLRR/MABCLUR): ABC Parameter Register —
+  MB100R reads and updates this; stores the ABC classification thresholds and
+  rules per company, warehouse, and item group.
+  (MAFIRM=company, MAVARE=item# or item group, MAABC=ABC class (A/B/C/D),
+   MAKLAG=category code, MAPERR=period, MAFVAR=from-item#, MATVAR=to-item#)
+- MABDPF (alias MABDL2R/MABDLUR): ABC Detail/Percentage Register — MB100R reads
+  this for the percentage thresholds that define A/B/C/D class boundaries;
+  missing thresholds prevent ABC classification from running
+  (MDFIRM=company, MDPERR=period, MDAABC=ABC class, MDPROC=percentage threshold)
+- VVARPF (alias VVARL1R/VVARLUR): Item Master — MB401R reads item group and
+  writes the ABC class back to VVARPF (VAABC field) after classification;
+  items not in VVARPF cannot be classified
+  (VAVARE=item#, VAOGR=overgroup, VAABC=ABC class)
+- VLAGPF (alias VLAGLUR): Warehouse Stock Register — MB100R (v5.51) reads stock
+  quantities per warehouse; items with zero stock receive a default ABC class
+  (VLFIRM=company, VLVARE=item#, VLLAGR=warehouse#, VLANTA=stock qty)
+- VSHEPF (alias VSHEL1R): Item Sortiment Header — MB100R reads this to filter
+  items by sortiment code when running ABC classification for a subset of items
+Focus: Conditions that BLOCK or PREVENT ABC parameter setup and classification runs.
+Key areas:
+- ABC percentage thresholds (MABDPF) not defined — MB401R cannot classify items
+  if the percentage boundaries for A/B/C/D classes are missing; the calculation
+  engine aborts and no ABC codes are written to VVARPF
+- Item not found in VVARPF — MB401R skips items that have no master record;
+  unregistered items receive no ABC classification
+- Warehouse lock (MABCPF v5.62 — låskode for abc-kode på lager) — if an ABC
+  lock code is set for a warehouse, MB401R cannot overwrite the existing ABC code
+  for items in that warehouse; the classification is blocked for locked warehouse items
+- Percentage field exceeds 99% (v6.22) — MB100R rejects percentage threshold
+  entries greater than 99; input validation blocks saving invalid thresholds
+  (v6.30 reverses this: allows 100% for special cases)
+- ABC code cleanup (MB401R v5.64): all existing ABC codes cleared before re-run —
+  MB401R resets all ABC codes in VVARPF before recalculating; if the run is
+  interrupted mid-process, items processed before the interruption will have new
+  codes but items processed after will have blank codes (partial classification)
+- Forecast ABC code update (MB401R v5.63) — MB401R calls MM747R to update the
+  forecast module's ABC code; if MM747R is not available, a warning is issued
+  but the main classification continues
+NOTE: MB programs belong to system ASLOGI (logistics). MABCPF stores the ABC
+parameter setup that drives classification thresholds per item group, company,
+and warehouse. MB401R is the calculation engine that reads sales/movement history,
+applies the configured thresholds, and writes A/B/C/D class codes back to VVARPF.
+MB700R is the batch program that pushes updated ABC codes to the item master.
+
 ---
 GLOBAL RULES FOR ALL DOCUMENTS:
 - Focus on what BLOCKS or PREVENTS the operation
 - Use DB2 TABLE.COLUMN notation (e.g., RKUNPF.RKKUND)
 - Do NOT include SQL queries — use plain English: "What is checked", "Why this is required",
   "What happens when" language with real-world examples
-- Write all 37 documents in order, one after another
+- Write all 68 documents in order, one after another
 - Each document must start with its ===FILE:=== delimiter on its own line,
   then the # heading immediately after
 - Do NOT write any preamble, summary, or meta-commentary before the first ===FILE:=== delimiter
